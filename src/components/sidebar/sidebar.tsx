@@ -47,7 +47,7 @@ function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, isOpen, o
             className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-sm font-medium"
           >
             <Plus size={16} />
-            New Chat
+            新建对话
           </button>
         </div>
 
@@ -55,7 +55,7 @@ function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, isOpen, o
         <div className="flex-1 overflow-y-auto p-2">
           {conversations.length === 0 ? (
             <div className="text-center text-muted-foreground text-sm py-8">
-              No conversations yet
+              暂无对话记录
             </div>
           ) : (
             <div className="space-y-1">
@@ -96,7 +96,7 @@ function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, isOpen, o
               <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
               <circle cx="12" cy="12" r="3"/>
             </svg>
-            Admin Panel
+            后台管理
           </Link>
         </div>
       </aside>

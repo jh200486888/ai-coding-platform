@@ -52,7 +52,7 @@ export default function ChatInput({ onSend, onStop, isLoading, disabled }: ChatI
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             onInput={handleInput}
-            placeholder="Send a message..."
+            placeholder="输入消息..."
             disabled={disabled}
             rows={1}
             className="flex-1 bg-transparent resize-none px-3 py-2 text-sm outline-none placeholder:text-muted-foreground max-h-[200px] min-h-[40px]"
@@ -75,7 +75,7 @@ export default function ChatInput({ onSend, onStop, isLoading, disabled }: ChatI
           )}
         </div>
         <p className="text-xs text-muted-foreground text-center mt-2">
-          AI may produce inaccurate information. Verify important details.
+          AI 可能产生不准确的信息，请核实重要内容。
         </p>
       </div>
     </div>

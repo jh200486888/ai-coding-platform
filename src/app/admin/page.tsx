@@ -21,13 +21,13 @@ export default function AdminPage() {
             <Link href="/" className="p-2 rounded-lg hover:bg-accent transition-colors">
               <ArrowLeft size={20} />
             </Link>
-            <h1 className="text-xl font-bold">Admin Panel</h1>
+            <h1 className="text-xl font-bold">后台管理</h1>
           </div>
           <button
             onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
             className="p-2 rounded-lg hover:bg-accent transition-colors"
           >
-            {theme === 'dark' ? 'Light' : 'Dark'}
+            {theme === 'dark' ? '浅色' : '深色'}
           </button>
         </div>
       </header>
@@ -35,9 +35,9 @@ export default function AdminPage() {
       {/* Tabs */}
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="flex gap-2 mb-6 border-b border-border pb-4">
-          <TabButton icon={<Key size={16} />} label="API Keys" active={activeTab === 'keys'} onClick={() => setActiveTab('keys')} />
-          <TabButton icon={<Settings size={16} />} label="Models" active={activeTab === 'models'} onClick={() => setActiveTab('models')} />
-          <TabButton icon={<MessageSquare size={16} />} label="Conversations" active={activeTab === 'conversations'} onClick={() => setActiveTab('conversations')} />
+          <TabButton icon={<Key size={16} />} label="API 密钥" active={activeTab === 'keys'} onClick={() => setActiveTab('keys')} />
+          <TabButton icon={<Settings size={16} />} label="模型配置" active={activeTab === 'models'} onClick={() => setActiveTab('models')} />
+          <TabButton icon={<MessageSquare size={16} />} label="对话记录" active={activeTab === 'conversations'} onClick={() => setActiveTab('conversations')} />
         </div>
 
         {activeTab === 'keys' && <ApiKeysPanel />}
@@ -102,12 +102,12 @@ function ApiKeysPanel() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">API Key Management</h2>
+        <h2 className="text-lg font-semibold">API 密钥管理</h2>
         <button
           onClick={() => setShowForm(!showForm)}
           className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90"
         >
-          <Plus size={14} /> Add Key
+          <Plus size={14} /> 添加密钥
         </button>
       </div>
 
@@ -115,27 +115,27 @@ function ApiKeysPanel() {
         <div className="bg-card border border-border rounded-xl p-4 mb-4 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <input
-              placeholder="Provider ID (e.g. openai)"
+              placeholder="厂商ID（如 openai）"
               value={form.provider}
               onChange={(e) => setForm({ ...form, provider: e.target.value })}
               className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
             />
             <input
-              placeholder="Provider Name (e.g. OpenAI)"
+              placeholder="厂商名称（如 OpenAI）"
               value={form.provider_name}
               onChange={(e) => setForm({ ...form, provider_name: e.target.value })}
               className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
             />
           </div>
           <input
-            placeholder="API Key"
+            placeholder="API 密钥"
             type="password"
             value={form.api_key}
             onChange={(e) => setForm({ ...form, api_key: e.target.value })}
             className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
           />
           <input
-            placeholder="Base URL (optional)"
+            placeholder="API 地址（可选，留空使用默认）"
             value={form.base_url}
             onChange={(e) => setForm({ ...form, base_url: e.target.value })}
             className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
@@ -145,7 +145,7 @@ function ApiKeysPanel() {
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
           >
-            <Save size={14} /> Save
+            <Save size={14} /> 保存
           </button>
         </div>
       )}
@@ -167,7 +167,10 @@ function ApiKeysPanel() {
           </div>
         ))}
         {keys.length === 0 && (
-          <div className="text-center text-muted-foreground py-8">No API keys configured</div>
+          <div className="text-center text-muted-foreground py-8">
+            <p>暂无 API 密钥</p>
+            <p className="text-sm mt-2">请点击"添加密钥"配置你的大模型 API</p>
+          </div>
         )}
       </div>
     </div>
@@ -229,19 +232,19 @@ function ModelsPanel() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">Model Configuration</h2>
+        <h2 className="text-lg font-semibold">模型配置</h2>
         <div className="flex gap-2">
           <button
             onClick={fetchModels}
             className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent"
           >
-            <RefreshCw size={14} /> Refresh
+            <RefreshCw size={14} /> 刷新
           </button>
           <button
             onClick={() => setShowForm(!showForm)}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90"
           >
-            <Plus size={14} /> Add Model
+            <Plus size={14} /> 添加模型
           </button>
         </div>
       </div>
@@ -250,13 +253,13 @@ function ModelsPanel() {
         <div className="bg-card border border-border rounded-xl p-4 mb-4 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <input
-              placeholder="Model ID"
+              placeholder="模型ID（如 gpt-4o）"
               value={form.model_id}
               onChange={(e) => setForm({ ...form, model_id: e.target.value })}
               className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
             />
             <input
-              placeholder="Display Name"
+              placeholder="显示名称（如 GPT-4o）"
               value={form.display_name}
               onChange={(e) => setForm({ ...form, display_name: e.target.value })}
               className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
@@ -264,7 +267,7 @@ function ModelsPanel() {
           </div>
           <div className="grid grid-cols-3 gap-3">
             <input
-              placeholder="Provider"
+              placeholder="厂商（如 openai）"
               value={form.provider}
               onChange={(e) => setForm({ ...form, provider: e.target.value })}
               className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
@@ -278,7 +281,7 @@ function ModelsPanel() {
               className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
             />
             <input
-              placeholder="Max Tokens"
+              placeholder="最大Token数"
               type="number"
               value={form.default_max_tokens}
               onChange={(e) => setForm({ ...form, default_max_tokens: Number(e.target.value) })}
@@ -286,7 +289,7 @@ function ModelsPanel() {
             />
           </div>
           <input
-            placeholder="Description"
+            placeholder="模型描述"
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
             className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
@@ -296,7 +299,7 @@ function ModelsPanel() {
             disabled={loading}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
           >
-            <Save size={14} /> Save
+            <Save size={14} /> 保存
           </button>
         </div>
       )}
@@ -309,9 +312,9 @@ function ModelsPanel() {
                 <span className="font-medium">{model.display_name}</span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{model.provider}</span>
                 {model.is_enabled ? (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-500">Active</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/10 text-green-500">已启用</span>
                 ) : (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-500">Disabled</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-500">已禁用</span>
                 )}
               </div>
               <div className="text-sm text-muted-foreground mt-1">{model.model_id}</div>
@@ -326,7 +329,7 @@ function ModelsPanel() {
                     : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'
                 }`}
               >
-                {model.is_enabled ? 'Disable' : 'Enable'}
+                {model.is_enabled ? '禁用' : '启用'}
               </button>
               <button
                 onClick={() => handleDelete(model.id)}
@@ -379,12 +382,12 @@ function ConversationsPanel() {
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">Conversation History</h2>
+        <h2 className="text-lg font-semibold">对话记录</h2>
         <button
           onClick={fetchConversations}
           className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent"
         >
-          <RefreshCw size={14} /> Refresh
+          <RefreshCw size={14} /> 刷新
         </button>
       </div>
 
@@ -402,7 +405,7 @@ function ConversationsPanel() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">{expandedId === conv.id ? 'Collapse' : 'Expand'}</span>
+                <span className="text-xs text-muted-foreground">{expandedId === conv.id ? '收起' : '展开'}</span>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleDelete(conv.id); }}
                   className="p-2 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"

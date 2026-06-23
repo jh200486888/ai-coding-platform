@@ -35,7 +35,7 @@ export default function ModelSelector({ models, selectedModel, onSelect }: Model
         className="flex items-center gap-2 px-3 py-2 rounded-xl bg-card border border-border hover:border-primary/30 hover:bg-accent transition-all text-sm"
       >
         <Sparkles size={14} className="text-primary" />
-        <span className="font-medium">{currentModel?.display_name || 'Select Model'}</span>
+        <span className="font-medium">{currentModel?.display_name || '选择模型'}</span>
         <ChevronDown size={14} className={`text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 

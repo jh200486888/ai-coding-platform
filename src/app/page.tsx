@@ -22,7 +22,7 @@ export default function Home() {
   const abortRef = useRef<AbortController | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Load initial data
+  // 加载初始数据
   useEffect(() => {
     fetch('/api/models')
       .then((r) => r.json())
@@ -42,12 +42,12 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
-  // Auto-scroll
+  // 自动滚动
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);
 
-  // Load conversation messages
+  // 加载对话消息
   const loadConversation = useCallback(async (id: string) => {
     try {
       const res = await fetch(`/api/conversations/${id}`);
@@ -58,18 +58,18 @@ export default function Home() {
         if (data.data.model_id) setSelectedModel(data.data.model_id);
       }
     } catch {
-      // silent
+      // 静默处理
     }
   }, []);
 
-  // New conversation
+  // 新建对话
   const handleNewChat = useCallback(() => {
     setMessages([]);
     setActiveConvId(null);
     setStreamingContent('');
   }, []);
 
-  // Delete conversation
+  // 删除对话
   const handleDelete = useCallback(
     async (id: string) => {
       try {
@@ -80,13 +80,13 @@ export default function Home() {
           setActiveConvId(null);
         }
       } catch {
-        // silent
+        // 静默处理
       }
     },
     [activeConvId]
   );
 
-  // Send message
+  // 发送消息
   const handleSend = useCallback(
     async (content: string) => {
       const userMsg: Message = {
@@ -144,7 +144,7 @@ export default function Home() {
                 fullContent += data.content;
                 setStreamingContent(fullContent);
               } else if (data.type === 'done') {
-                // done
+                // 完成
               } else if (data.type === 'error') {
                 throw new Error(data.error);
               }
@@ -158,7 +158,7 @@ export default function Home() {
           }
         }
 
-        // Add assistant message
+        // 添加助手消息
         const assistantMsg: Message = {
           id: 'msg-' + Date.now(),
           conversation_id: convId || activeConvId || '',
@@ -171,28 +171,28 @@ export default function Home() {
         setMessages((prev) => [...prev, assistantMsg]);
         setStreamingContent('');
 
-        // Update conversation list
+        // 更新对话列表
         if (convId && convId !== activeConvId) {
           setActiveConvId(convId);
-          // Refresh conversation list
+          // 刷新对话列表
           const convRes = await fetch('/api/conversations');
           const convData = await convRes.json();
           if (convData.data) setConversations(convData.data);
         } else {
-          // Update the updated_at for sorting
+          // 更新 updated_at 用于排序
           const convRes = await fetch('/api/conversations');
           const convData = await convRes.json();
           if (convData.data) setConversations(convData.data);
         }
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
-          // User cancelled
+          // 用户取消
         } else {
           const errorMsg: Message = {
             id: 'err-' + Date.now(),
             conversation_id: activeConvId || '',
             role: 'assistant',
-            content: `Error: ${error instanceof Error ? error.message : 'Failed to get response'}`,
+            content: `错误：${error instanceof Error ? error.message : '获取响应失败'}`,
             model_id: null,
             token_count: null,
             created_at: new Date().toISOString(),
@@ -208,12 +208,12 @@ export default function Home() {
     [messages, activeConvId, selectedModel]
   );
 
-  // Stop streaming
+  // 停止流式输出
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
   }, []);
 
-  // Theme cycle
+  // 切换主题
   const cycleTheme = useCallback(() => {
     const next = theme === 'dark' ? 'light' : theme === 'light' ? 'system' : 'dark';
     setTheme(next);
@@ -221,7 +221,7 @@ export default function Home() {
 
   return (
     <div className="h-screen flex overflow-hidden">
-      {/* Sidebar */}
+      {/* 侧边栏 */}
       <Sidebar
         conversations={conversations}
         activeId={activeConvId}
@@ -232,9 +232,9 @@ export default function Home() {
         onClose={() => setSidebarOpen(false)}
       />
 
-      {/* Main area */}
+      {/* 主区域 */}
       <main className="flex-1 flex flex-col min-w-0">
-        {/* Top bar */}
+        {/* 顶部栏 */}
         <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-background/80 backdrop-blur-sm">
           <div className="flex items-center gap-3">
             <button
@@ -245,7 +245,7 @@ export default function Home() {
             </button>
             <div className="flex items-center gap-2">
               <Sparkles size={18} className="text-primary" />
-              <h1 className="text-lg font-semibold hidden sm:block">NexusChat</h1>
+              <h1 className="text-lg font-semibold hidden sm:block">AI 对话平台</h1>
             </div>
           </div>
 
@@ -266,7 +266,7 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Chat area */}
+        {/* 聊天区域 */}
         <div className="flex-1 overflow-y-auto">
           {messages.length === 0 && !streamingContent ? (
             <div className="h-full flex items-center justify-center">
@@ -274,9 +274,9 @@ export default function Home() {
                 <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center">
                   <Sparkles size={28} className="text-white" />
                 </div>
-                <h2 className="text-2xl font-bold mb-2">How can I help you today?</h2>
+                <h2 className="text-2xl font-bold mb-2">有什么可以帮助你的？</h2>
                 <p className="text-muted-foreground">
-                  Start a conversation with any AI model. Switch between models anytime.
+                  与任何 AI 模型开始对话，随时切换模型。
                 </p>
               </div>
             </div>
@@ -303,11 +303,12 @@ export default function Home() {
           )}
         </div>
 
-        {/* Input */}
+        {/* 输入区域 */}
         <ChatInput
           onSend={handleSend}
           onStop={handleStop}
           isLoading={isLoading}
+          disabled={models.length === 0}
         />
       </main>
     </div>
