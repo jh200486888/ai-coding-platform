@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { ChevronDown, X, Check, Smartphone, Monitor } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { ChevronDown, X, Check, Monitor, Smartphone, Search } from 'lucide-react';
 import type { ModelConfig } from '@/types';
 
 interface ModelSelectorProps {
@@ -13,6 +14,13 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
   const [models, setModels] = useState<ModelConfig[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [mounted, setMounted] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     fetch('/api/models')
@@ -38,6 +46,34 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
     return () => window.removeEventListener('keydown', handleKey);
   }, [isOpen]);
 
+  // Close dropdown when clicking outside (desktop)
+  useEffect(() => {
+    if (!isOpen || isMobile) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    // Delay to avoid immediate close from the trigger click
+    const timer = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen, isMobile]);
+
+  // Lock body scroll when mobile overlay is open
+  useEffect(() => {
+    if (!isOpen || !isMobile) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen, isMobile]);
+
   const selectedModelConfig = models.find(m => m.id === selectedModel);
 
   // Group by provider
@@ -48,29 +84,52 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
     return acc;
   }, {} as Record<string, ModelConfig[]>);
 
+  // Filter models by search query
+  const filteredGroupedModels = searchQuery.trim()
+    ? Object.entries(groupedModels).reduce((acc, [provider, providerModels]) => {
+        const q = searchQuery.toLowerCase();
+        const filtered = providerModels.filter(m =>
+          (m.displayName ?? m.name).toLowerCase().includes(q) ||
+          m.modelId.toLowerCase().includes(q)
+        );
+        if (filtered.length > 0) acc[provider] = filtered;
+        return acc;
+      }, {} as Record<string, ModelConfig[]>)
+    : groupedModels;
+
   const handleSelect = (modelId: string) => {
     onModelChange(modelId);
     setIsOpen(false);
+    setSearchQuery('');
   };
 
-  // Model list content (shared between desktop dropdown and mobile sheet)
+  const handleOpen = () => {
+    setSearchQuery('');
+    setIsOpen(prev => !prev);
+  };
+
+  // Model list content (shared)
   const modelListContent = (
     <>
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <span className="text-sm font-semibold">选择模型</span>
-        {isMobile && (
-          <button
-            onClick={() => setIsOpen(false)}
-            className="p-1 rounded-md hover:bg-muted transition-colors"
-          >
-            <X className="w-5 h-5 text-muted-foreground" />
-          </button>
-        )}
-      </div>
+      {/* Search input (mobile) */}
+      {isMobile && (
+        <div className="px-4 py-2 border-b border-border">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="搜索模型..."
+              className="w-full pl-9 pr-3 py-2 bg-muted rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              autoFocus
+            />
+          </div>
+        </div>
+      )}
       {/* Model list */}
-      <div className="overflow-y-auto flex-1">
-        {Object.entries(groupedModels).map(([provider, providerModels]) => (
+      <div className="overflow-y-auto flex-1 overscroll-contain">
+        {Object.entries(filteredGroupedModels).map(([provider, providerModels]) => (
           <div key={provider}>
             <div className="px-4 py-2 text-xs font-medium text-muted-foreground bg-muted/50 sticky top-0 z-10">
               {provider}
@@ -79,16 +138,16 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
               <button
                 key={model.id}
                 onClick={() => handleSelect(model.id)}
-                className={`w-full text-left px-4 py-3 hover:bg-accent transition-colors flex items-center justify-between ${
+                className={`w-full text-left px-4 py-3 hover:bg-accent active:bg-accent transition-colors flex items-center justify-between ${
                   selectedModel === model.id ? 'bg-accent' : ''
                 }`}
               >
-                <div>
-                  <div className="text-sm font-medium">{model.displayName}</div>
-                  <div className="text-xs text-muted-foreground">{model.modelId}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium truncate">{model.displayName ?? model.name}</div>
+                  <div className="text-xs text-muted-foreground truncate">{model.modelId}</div>
                 </div>
                 {selectedModel === model.id && (
-                  <Check className="w-4 h-4 text-primary shrink-0" />
+                  <Check className="w-4 h-4 text-primary shrink-0 ml-2" />
                 )}
               </button>
             ))}
@@ -99,6 +158,11 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
             暂无可用模型，请先在后台管理中添加
           </div>
         )}
+        {models.length > 0 && Object.keys(filteredGroupedModels).length === 0 && (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+            未找到匹配的模型
+          </div>
+        )}
       </div>
     </>
   );
@@ -107,48 +171,60 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
     <>
       {/* Trigger button */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-lg hover:bg-accent transition-colors min-w-0 max-w-full"
+        onClick={handleOpen}
+        className="flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-lg hover:bg-accent active:bg-accent transition-colors min-w-0 max-w-full"
+        aria-label="选择模型"
+        aria-expanded={isOpen}
       >
         <Monitor className="w-4 h-4 text-primary shrink-0 hidden md:block" />
         <Smartphone className="w-4 h-4 text-primary shrink-0 md:hidden" />
         <span className="text-sm font-medium truncate">
-          {selectedModelConfig?.displayName || '选择模型'}
+          {selectedModelConfig ? (selectedModelConfig.displayName ?? selectedModelConfig.name) : '选择模型'}
         </span>
-        <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown className={`w-4 h-4 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* Desktop: dropdown */}
+      {/* Desktop: dropdown - rendered inline with click-outside detection */}
       {!isMobile && isOpen && (
-        <>
-          {/* Backdrop */}
-          <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />
-          {/* Dropdown */}
-          <div className="absolute top-full left-0 mt-2 w-72 bg-card border border-border rounded-lg shadow-lg z-50 flex flex-col max-h-96 overflow-hidden">
-            {modelListContent}
+        <div ref={dropdownRef} className="absolute top-full left-0 mt-2 w-72 bg-card border border-border rounded-lg shadow-lg z-50 flex flex-col max-h-96 overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <span className="text-sm font-semibold">选择模型</span>
           </div>
-        </>
+          {modelListContent}
+        </div>
       )}
 
-      {/* Mobile: bottom sheet */}
-      {isMobile && isOpen && (
+      {/* Mobile: full-screen overlay via Portal */}
+      {isMobile && isOpen && mounted && createPortal(
         <>
           {/* Backdrop */}
           <div
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
-            onClick={() => setIsOpen(false)}
+            className="fixed inset-0 z-[9998] bg-black/60 backdrop-blur-sm"
+            onClick={() => { setIsOpen(false); setSearchQuery(''); }}
           />
           {/* Sheet */}
-          <div className="fixed inset-x-0 bottom-0 z-50 bg-card border-t border-border rounded-t-2xl shadow-2xl flex flex-col max-h-[70vh] animate-in slide-in-from-bottom">
-            {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-1">
-              <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+          <div className="fixed inset-x-0 bottom-0 z-[9999] bg-card border-t border-border rounded-t-2xl shadow-2xl flex flex-col max-h-[75vh] safe-area-pb">
+            {/* Drag handle + header */}
+            <div className="flex flex-col items-center pt-3 pb-1 shrink-0">
+              <div className="w-10 h-1 rounded-full bg-muted-foreground/30 mb-3" />
+              <div className="flex items-center justify-between w-full px-4 pb-2">
+                <span className="text-sm font-semibold">选择模型</span>
+                <button
+                  onClick={() => { setIsOpen(false); setSearchQuery(''); }}
+                  className="p-1.5 rounded-full hover:bg-muted active:bg-muted transition-colors"
+                  aria-label="关闭"
+                >
+                  <X className="w-5 h-5 text-muted-foreground" />
+                </button>
+              </div>
             </div>
             {modelListContent}
             {/* Safe area padding for iOS */}
-            <div className="h-safe-area-inset-bottom" />
+            <div className="shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }} />
           </div>
-        </>
+        </>,
+        document.body
       )}
     </>
   );

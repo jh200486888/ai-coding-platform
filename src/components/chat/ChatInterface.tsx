@@ -214,9 +214,9 @@ export function ChatInterface() {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* 模型选择器 - 响应式 */}
-      <div className="border-b border-border px-3 py-2 md:px-4 md:py-3">
+      <div className="border-b border-border px-3 py-2 md:px-4 md:py-3 shrink-0">
         <div className="relative max-w-full">
           <ModelSelector
             selectedModel={selectedModel}
@@ -231,7 +231,7 @@ export function ChatInterface() {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className="flex-1 overflow-y-auto p-3 md:p-4 space-y-4 relative"
+        className="flex-1 overflow-y-auto p-3 md:p-4 space-y-4 relative min-h-0"
       >
         {/* Drag overlay */}
         {isDragging && (
@@ -245,7 +245,7 @@ export function ChatInterface() {
 
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full text-muted-foreground">
-            <div className="text-center">
+            <div className="text-center px-4">
               <div className="text-4xl mb-4">🤖</div>
               <h3 className="text-lg font-medium mb-2">开始对话</h3>
               <p className="text-sm">选择一个模型，然后输入消息开始对话</p>
@@ -261,37 +261,40 @@ export function ChatInterface() {
 
       {/* 附件预览 */}
       {attachments.length > 0 && (
-        <div className="border-t border-border px-3 py-2 md:px-4 flex gap-2 flex-wrap">
-          {attachments.map(att => (
-            <div
-              key={att.id}
-              className="group relative flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5 text-xs"
-            >
-              {att.type === 'image' ? (
-                <img
-                  src={att.url}
-                  alt={att.name}
-                  className="w-8 h-8 rounded object-cover"
-                />
-              ) : (
-                <AttachmentIcon type={att.type} />
-              )}
-              <span className="max-w-[120px] truncate">{att.name}</span>
-              <button
-                onClick={() => removeAttachment(att.id)}
-                className="absolute -top-1 -right-1 w-4 h-4 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+        <div className="border-t border-border px-3 py-2 md:px-4 shrink-0">
+          <div className="flex gap-2 flex-wrap">
+            {attachments.map(att => (
+              <div
+                key={att.id}
+                className="group relative flex items-center gap-2 bg-muted rounded-lg px-3 py-1.5 text-xs max-w-full"
               >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
+                {att.type === 'image' ? (
+                  <img
+                    src={att.url}
+                    alt={att.name}
+                    className="w-8 h-8 rounded object-cover shrink-0"
+                  />
+                ) : (
+                  <AttachmentIcon type={att.type} />
+                )}
+                <span className="truncate max-w-[120px]">{att.name}</span>
+                <button
+                  onClick={() => removeAttachment(att.id)}
+                  className="shrink-0 w-4 h-4 bg-destructive text-destructive-foreground rounded-full flex items-center justify-center ml-1"
+                  aria-label={`移除 ${att.name}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {/* 输入框 - 响应式 */}
-      <div className="border-t border-border px-3 py-3 md:px-4 md:py-4">
-        <form onSubmit={handleSubmit} className="flex gap-2 items-center">
-          {/* 附件按钮 - 始终可见 */}
+      <div className="border-t border-border px-3 py-3 md:px-4 md:py-4 shrink-0 safe-area-pb">
+        <form onSubmit={handleSubmit} className="flex gap-2 items-center flex-nowrap">
+          {/* 附件按钮 - 始终可见，不被挤压 */}
           <input
             ref={fileInputRef}
             type="file"
@@ -305,8 +308,9 @@ export function ChatInterface() {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-muted shrink-0"
+            className="p-2 text-muted-foreground hover:text-foreground active:text-foreground transition-colors rounded-lg hover:bg-muted active:bg-muted shrink-0"
             title="上传附件"
+            aria-label="上传附件"
           >
             <Paperclip className="w-5 h-5" />
           </button>
@@ -322,7 +326,7 @@ export function ChatInterface() {
           <button
             type="submit"
             disabled={isLoading || (!input.trim() && attachments.length === 0)}
-            className="bg-primary text-primary-foreground px-3 py-2 rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+            className="bg-primary text-primary-foreground px-3 py-2 rounded-lg hover:bg-primary/90 active:bg-primary/80 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
           >
             {isLoading ? (
               <Loader2 className="w-5 h-5 animate-spin" />
