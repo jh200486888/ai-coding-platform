@@ -66,9 +66,9 @@ export function ApiKeyManager() {
               onChange={e => setNewKey({ ...newKey, provider: e.target.value })}
               className="w-full mt-1 bg-background border border-border rounded px-3 py-2 text-sm"
             >
-              {Object.entries(PROVIDERS).map(([key, name]) => (
-                <option key={key} value={key}>
-                  {name}
+              {PROVIDERS.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
                 </option>
               ))}
             </select>

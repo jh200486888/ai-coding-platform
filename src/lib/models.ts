@@ -112,5 +112,38 @@ export function getModelsByProviderId(providerId: string): AIModel[] {
   return MODELS.filter(m => m.provider === providerId);
 }
 
+// 获取厂商列表
+export function getProviders(): Provider[] {
+  const providerMap = new Map<string, AIModel[]>();
+
+  MODELS.forEach(model => {
+    if (!providerMap.has(model.provider)) {
+      providerMap.set(model.provider, []);
+    }
+    providerMap.get(model.provider)!.push(model);
+  });
+
+  const providerNames: Record<string, string> = {
+    deepseek: 'DeepSeek',
+    openai: 'OpenAI',
+    anthropic: 'Anthropic',
+    google: 'Google AI',
+    zhipu: '智谱 AI',
+    qwen: '通义千问',
+    moonshot: 'Moonshot AI',
+    doubao: '豆包',
+    groq: 'Groq',
+    mistral: 'Mistral AI',
+    xai: 'xAI',
+    cohere: 'Cohere',
+  };
+
+  return Array.from(providerMap.entries()).map(([id, models]) => ({
+    id,
+    name: providerNames[id] || id,
+    models,
+  }));
+}
+
 // 厂商列表（兼容旧代码）
 export const PROVIDERS = getProviders();

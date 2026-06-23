@@ -8,7 +8,7 @@ import { getModelById } from '@/lib/models';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { messages, modelId, conversationId } = body;
+    const { messages, modelId } = body;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
       return new Response(JSON.stringify({ error: 'Messages are required' }), {
@@ -63,65 +63,64 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 创建或更新对话
-    let convId = conversationId;
-    if (!convId) {
-      const conversation = await prisma.chatMessage.create({
-        data: {
-          role: 'user',
-          content: messages[messages.length - 1].content || '',
-          model: modelId,
-        },
-      });
-      convId = conversation.id;
-    }
-
     // 保存用户消息
-    await prisma.chatMessage.create({
+    const userMessage = await prisma.chatMessage.create({
       data: {
         role: 'user',
         content: messages[messages.length - 1].content || '',
-        model: modelId,
+        modelId: modelId,
       },
     });
 
-    // 流式响应
+    // 调用 AI 模型
     const result = streamText({
       model,
-      messages,
-      maxOutputTokens: 4096,
-      temperature: 0.7,
+      messages: messages.map((m: { role: string; content: string }) => ({
+        role: m.role as 'user' | 'assistant' | 'system',
+        content: m.content,
+      })),
+      maxOutputTokens: modelConfig.maxTokens || 8192,
+      temperature: modelConfig.temperature || 0.7,
     });
 
-    // 保存 AI 响应
+    // 收集完整响应
     let fullResponse = '';
-    const responseStream = new ReadableStream({
-      async start(controller) {
-        const reader = result.textStream.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          fullResponse += value;
-          controller.enqueue(new TextEncoder().encode(value));
-        }
-        controller.close();
+    const stream = result.textStream;
 
-        // 保存完整的 AI 响应
-        await prisma.chatMessage.create({
-          data: {
-            role: 'assistant',
-            content: fullResponse,
-            model: modelId,
-          },
-        });
+    // 创建可读流来收集响应
+    const reader = stream.getReader();
+    const readableStream = new ReadableStream({
+      async start(controller) {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            fullResponse += value;
+            controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ text: value })}\n\n`));
+          }
+          
+          // 保存 AI 响应
+          await prisma.chatMessage.create({
+            data: {
+              role: 'assistant',
+              content: fullResponse,
+              modelId: modelId,
+            },
+          });
+
+          controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+        }
       },
     });
 
-    return new Response(responseStream, {
+    return new Response(readableStream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
+        'Connection': 'keep-alive',
       },
     });
   } catch (error) {

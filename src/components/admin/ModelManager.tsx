@@ -12,9 +12,7 @@ export function ModelManager() {
     name: '',
     provider: 'openai',
     modelId: '',
-    baseUrl: '',
-    apiKeyId: '',
-    isDefault: false,
+    isActive: true,
   });
 
   useEffect(() => {
@@ -41,15 +39,14 @@ export function ModelManager() {
         name: '',
         provider: 'openai',
         modelId: '',
-        baseUrl: '',
-        apiKeyId: '',
-        isDefault: false,
+        isActive: true,
       });
       fetchModels();
     }
   };
 
   const handleDelete = async (id: string) => {
+    if (!confirm('确定要删除这个模型吗？')) return;
     const response = await fetch(`/api/models?id=${id}`, {
       method: 'DELETE',
     });
@@ -58,91 +55,72 @@ export function ModelManager() {
     }
   };
 
+  const providers = PROVIDERS;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">模型管理</h2>
+        <h2 className="text-xl font-semibold text-white">模型管理</h2>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 px-3 py-2 bg-primary text-primary-foreground rounded-md text-sm"
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
         >
           <Plus className="w-4 h-4" />
-          添加
+          添加模型
         </button>
       </div>
 
       {showForm && (
-        <div className="bg-muted p-4 rounded-lg space-y-3">
-          <div>
-            <label className="text-sm font-medium">模型名称</label>
-            <input
-              type="text"
-              value={newModel.name}
-              onChange={e => setNewModel({ ...newModel, name: e.target.value })}
-              placeholder="例如：GPT-4o"
-              className="w-full mt-1 bg-background border border-border rounded px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium">厂商</label>
-            <select
-              value={newModel.provider}
-              onChange={e => setNewModel({ ...newModel, provider: e.target.value })}
-              className="w-full mt-1 bg-background border border-border rounded px-3 py-2 text-sm"
-            >
-              {Object.entries(PROVIDERS).map(([key, name]) => (
-                <option key={key} value={key}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-sm font-medium">模型 ID</label>
-            <select
-              value={newModel.modelId}
-              onChange={e => setNewModel({ ...newModel, modelId: e.target.value })}
-              className="w-full mt-1 bg-background border border-border rounded px-3 py-2 text-sm"
-            >
-              <option value="">选择模型</option>
-              {MODELS.filter(m => m.provider === newModel.provider).map(m => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-sm font-medium">Base URL（可选）</label>
-            <input
-              type="text"
-              value={newModel.baseUrl}
-              onChange={e => setNewModel({ ...newModel, baseUrl: e.target.value })}
-              placeholder="https://api.openai.com/v1"
-              className="w-full mt-1 bg-background border border-border rounded px-3 py-2 text-sm"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="isDefault"
-              checked={newModel.isDefault}
-              onChange={e => setNewModel({ ...newModel, isDefault: e.target.checked })}
-            />
-            <label htmlFor="isDefault" className="text-sm">
-              设为默认模型
-            </label>
+        <div className="p-4 bg-zinc-800 rounded-lg space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1">厂商</label>
+              <select
+                value={newModel.provider}
+                onChange={(e) => {
+                  const provider = providers.find(p => p.id === e.target.value);
+                  setNewModel({
+                    ...newModel,
+                    provider: e.target.value,
+                    modelId: provider?.models[0]?.id || '',
+                  });
+                }}
+                className="w-full px-3 py-2 bg-zinc-700 border border-zinc-600 rounded-lg text-white"
+              >
+                {providers.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1">模型</label>
+              <select
+                value={newModel.modelId}
+                onChange={(e) => setNewModel({ ...newModel, modelId: e.target.value, name: e.target.options[e.target.selectedIndex].text })}
+                className="w-full px-3 py-2 bg-zinc-700 border border-zinc-600 rounded-lg text-white"
+              >
+                {providers
+                  .find((p) => p.id === newModel.provider)
+                  ?.models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
           </div>
           <div className="flex gap-2">
             <button
               onClick={handleAdd}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded text-sm"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
             >
               保存
             </button>
             <button
               onClick={() => setShowForm(false)}
-              className="px-4 py-2 bg-muted text-foreground rounded text-sm"
+              className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg transition-colors"
             >
               取消
             </button>
@@ -151,38 +129,40 @@ export function ModelManager() {
       )}
 
       <div className="space-y-2">
-        {models.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground">
-            <Settings className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p>暂无模型配置</p>
-          </div>
-        ) : (
-          models.map(model => (
-            <div
-              key={model.id}
-              className="flex items-center justify-between p-3 bg-muted rounded-lg"
-            >
-              <div>
-                <div className="font-medium flex items-center gap-2">
-                  {model.name}
-                  {model.isDefault && (
-                    <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded">
-                      默认
-                    </span>
-                  )}
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  {PROVIDERS[model.provider]} • {model.modelId}
-                </div>
+        {models.map((model) => (
+          <div
+            key={model.id}
+            className="flex items-center justify-between p-4 bg-zinc-800 rounded-lg"
+          >
+            <div>
+              <div className="font-medium text-white">{model.name || model.modelId}</div>
+              <div className="text-sm text-zinc-400">
+                {model.provider} · {model.modelId}
               </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span
+                className={`px-2 py-1 text-xs rounded ${
+                  model.isActive
+                    ? 'bg-green-500/20 text-green-400'
+                    : 'bg-zinc-700 text-zinc-400'
+                }`}
+              >
+                {model.isActive ? '启用' : '禁用'}
+              </span>
               <button
                 onClick={() => handleDelete(model.id)}
-                className="p-2 text-destructive hover:bg-destructive/10 rounded"
+                className="p-2 text-red-400 hover:bg-red-500/20 rounded-lg transition-colors"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
-          ))
+          </div>
+        ))}
+        {models.length === 0 && (
+          <div className="text-center py-8 text-zinc-500">
+            暂无模型配置
+          </div>
         )}
       </div>
     </div>

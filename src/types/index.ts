@@ -41,7 +41,7 @@ export interface Conversation {
 // 消息类型
 export interface Message {
   id: string;
-  conversationId: string;
+  conversationId?: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   modelId?: string;
@@ -125,6 +125,11 @@ export interface AIModel {
   displayName?: string;
   maxTokens?: number;
   temperature?: number;
+  contextWindow?: number;
+  inputPrice?: number;
+  outputPrice?: number;
+  status?: 'active' | 'inactive';
+  description?: string;
 }
 
 // 终端日志类型
@@ -135,4 +140,11 @@ export interface TerminalLog {
   output: string;
   exitCode: number;
   createdAt: Date;
+}
+
+// Provider 类型
+export interface Provider {
+  id: string;
+  name: string;
+  models: AIModel[];
 }

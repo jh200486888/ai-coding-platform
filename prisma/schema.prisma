@@ -7,7 +7,6 @@ generator client {
 
 datasource db {
   provider = "mysql"
-  url      = env("DATABASE_URL")
 }
 
 // API Key 管理
@@ -52,13 +51,13 @@ model Conversation {
 
 // 普通对话消息
 model ChatMessage {
-  id             String       @id @default(uuid())
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  role           String       // user, assistant, system
-  content        String       @db.Text
+  id             String        @id @default(uuid())
+  conversationId String?
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String        // user, assistant, system
+  content        String        @db.Text
   modelId        String?
-  createdAt      DateTime     @default(now())
+  createdAt      DateTime      @default(now())
 
   @@index([conversationId])
   @@map("chat_messages")
@@ -66,43 +65,47 @@ model ChatMessage {
 
 // 工作区项目
 model Project {
-  id          String   @id @default(uuid())
-  name        String
-  description String?  @db.Text
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  files       WorkspaceFile[]
-  messages    WorkspaceMessage[]
+  id            String                  @id @default(uuid())
+  name          String
+  description   String?                 @db.Text
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+  files         WorkspaceFile[]
+  conversations WorkspaceConversation[]
 
   @@map("projects")
 }
 
 // 工作区文件
 model WorkspaceFile {
-  id        String   @id @default(uuid())
+  id        String          @id @default(uuid())
   projectId String
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project   Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   name      String
-  path      String   // 文件路径
-  content   String   @db.Text
-  language  String?  // 编程语言
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  path      String          // 文件路径
+  content   String          @db.Text
+  language  String?         // 编程语言
+  type      String          @default("file") // file or folder
+  parentId  String?
+  parent    WorkspaceFile?  @relation("FileTree", fields: [parentId], references: [id])
+  children  WorkspaceFile[] @relation("FileTree")
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
 
   @@unique([projectId, path])
   @@index([projectId])
+  @@index([parentId])
   @@map("workspace_files")
 }
 
 // 工作区对话
 model WorkspaceConversation {
-  id        String   @id @default(uuid())
+  id        String              @id @default(uuid())
   projectId String
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  title     String   @default("新对话")
-  modelId   String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  project   Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title     String              @default("新对话")
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
   messages  WorkspaceMessage[]
 
   @@index([projectId])
@@ -117,7 +120,8 @@ model WorkspaceMessage {
   role            String                // user, assistant, system
   content         String                @db.Text
   modelId         String?
-  attachments     String?               @db.Text // JSON 格式的附件信息
+  attachments     Json?                 // 附件信息
+  fileChanges     Json?                 // 文件变更记录
   createdAt       DateTime              @default(now())
 
   @@index([conversationId])

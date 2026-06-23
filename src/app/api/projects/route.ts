@@ -8,7 +8,7 @@ export async function GET() {
       orderBy: { updatedAt: 'desc' },
       include: {
         _count: {
-          select: { workspaceMessages: true },
+          select: { conversations: true },
         },
       },
     });

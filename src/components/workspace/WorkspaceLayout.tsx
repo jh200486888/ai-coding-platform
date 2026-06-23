@@ -146,9 +146,9 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
 
   return (
     <div className="h-full flex flex-col">
-      <Group direction="vertical" className="flex-1">
+      <Group orientation="vertical" className="flex-1">
         <Panel defaultSize={showTerminal ? 75 : 100} minSize={50}>
-          <Group direction="horizontal" className="h-full">
+          <Group orientation="horizontal" className="h-full">
             {/* 文件树 */}
             <Panel defaultSize={20} minSize={15} maxSize={35}>
               <FileTree

@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 获取模型配置
-    const modelConfig = getModelConfig(modelId);
+    const modelConfig = getModelById(modelId);
     if (!modelConfig) {
       return new Response(JSON.stringify({ error: 'Model not found' }), {
         status: 400,
@@ -111,8 +111,8 @@ export async function POST(request: NextRequest) {
         data: {
           role: 'user',
           content: messages[messages.length - 1].content || '',
-          projectId,
-          model: modelId,
+          conversationId: projectId,
+          modelId: modelId,
         },
       });
     }
@@ -144,8 +144,8 @@ export async function POST(request: NextRequest) {
             data: {
               role: 'assistant',
               content: fullResponse,
-              projectId,
-              model: modelId,
+              conversationId: projectId,
+              modelId: modelId,
             },
           });
         }
