@@ -106,7 +106,7 @@ export function getModelByProvider(providerId: string, modelId: string, apiKey: 
       const { createOpenAI } = require('@ai-sdk/openai');
       return createOpenAI({
         apiKey,
-        baseURL: provider.baseURL,
+        baseURL: provider.baseUrl,
       })(modelId);
     }
     case 'anthropic': {

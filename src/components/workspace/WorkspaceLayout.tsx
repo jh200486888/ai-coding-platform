@@ -6,7 +6,7 @@ import { FileTree } from './FileTree';
 import { CodeEditor } from './CodeEditor';
 import { AiChat } from './AiChat';
 import { Terminal } from './Terminal';
-import type { WorkspaceFile, WorkspaceMessage } from '@/types';
+import type { WorkspaceFile, WorkspaceMessage, Attachment } from '@/types';
 
 interface WorkspaceLayoutProps {
   projectId: string;
@@ -23,7 +23,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
     const response = await fetch('/api/workspace/files', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId, name, type, parentId }),
+      body: JSON.stringify({ conversationId: projectId, name, type, parentId }),
     });
     if (response.ok) {
       const newFile = await response.json();
@@ -62,13 +62,13 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
     }
   };
 
-  const handleSendMessage = async (content: string, attachments?: string[]) => {
+  const handleSendMessage = async (content: string, attachments?: Attachment[]) => {
     const userMessage: WorkspaceMessage = {
       id: Date.now().toString(),
       role: 'user',
       content,
       attachments,
-      projectId,
+      conversationId: projectId,
       createdAt: new Date(),
     };
     setMessages(prev => [...prev, userMessage]);
@@ -78,7 +78,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          projectId,
+          conversationId: projectId,
           messages: [...messages, userMessage].map(m => ({
             role: m.role,
             content: m.content,
@@ -97,7 +97,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
         content: '',
-        projectId,
+        conversationId: projectId,
         createdAt: new Date(),
       };
 
@@ -132,7 +132,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
       const response = await fetch('/api/workspace/terminal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, command }),
+        body: JSON.stringify({ conversationId: projectId, command }),
       });
 
       const data = await response.json();

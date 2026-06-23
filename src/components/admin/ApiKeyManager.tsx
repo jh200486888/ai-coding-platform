@@ -123,9 +123,9 @@ export function ApiKeyManager() {
               className="flex items-center justify-between p-3 bg-muted rounded-lg"
             >
               <div>
-                <div className="font-medium">{key.name || PROVIDERS[key.provider]}</div>
+                <div className="font-medium">{key.name || PROVIDERS.find(p => p.id === key.provider)?.name}</div>
                 <div className="text-sm text-muted-foreground">
-                  {PROVIDERS[key.provider]} • {key.apiKey.slice(0, 8)}...
+                  {PROVIDERS.find(p => p.id === key.provider)?.name} • {key.apiKey.slice(0, 8)}...
                 </div>
               </div>
               <button

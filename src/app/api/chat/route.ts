@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 获取 AI 模型实例
-    const model = getModelByProvider(modelConfig.provider, apiKey.apiKey, apiKey.baseUrl || undefined);
+    const model = getModelByProvider(modelConfig.provider, modelConfig.id, apiKey.apiKey);
     if (!model) {
       return new Response(
         JSON.stringify({ error: `Failed to create model for provider ${modelConfig.provider}` }),

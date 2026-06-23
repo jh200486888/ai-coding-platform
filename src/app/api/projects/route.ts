@@ -8,7 +8,7 @@ export async function GET() {
       orderBy: { updatedAt: 'desc' },
       include: {
         _count: {
-          select: { conversations: true },
+          select: { conversations: true, files: true },
         },
       },
     });
@@ -40,10 +40,17 @@ export async function POST(request: NextRequest) {
       data: {
         name,
         description: description || '',
-        modelId: modelId || 'deepseek-v3',
-        files: {
-          'README.md': `# ${name}\n\n${description || 'New project'}`,
-        },
+      },
+    });
+
+    // 创建默认的 README.md 文件
+    await prisma.workspaceFile.create({
+      data: {
+        projectId: project.id,
+        name: 'README.md',
+        path: 'README.md',
+        content: `# ${name}\n\n${description || 'New project'}`,
+        type: 'file',
       },
     });
 
@@ -70,8 +77,8 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // 先删除相关的 workspace messages
-    await prisma.workspaceMessage.deleteMany({
+    // 先删除相关的 workspace conversations（会级联删除 messages）
+    await prisma.workspaceConversation.deleteMany({
       where: { projectId: id },
     });
 

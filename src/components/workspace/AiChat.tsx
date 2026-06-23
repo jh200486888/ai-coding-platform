@@ -3,17 +3,17 @@
 import { useState, useRef, useEffect } from 'react';
 import { Send, Paperclip } from 'lucide-react';
 import { UploadArea } from './UploadArea';
-import type { WorkspaceMessage, WorkspaceFile } from '@/types';
+import type { WorkspaceMessage, WorkspaceFile, Attachment } from '@/types';
 
 interface AiChatProps {
   messages: WorkspaceMessage[];
-  onSendMessage: (content: string, attachments?: string[]) => void;
+  onSendMessage: (content: string, attachments?: Attachment[]) => void;
   files: WorkspaceFile[];
 }
 
 export function AiChat({ messages, onSendMessage, files }: AiChatProps) {
   const [input, setInput] = useState('');
-  const [attachments, setAttachments] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [showUpload, setShowUpload] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -74,7 +74,7 @@ export function AiChat({ messages, onSendMessage, files }: AiChatProps) {
         <div className="border-t border-border p-2">
           <UploadArea
             onUpload={url => {
-              setAttachments(prev => [...prev, url]);
+              setAttachments(prev => [...prev, { id: Date.now().toString(), name: "attachment", type: "image", mimeType: "image/png", size: 0, url }]);
               setShowUpload(false);
             }}
           />
