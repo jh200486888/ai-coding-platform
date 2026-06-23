@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/storage/database/mysql-client';
-import { v4 as uuidv4 } from 'uuid';
+import { prisma } from '@/lib/db';
 
 // GET /api/workspace/projects - List all projects
 export async function GET() {
   try {
-    const rows = await query(
-      'SELECT * FROM workspace_projects ORDER BY updated_at DESC'
-    );
-    return NextResponse.json(rows);
+    const projects = await prisma.project.findMany({
+      orderBy: { updatedAt: 'desc' },
+    });
+    return NextResponse.json(projects);
   } catch (error) {
     console.error('Failed to fetch workspace projects:', error);
     return NextResponse.json({ error: 'Failed to fetch projects' }, { status: 500 });
@@ -25,14 +24,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
 
-    const id = uuidv4();
-    await query(
-      'INSERT INTO workspace_projects (id, name, description) VALUES (?, ?, ?)',
-      [id, name, description || null]
-    );
+    const project = await prisma.project.create({
+      data: {
+        name,
+        description: description || null,
+      },
+    });
 
-    const rows = await query('SELECT * FROM workspace_projects WHERE id = ?', [id]);
-    return NextResponse.json(rows[0], { status: 201 });
+    return NextResponse.json(project, { status: 201 });
   } catch (error) {
     console.error('Failed to create workspace project:', error);
     return NextResponse.json({ error: 'Failed to create project' }, { status: 500 });

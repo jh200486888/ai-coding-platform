@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/storage/database/mysql-client';
+import { prisma } from '@/lib/db';
 
 // GET /api/workspace/files/[id] - Get a single file
 export async function GET(
@@ -8,16 +8,15 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const rows = await query(
-      'SELECT * FROM workspace_files WHERE id = ?',
-      [id]
-    );
+    const file = await prisma.workspaceFile.findUnique({
+      where: { id },
+    });
     
-    if (rows.length === 0) {
+    if (!file) {
       return NextResponse.json({ error: 'File not found' }, { status: 404 });
     }
     
-    return NextResponse.json(rows[0]);
+    return NextResponse.json(file);
   } catch (error) {
     console.error('Failed to fetch workspace file:', error);
     return NextResponse.json({ error: 'Failed to fetch file' }, { status: 500 });
@@ -34,13 +33,16 @@ export async function PATCH(
     const body = await request.json();
     const { name, content, path } = body;
     
-    await query(
-      'UPDATE workspace_files SET name = COALESCE(?, name), content = COALESCE(?, content), path = COALESCE(?, path) WHERE id = ?',
-      [name, content, path, id]
-    );
+    const file = await prisma.workspaceFile.update({
+      where: { id },
+      data: {
+        ...(name !== undefined && { name }),
+        ...(content !== undefined && { content }),
+        ...(path !== undefined && { path }),
+      },
+    });
 
-    const rows = await query('SELECT * FROM workspace_files WHERE id = ?', [id]);
-    return NextResponse.json(rows[0]);
+    return NextResponse.json(file);
   } catch (error) {
     console.error('Failed to update workspace file:', error);
     return NextResponse.json({ error: 'Failed to update file' }, { status: 500 });
@@ -54,7 +56,9 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    await query('DELETE FROM workspace_files WHERE id = ?', [id]);
+    await prisma.workspaceFile.delete({
+      where: { id },
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Failed to delete workspace file:', error);

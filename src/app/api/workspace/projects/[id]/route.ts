@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/storage/database/mysql-client';
+import { prisma } from '@/lib/db';
 
 // GET /api/workspace/projects/[id] - Get a single project
 export async function GET(
@@ -8,16 +8,15 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const rows = await query(
-      'SELECT * FROM workspace_projects WHERE id = ?',
-      [id]
-    );
+    const project = await prisma.project.findUnique({
+      where: { id },
+    });
     
-    if (rows.length === 0) {
+    if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
     
-    return NextResponse.json(rows[0]);
+    return NextResponse.json(project);
   } catch (error) {
     console.error('Failed to fetch workspace project:', error);
     return NextResponse.json({ error: 'Failed to fetch project' }, { status: 500 });
@@ -34,13 +33,15 @@ export async function PATCH(
     const body = await request.json();
     const { name, description } = body;
     
-    await query(
-      'UPDATE workspace_projects SET name = COALESCE(?, name), description = COALESCE(?, description), updated_at = NOW() WHERE id = ?',
-      [name, description, id]
-    );
+    const project = await prisma.project.update({
+      where: { id },
+      data: {
+        ...(name !== undefined && { name }),
+        ...(description !== undefined && { description }),
+      },
+    });
 
-    const rows = await query('SELECT * FROM workspace_projects WHERE id = ?', [id]);
-    return NextResponse.json(rows[0]);
+    return NextResponse.json(project);
   } catch (error) {
     console.error('Failed to update workspace project:', error);
     return NextResponse.json({ error: 'Failed to update project' }, { status: 500 });
@@ -55,18 +56,10 @@ export async function DELETE(
   try {
     const { id } = await params;
     
-    // Delete all files in the project
-    await query('DELETE FROM workspace_files WHERE project_id = ?', [id]);
-    
-    // Delete all conversations in the project
-    const conversations = await query('SELECT id FROM workspace_conversations WHERE project_id = ?', [id]);
-    for (const conv of conversations) {
-      await query('DELETE FROM workspace_messages WHERE conversation_id = ?', [conv.id]);
-    }
-    await query('DELETE FROM workspace_conversations WHERE project_id = ?', [id]);
-    
-    // Delete the project
-    await query('DELETE FROM workspace_projects WHERE id = ?', [id]);
+    // Cascade delete is configured in Prisma schema
+    await prisma.project.delete({
+      where: { id },
+    });
     
     return NextResponse.json({ success: true });
   } catch (error) {
