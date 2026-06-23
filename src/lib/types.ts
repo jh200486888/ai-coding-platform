@@ -72,3 +72,68 @@ export interface ChatChunk {
 
 // Theme
 export type Theme = 'light' | 'dark' | 'system';
+
+// Workspace types
+export interface WorkspaceProject {
+  id: string;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceFile {
+  id: string;
+  project_id: string;
+  path: string;
+  name: string;
+  type: 'file' | 'folder';
+  content: string | null;
+  parent_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceConversation {
+  id: string;
+  project_id: string;
+  title: string;
+  model_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceMessage {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  attachments: WorkspaceAttachment[] | null;
+  model_id: string | null;
+  created_at: string;
+}
+
+export interface WorkspaceAttachment {
+  name: string;
+  type: string;
+  size: number;
+  content?: string;
+}
+
+export interface WorkspaceChatRequest {
+  conversation_id?: string;
+  project_id: string;
+  model_id: string;
+  messages: { role: string; content: string }[];
+  attachments?: WorkspaceAttachment[];
+}
+
+export interface WorkspaceChatChunk {
+  type: 'content' | 'done' | 'error' | 'file_update';
+  content?: string;
+  conversation_id?: string;
+  message_id?: string;
+  error?: string;
+  file_path?: string;
+  file_content?: string;
+}

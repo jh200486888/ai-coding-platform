@@ -1,28 +1,20 @@
 import type { Metadata } from 'next';
-import { Inspector } from 'react-dev-inspector';
 import './globals.css';
-import { ThemeProvider } from '@/components/theme-provider';
 
 export const metadata: Metadata = {
-  title: 'NexusChat - Multi-Model AI Platform',
-  description: 'Chat with multiple AI models in one unified interface. Switch between GPT-4o, Claude, Gemini, DeepSeek and more.',
-  generator: 'Coze Code',
+  title: 'AI 编程平台',
+  description: '多模型 AI 对话与编程工作区',
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
-  const isDev = process.env.COZE_PROJECT_ENV === 'DEV';
-
+}) {
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className="antialiased">
-        <ThemeProvider>
-          {isDev && <Inspector />}
-          {children}
-        </ThemeProvider>
+    <html lang="zh-CN" suppressHydrationWarning>
+      <body className="bg-background text-foreground antialiased">
+        {children}
       </body>
     </html>
   );

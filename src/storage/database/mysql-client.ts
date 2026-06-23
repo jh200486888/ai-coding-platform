@@ -89,4 +89,55 @@ export async function initDatabase(): Promise<void> {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `);
+
+  // Workspace tables
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS workspace_projects (
+      id VARCHAR(36) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      description TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS workspace_files (
+      id VARCHAR(36) PRIMARY KEY,
+      project_id VARCHAR(36) NOT NULL,
+      path VARCHAR(500) NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      type ENUM('file', 'folder') NOT NULL DEFAULT 'file',
+      content MEDIUMTEXT,
+      parent_id VARCHAR(36),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES workspace_projects(id) ON DELETE CASCADE
+    )
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS workspace_conversations (
+      id VARCHAR(36) PRIMARY KEY,
+      project_id VARCHAR(36) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      model_id VARCHAR(100),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (project_id) REFERENCES workspace_projects(id) ON DELETE CASCADE
+    )
+  `);
+
+  await pool.execute(`
+    CREATE TABLE IF NOT EXISTS workspace_messages (
+      id VARCHAR(36) PRIMARY KEY,
+      conversation_id VARCHAR(36) NOT NULL,
+      role VARCHAR(20) NOT NULL,
+      content TEXT NOT NULL,
+      attachments JSON,
+      model_id VARCHAR(100),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (conversation_id) REFERENCES workspace_conversations(id) ON DELETE CASCADE
+    )
+  `);
 }

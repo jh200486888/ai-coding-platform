@@ -1,7 +1,7 @@
 'use client';
 
 import { memo, useCallback } from 'react';
-import { MessageSquare, Trash2, Plus } from 'lucide-react';
+import { MessageSquare, Trash2, Plus, Code2 } from 'lucide-react';
 import Link from 'next/link';
 import type { Conversation } from '@/lib/types';
 
@@ -97,6 +97,13 @@ function Sidebar({ conversations, activeId, onSelect, onNew, onDelete, isOpen, o
               <circle cx="12" cy="12" r="3"/>
             </svg>
             后台管理
+          </Link>
+          <Link
+            href="/workspace"
+            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent transition-colors mt-1"
+          >
+            <Code2 size={14} />
+            编程工作区
           </Link>
         </div>
       </aside>

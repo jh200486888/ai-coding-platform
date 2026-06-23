@@ -1,0 +1,125 @@
+// Prisma Schema for AI Coding Platform
+// https://pris.ly/databases-connector
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// API Key 管理
+model ApiKey {
+  id        String   @id @default(uuid())
+  provider  String   // 厂商名称：deepseek, openai, anthropic 等
+  name      String   // 显示名称
+  apiKey    String   // Base64 编码的 API Key
+  baseUrl   String?  // 自定义 API 地址
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("api_keys")
+}
+
+// 模型配置
+model ModelConfig {
+  id        String   @id @default(uuid())
+  modelId   String   // 模型 ID，如 deepseek-chat
+  name      String   // 显示名称
+  provider  String   // 厂商
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("model_configs")
+}
+
+// 普通对话
+model Conversation {
+  id        String   @id @default(uuid())
+  title     String   @default("新对话")
+  modelId   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  messages  ChatMessage[]
+
+  @@map("conversations")
+}
+
+// 普通对话消息
+model ChatMessage {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String       // user, assistant, system
+  content        String       @db.Text
+  modelId        String?
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+  @@map("chat_messages")
+}
+
+// 工作区项目
+model Project {
+  id          String   @id @default(uuid())
+  name        String
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  files       WorkspaceFile[]
+  messages    WorkspaceMessage[]
+
+  @@map("projects")
+}
+
+// 工作区文件
+model WorkspaceFile {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name      String
+  path      String   // 文件路径
+  content   String   @db.Text
+  language  String?  // 编程语言
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, path])
+  @@index([projectId])
+  @@map("workspace_files")
+}
+
+// 工作区对话
+model WorkspaceConversation {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title     String   @default("新对话")
+  modelId   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  messages  WorkspaceMessage[]
+
+  @@index([projectId])
+  @@map("workspace_conversations")
+}
+
+// 工作区消息
+model WorkspaceMessage {
+  id              String                @id @default(uuid())
+  conversationId  String
+  conversation    WorkspaceConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role            String                // user, assistant, system
+  content         String                @db.Text
+  modelId         String?
+  attachments     String?               @db.Text // JSON 格式的附件信息
+  createdAt       DateTime              @default(now())
+
+  @@index([conversationId])
+  @@map("workspace_messages")
+}
