@@ -326,6 +326,28 @@ export async function getApiKey(provider: string): Promise<ApiKey | null> {
   };
 }
 
+// 根据 provider 获取 API Key（用于 LLM 调用）
+export async function getApiKeyByProvider(provider: string): Promise<{ api_key_encrypted: string; base_url: string | null; is_active: number } | null> {
+  await ensureDbInitialized();
+  const rows = await query<any[]>(
+    'SELECT api_key_encrypted, base_url, is_active FROM api_keys WHERE provider = ? AND is_active = 1',
+    [provider]
+  );
+  if (rows.length === 0) return null;
+  return rows[0];
+}
+
+// 获取模型配置（用于 LLM 调用）
+export async function getModelConfig(modelId: string): Promise<{ model_id: string; provider: string; display_name: string } | null> {
+  await ensureDbInitialized();
+  const rows = await query<any[]>(
+    'SELECT model_id, provider, display_name FROM model_configs WHERE model_id = ? AND is_enabled = 1',
+    [modelId]
+  );
+  if (rows.length === 0) return null;
+  return rows[0];
+}
+
 export async function upsertApiKey(input: {
   provider: string;
   provider_name: string;
