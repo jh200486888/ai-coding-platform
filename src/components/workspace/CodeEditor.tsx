@@ -1,64 +1,60 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import CodeMirror from '@uiw/react-codemirror';
-import { javascript } from '@codemirror/lang-javascript';
-import { python } from '@codemirror/lang-python';
-import { html } from '@codemirror/lang-html';
-import { css } from '@codemirror/lang-css';
-import { json } from '@codemirror/lang-json';
-import { markdown } from '@codemirror/lang-markdown';
-import { sql } from '@codemirror/lang-sql';
-import { php } from '@codemirror/lang-php';
-import { java } from '@codemirror/lang-java';
-import { cpp } from '@codemirror/lang-cpp';
-import { rust } from '@codemirror/lang-rust';
-import { oneDark } from '@codemirror/theme-one-dark';
+import { useState, useEffect } from 'react';
+import Editor from '@monaco-editor/react';
 import type { WorkspaceFile } from '@/types';
-import type { Extension } from '@codemirror/state';
 
 interface CodeEditorProps {
   file: WorkspaceFile | null;
   onChange?: (content: string) => void;
 }
 
-function getLanguageExtension(filename: string): Extension {
+function getLanguage(filename: string): string {
   const ext = filename.split('.').pop()?.toLowerCase();
   switch (ext) {
     case 'js':
     case 'jsx':
+      return 'javascript';
     case 'ts':
     case 'tsx':
-      return javascript({ typescript: ext === 'ts' || ext === 'tsx', jsx: ext === 'jsx' || ext === 'tsx' });
+      return 'typescript';
     case 'py':
-      return python();
+      return 'python';
     case 'html':
     case 'htm':
-      return html();
+      return 'html';
     case 'css':
     case 'scss':
     case 'less':
-      return css();
+      return 'css';
     case 'json':
-      return json();
+      return 'json';
     case 'md':
     case 'markdown':
-      return markdown();
+      return 'markdown';
     case 'sql':
-      return sql();
+      return 'sql';
     case 'php':
-      return php();
+      return 'php';
     case 'java':
-      return java();
+      return 'java';
     case 'c':
     case 'cpp':
     case 'h':
     case 'hpp':
-      return cpp();
+      return 'cpp';
     case 'rs':
-      return rust();
+      return 'rust';
+    case 'sh':
+    case 'bash':
+      return 'shell';
+    case 'yml':
+    case 'yaml':
+      return 'yaml';
+    case 'xml':
+      return 'xml';
     default:
-      return [];
+      return 'plaintext';
   }
 }
 
@@ -74,15 +70,11 @@ export function CodeEditor({ file, onChange }: CodeEditorProps) {
     }
   }, [file]);
 
-  const handleChange = (value: string) => {
-    setContent(value);
-    onChange?.(value);
+  const handleChange = (value: string | undefined) => {
+    const newContent = value || '';
+    setContent(newContent);
+    onChange?.(newContent);
   };
-
-  const extensions = useMemo(() => {
-    if (!file) return [];
-    return [getLanguageExtension(file.name)];
-  }, [file]);
 
   if (!file) {
     return (
@@ -109,40 +101,26 @@ export function CodeEditor({ file, onChange }: CodeEditorProps) {
       </div>
 
       {/* 编辑器 */}
-      <div className="flex-1 overflow-auto">
-        <CodeMirror
-          value={content}
+      <div className="flex-1 overflow-hidden">
+        <Editor
           height="100%"
-          theme={isDark ? oneDark : 'light'}
-          extensions={extensions}
+          language={getLanguage(file.name)}
+          value={content}
+          theme={isDark ? 'vs-dark' : 'vs'}
           onChange={handleChange}
-          basicSetup={{
-            lineNumbers: true,
-            highlightActiveLineGutter: true,
-            highlightSpecialChars: true,
-            history: true,
-            foldGutter: true,
-            drawSelection: true,
-            dropCursor: true,
-            allowMultipleSelections: true,
-            indentOnInput: true,
-            syntaxHighlighting: true,
-            bracketMatching: true,
-            closeBrackets: true,
-            autocompletion: true,
-            rectangularSelection: true,
-            crosshairCursor: false,
-            highlightActiveLine: true,
-            highlightSelectionMatches: true,
-            closeBracketsKeymap: true,
-            searchKeymap: true,
-            foldKeymap: true,
-            completionKeymap: true,
-            lintKeymap: true,
-          }}
-          style={{
-            fontSize: '14px',
-            height: '100%',
+          options={{
+            fontSize: 14,
+            minimap: { enabled: true },
+            scrollBeyondLastLine: false,
+            automaticLayout: true,
+            wordWrap: 'on',
+            formatOnPaste: true,
+            formatOnType: true,
+            tabSize: 2,
+            insertSpaces: true,
+            renderWhitespace: 'selection',
+            bracketPairColorization: { enabled: true },
+            guides: { bracketPairs: true },
           }}
         />
       </div>
