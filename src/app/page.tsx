@@ -1,6 +1,6 @@
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import Link from 'next/link';
-import { Code2, MessageSquare, Settings } from 'lucide-react';
+import { Code2, MessageSquare, Settings, Palette } from 'lucide-react';
 
 export default function Home() {
   return (
@@ -14,6 +14,13 @@ export default function Home() {
           <h1 className="text-lg font-semibold">AI 编程平台</h1>
         </div>
         <nav className="flex items-center gap-2">
+          <Link
+            href="/image-gen"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md hover:bg-muted transition-colors"
+          >
+            <Palette className="w-4 h-4" />
+            图片生成
+          </Link>
           <Link
             href="/workspace"
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"

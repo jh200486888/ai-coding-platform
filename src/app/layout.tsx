@@ -3,7 +3,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'AI 编程平台',
-  description: '多模型 AI 对话与编程工作区',
+  description: '多模型 AI 对话、编程工作区与图片生成',
 };
 
 export default function RootLayout({
