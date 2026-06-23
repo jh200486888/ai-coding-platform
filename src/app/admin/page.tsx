@@ -63,11 +63,31 @@ function TabButton({ icon, label, active, onClick }: { icon: React.ReactNode; la
 }
 
 // ============ API Keys Panel ============
+// 厂商列表
+const PROVIDERS = [
+  { id: 'openai', name: 'OpenAI', desc: 'GPT-4o / GPT-4 / GPT-3.5' },
+  { id: 'anthropic', name: 'Anthropic', desc: 'Claude 4 / Claude 3.5' },
+  { id: 'google', name: 'Google', desc: 'Gemini 2.5 / Gemini 2.0' },
+  { id: 'deepseek', name: 'DeepSeek 深度求索', desc: 'DeepSeek V3 / R1' },
+  { id: 'zhipu', name: '智谱 AI', desc: 'GLM-5 / GLM-4' },
+  { id: 'qwen', name: '通义千问', desc: 'Qwen 3.5 / Qwen Max' },
+  { id: 'doubao', name: '豆包', desc: 'Doubao Seed 2.0' },
+  { id: 'kimi', name: 'Kimi 月之暗面', desc: 'Kimi K2.5' },
+  { id: 'baidu', name: '文心一言', desc: 'ERNIE 4.5 / 4.0' },
+  { id: 'spark', name: '讯飞星火', desc: 'Spark 4.0' },
+  { id: 'minimax', name: 'MiniMax', desc: 'M2.5 / M2.7' },
+  { id: 'yi', name: '零一万物', desc: 'Yi-Lightning' },
+  { id: 'meta', name: 'Meta', desc: 'Llama 3.3 / 3.1' },
+  { id: 'mistral', name: 'Mistral', desc: 'Mistral Large 2' },
+  { id: 'cohere', name: 'Cohere', desc: 'Command R+' },
+];
+
 function ApiKeysPanel() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ provider: '', provider_name: '', api_key: '', base_url: '' });
   const [loading, setLoading] = useState(false);
+  const [searchProvider, setSearchProvider] = useState('');
 
   const fetchKeys = useCallback(async () => {
     const res = await fetch('/api/admin/keys');
@@ -99,6 +119,19 @@ function ApiKeysPanel() {
     await fetchKeys();
   };
 
+  const handleSelectProvider = (providerId: string) => {
+    const provider = PROVIDERS.find(p => p.id === providerId);
+    if (provider) {
+      setForm({ ...form, provider: provider.id, provider_name: provider.name });
+    }
+  };
+
+  const filteredProviders = PROVIDERS.filter(p => 
+    p.id.toLowerCase().includes(searchProvider.toLowerCase()) ||
+    p.name.toLowerCase().includes(searchProvider.toLowerCase()) ||
+    p.desc.toLowerCase().includes(searchProvider.toLowerCase())
+  );
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -113,19 +146,33 @@ function ApiKeysPanel() {
 
       {showForm && (
         <div className="bg-card border border-border rounded-xl p-4 mb-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <input
-              placeholder="厂商ID（如 openai）"
-              value={form.provider}
-              onChange={(e) => setForm({ ...form, provider: e.target.value })}
-              className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
-            />
-            <input
-              placeholder="厂商名称（如 OpenAI）"
-              value={form.provider_name}
-              onChange={(e) => setForm({ ...form, provider_name: e.target.value })}
-              className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
-            />
+          {/* 厂商选择下拉框 */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">选择厂商</label>
+            <div className="relative">
+              <select
+                value={form.provider}
+                onChange={(e) => handleSelectProvider(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary appearance-none cursor-pointer"
+              >
+                <option value="">-- 请选择大模型厂商 --</option>
+                {PROVIDERS.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.id}) - {p.desc}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
+            </div>
+            {form.provider && (
+              <div className="text-xs text-muted-foreground">
+                已选择: <span className="text-primary font-medium">{form.provider_name}</span> (ID: {form.provider})
+              </div>
+            )}
           </div>
           <input
             placeholder="API 密钥"
@@ -142,8 +189,8 @@ function ApiKeysPanel() {
           />
           <button
             onClick={handleSubmit}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
+            disabled={loading || !form.provider || !form.api_key}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save size={14} /> 保存
           </button>
