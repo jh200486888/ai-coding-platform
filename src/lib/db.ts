@@ -1,77 +1,132 @@
-import { getSupabaseClient } from '@/storage/database/supabase-client';
+import { query, initDatabase } from '@/storage/database/mysql-client';
 import type { Conversation, Message, ModelConfig, ApiKey } from '@/lib/types';
+import { randomUUID } from 'crypto';
+
+// Initialize database on first import
+let dbInitialized = false;
+async function ensureDbInitialized() {
+  if (!dbInitialized) {
+    await initDatabase();
+    dbInitialized = true;
+  }
+}
 
 // ============ Conversations ============
 
 export async function listConversations(): Promise<Conversation[]> {
-  const client = getSupabaseClient();
-  const { data, error } = await client
-    .from('conversations')
-    .select('id, title, model_id, created_at, updated_at')
-    .order('updated_at', { ascending: false })
-    .limit(100);
-  if (error) throw new Error(`Failed to list conversations: ${error.message}`);
-  return (data as Conversation[]) || [];
+  await ensureDbInitialized();
+  const rows = await query<any[]>(
+    'SELECT id, title, model_id, created_at, updated_at FROM conversations ORDER BY updated_at DESC LIMIT 100'
+  );
+  return rows.map(row => ({
+    id: row.id,
+    title: row.title,
+    model_id: row.model_id,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }));
 }
 
 export async function getConversation(id: string): Promise<Conversation | null> {
-  const client = getSupabaseClient();
-  const { data, error } = await client
-    .from('conversations')
-    .select('id, title, model_id, created_at, updated_at')
-    .eq('id', id)
-    .maybeSingle();
-  if (error) throw new Error(`Failed to get conversation: ${error.message}`);
-  return data as Conversation | null;
+  await ensureDbInitialized();
+  const rows = await query<any[]>(
+    'SELECT id, title, model_id, created_at, updated_at FROM conversations WHERE id = ?',
+    [id]
+  );
+  if (rows.length === 0) return null;
+  const row = rows[0];
+  return {
+    id: row.id,
+    title: row.title,
+    model_id: row.model_id,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
 }
 
 export async function createConversation(
   title: string,
   modelId: string
 ): Promise<Conversation> {
-  const client = getSupabaseClient();
-  const { data, error } = await client
-    .from('conversations')
-    .insert({ title, model_id: modelId })
-    .select()
-    .single();
-  if (error) throw new Error(`Failed to create conversation: ${error.message}`);
-  return data as Conversation;
+  await ensureDbInitialized();
+  const id = randomUUID();
+  await query(
+    'INSERT INTO conversations (id, title, model_id) VALUES (?, ?, ?)',
+    [id, title, modelId]
+  );
+  const rows = await query<any[]>(
+    'SELECT id, title, model_id, created_at, updated_at FROM conversations WHERE id = ?',
+    [id]
+  );
+  const row = rows[0];
+  return {
+    id: row.id,
+    title: row.title,
+    model_id: row.model_id,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
 }
 
 export async function updateConversation(
   id: string,
   updates: { title?: string; model_id?: string }
 ): Promise<Conversation> {
-  const client = getSupabaseClient();
-  const { data, error } = await client
-    .from('conversations')
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw new Error(`Failed to update conversation: ${error.message}`);
-  return data as Conversation;
+  await ensureDbInitialized();
+  const setClauses = [];
+  const values = [];
+  if (updates.title !== undefined) {
+    setClauses.push('title = ?');
+    values.push(updates.title);
+  }
+  if (updates.model_id !== undefined) {
+    setClauses.push('model_id = ?');
+    values.push(updates.model_id);
+  }
+  setClauses.push('updated_at = CURRENT_TIMESTAMP');
+  values.push(id);
+  
+  await query(
+    `UPDATE conversations SET ${setClauses.join(', ')} WHERE id = ?`,
+    values
+  );
+  
+  const rows = await query<any[]>(
+    'SELECT id, title, model_id, created_at, updated_at FROM conversations WHERE id = ?',
+    [id]
+  );
+  const row = rows[0];
+  return {
+    id: row.id,
+    title: row.title,
+    model_id: row.model_id,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
 }
 
 export async function deleteConversation(id: string): Promise<void> {
-  const client = getSupabaseClient();
-  const { error } = await client.from('conversations').delete().eq('id', id);
-  if (error) throw new Error(`Failed to delete conversation: ${error.message}`);
+  await ensureDbInitialized();
+  await query('DELETE FROM conversations WHERE id = ?', [id]);
 }
 
 // ============ Messages ============
 
 export async function listMessages(conversationId: string): Promise<Message[]> {
-  const client = getSupabaseClient();
-  const { data, error } = await client
-    .from('messages')
-    .select('id, conversation_id, role, content, model_id, token_count, created_at')
-    .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: true })
-    .limit(200);
-  if (error) throw new Error(`Failed to list messages: ${error.message}`);
-  return (data as Message[]) || [];
+  await ensureDbInitialized();
+  const rows = await query<any[]>(
+    'SELECT id, conversation_id, role, content, model_id, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT 200',
+    [conversationId]
+  );
+  return rows.map(row => ({
+    id: row.id,
+    conversation_id: row.conversation_id,
+    role: row.role,
+    content: row.content,
+    model_id: row.model_id,
+    token_count: null,
+    created_at: row.created_at,
+  })) as Message[];
 }
 
 export async function createMessage(
@@ -80,76 +135,195 @@ export async function createMessage(
   content: string,
   modelId?: string
 ): Promise<Message> {
-  const client = getSupabaseClient();
-  const { data, error } = await client
-    .from('messages')
-    .insert({
-      conversation_id: conversationId,
-      role,
-      content,
-      model_id: modelId || null,
-    })
-    .select()
-    .single();
-  if (error) throw new Error(`Failed to create message: ${error.message}`);
-  return data as Message;
+  await ensureDbInitialized();
+  const id = randomUUID();
+  await query(
+    'INSERT INTO messages (id, conversation_id, role, content, model_id) VALUES (?, ?, ?, ?, ?)',
+    [id, conversationId, role, content, modelId || null]
+  );
+  const rows = await query<any[]>(
+    'SELECT id, conversation_id, role, content, model_id, created_at FROM messages WHERE id = ?',
+    [id]
+  );
+  const row = rows[0];
+  return {
+    id: row.id,
+    conversation_id: row.conversation_id,
+    role: row.role,
+    content: row.content,
+    model_id: row.model_id,
+    token_count: null,
+    created_at: row.created_at,
+  } as Message;
 }
 
 // ============ Model Configs ============
 
 export async function listModelConfigs(): Promise<ModelConfig[]> {
-  const client = getSupabaseClient();
-  const { data, error } = await client
-    .from('model_configs')
-    .select('*')
-    .order('sort_order', { ascending: true })
-    .limit(100);
-  if (error) throw new Error(`Failed to list model configs: ${error.message}`);
-  return (data as ModelConfig[]) || [];
+  await ensureDbInitialized();
+  const rows = await query<any[]>(
+    'SELECT * FROM model_configs ORDER BY sort_order ASC LIMIT 100'
+  );
+  return rows.map(row => ({
+    id: row.id,
+    model_id: row.model_id,
+    display_name: row.display_name,
+    provider: row.provider,
+    description: row.description,
+    is_enabled: row.is_enabled,
+    default_temperature: row.default_temperature?.toString() || '0.7',
+    default_max_tokens: row.default_max_tokens,
+    sort_order: row.sort_order,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }));
 }
 
 export async function upsertModelConfig(config: Partial<ModelConfig> & { model_id: string; display_name: string; provider: string }): Promise<ModelConfig> {
-  const client = getSupabaseClient();
-  const { data, error } = await client
-    .from('model_configs')
-    .upsert(
-      { ...config, updated_at: new Date().toISOString() },
-      { onConflict: 'model_id' }
-    )
-    .select()
-    .single();
-  if (error) throw new Error(`Failed to upsert model config: ${error.message}`);
-  return data as ModelConfig;
+  await ensureDbInitialized();
+  const existing = await query<any[]>(
+    'SELECT id FROM model_configs WHERE model_id = ?',
+    [config.model_id]
+  );
+  
+  if (existing.length > 0) {
+    const id = existing[0].id;
+    const setClauses = [];
+    const values = [];
+    if (config.display_name !== undefined) {
+      setClauses.push('display_name = ?');
+      values.push(config.display_name);
+    }
+    if (config.provider !== undefined) {
+      setClauses.push('provider = ?');
+      values.push(config.provider);
+    }
+    if (config.description !== undefined) {
+      setClauses.push('description = ?');
+      values.push(config.description || null);
+    }
+    if (config.is_enabled !== undefined) {
+      setClauses.push('is_enabled = ?');
+      values.push(config.is_enabled);
+    }
+    if (config.default_temperature !== undefined) {
+      setClauses.push('default_temperature = ?');
+      values.push(config.default_temperature ? parseFloat(config.default_temperature) : 0.7);
+    }
+    if (config.default_max_tokens !== undefined) {
+      setClauses.push('default_max_tokens = ?');
+      values.push(config.default_max_tokens);
+    }
+    if (config.sort_order !== undefined) {
+      setClauses.push('sort_order = ?');
+      values.push(config.sort_order);
+    }
+    setClauses.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(id);
+    
+    await query(
+      `UPDATE model_configs SET ${setClauses.join(', ')} WHERE id = ?`,
+      values
+    );
+    
+    const rows = await query<any[]>('SELECT * FROM model_configs WHERE id = ?', [id]);
+    const row = rows[0];
+    return {
+      id: row.id,
+      model_id: row.model_id,
+      display_name: row.display_name,
+      provider: row.provider,
+      description: row.description,
+      is_enabled: row.is_enabled,
+      default_temperature: row.default_temperature?.toString() || '0.7',
+      default_max_tokens: row.default_max_tokens,
+      sort_order: row.sort_order,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  } else {
+    const id = randomUUID();
+    await query(
+      `INSERT INTO model_configs (id, model_id, display_name, provider, description, is_enabled, default_temperature, default_max_tokens, sort_order) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        config.model_id,
+        config.display_name,
+        config.provider,
+        config.description || null,
+        config.is_enabled !== undefined ? config.is_enabled : 1,
+        config.default_temperature ? parseFloat(config.default_temperature) : 0.7,
+        config.default_max_tokens || 4096,
+        config.sort_order || 0,
+      ]
+    );
+    
+    const rows = await query<any[]>('SELECT * FROM model_configs WHERE id = ?', [id]);
+    const row = rows[0];
+    return {
+      id: row.id,
+      model_id: row.model_id,
+      display_name: row.display_name,
+      provider: row.provider,
+      description: row.description,
+      is_enabled: row.is_enabled,
+      default_temperature: row.default_temperature?.toString() || '0.7',
+      default_max_tokens: row.default_max_tokens,
+      sort_order: row.sort_order,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
 }
 
 export async function deleteModelConfig(id: string): Promise<void> {
-  const client = getSupabaseClient();
-  const { error } = await client.from('model_configs').delete().eq('id', id);
-  if (error) throw new Error(`Failed to delete model config: ${error.message}`);
+  await ensureDbInitialized();
+  await query('DELETE FROM model_configs WHERE id = ?', [id]);
+}
+
+export async function toggleModelConfig(id: string, isEnabled: boolean): Promise<void> {
+  await ensureDbInitialized();
+  await query('UPDATE model_configs SET is_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [isEnabled ? 1 : 0, id]);
 }
 
 // ============ API Keys ============
 
 export async function listApiKeys(): Promise<ApiKey[]> {
-  const client = getSupabaseClient();
-  const { data, error } = await client
-    .from('api_keys')
-    .select('*')
-    .order('provider', { ascending: true })
-    .limit(50);
-  if (error) throw new Error(`Failed to list API keys: ${error.message}`);
-  return (data as ApiKey[]) || [];
+  await ensureDbInitialized();
+  const rows = await query<any[]>(
+    'SELECT * FROM api_keys ORDER BY provider ASC LIMIT 50'
+  );
+  return rows.map(row => ({
+    id: row.id,
+    provider: row.provider,
+    provider_name: row.provider_name,
+    api_key_encrypted: row.api_key_encrypted,
+    base_url: row.base_url,
+    is_active: row.is_active,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }));
 }
 
 export async function getApiKey(provider: string): Promise<ApiKey | null> {
-  const client = getSupabaseClient();
-  const { data, error } = await client
-    .from('api_keys')
-    .select('*')
-    .eq('provider', provider)
-    .maybeSingle();
-  if (error) throw new Error(`Failed to get API key: ${error.message}`);
-  return data as ApiKey | null;
+  await ensureDbInitialized();
+  const rows = await query<any[]>(
+    'SELECT * FROM api_keys WHERE provider = ?',
+    [provider]
+  );
+  if (rows.length === 0) return null;
+  const row = rows[0];
+  return {
+    id: row.id,
+    provider: row.provider,
+    provider_name: row.provider_name,
+    api_key_encrypted: row.api_key_encrypted,
+    base_url: row.base_url,
+    is_active: row.is_active,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
 }
 
 export async function upsertApiKey(input: {
@@ -159,30 +333,69 @@ export async function upsertApiKey(input: {
   base_url?: string;
   is_active?: boolean;
 }): Promise<ApiKey> {
-  const client = getSupabaseClient();
-  const { data, error } = await client
-    .from('api_keys')
-    .upsert(
-      {
-        provider: input.provider,
-        provider_name: input.provider_name,
-        api_key_encrypted: input.api_key_encrypted,
-        base_url: input.base_url || null,
-        is_active: input.is_active !== false ? 1 : 0,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'provider' }
-    )
-    .select()
-    .single();
-  if (error) throw new Error(`Failed to upsert API key: ${error.message}`);
-  return data as ApiKey;
+  await ensureDbInitialized();
+  const existing = await query<any[]>(
+    'SELECT id FROM api_keys WHERE provider = ?',
+    [input.provider]
+  );
+  
+  if (existing.length > 0) {
+    const id = existing[0].id;
+    await query(
+      `UPDATE api_keys SET provider_name = ?, api_key_encrypted = ?, base_url = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [
+        input.provider_name,
+        input.api_key_encrypted,
+        input.base_url || null,
+        input.is_active !== false ? 1 : 0,
+        id,
+      ]
+    );
+    
+    const rows = await query<any[]>('SELECT * FROM api_keys WHERE id = ?', [id]);
+    const row = rows[0];
+    return {
+      id: row.id,
+      provider: row.provider,
+      provider_name: row.provider_name,
+      api_key_encrypted: row.api_key_encrypted,
+      base_url: row.base_url,
+      is_active: row.is_active,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  } else {
+    const id = randomUUID();
+    await query(
+      `INSERT INTO api_keys (id, provider, provider_name, api_key_encrypted, base_url, is_active) VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        input.provider,
+        input.provider_name,
+        input.api_key_encrypted,
+        input.base_url || null,
+        input.is_active !== false ? 1 : 0,
+      ]
+    );
+    
+    const rows = await query<any[]>('SELECT * FROM api_keys WHERE id = ?', [id]);
+    const row = rows[0];
+    return {
+      id: row.id,
+      provider: row.provider,
+      provider_name: row.provider_name,
+      api_key_encrypted: row.api_key_encrypted,
+      base_url: row.base_url,
+      is_active: row.is_active,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
 }
 
 export async function deleteApiKey(id: string): Promise<void> {
-  const client = getSupabaseClient();
-  const { error } = await client.from('api_keys').delete().eq('id', id);
-  if (error) throw new Error(`Failed to delete API key: ${error.message}`);
+  await ensureDbInitialized();
+  await query('DELETE FROM api_keys WHERE id = ?', [id]);
 }
 
 // ============ Seed default models ============
@@ -259,20 +472,26 @@ const DEFAULT_MODELS = [
 ];
 
 export async function seedDefaultModels(): Promise<void> {
-  const client = getSupabaseClient();
-  const { data: existing } = await client
-    .from('model_configs')
-    .select('id')
-    .limit(1);
+  await ensureDbInitialized();
+  const rows = await query<any[]>('SELECT id FROM model_configs LIMIT 1');
+  if (rows.length > 0) return;
 
-  if (existing && existing.length > 0) return;
-
-  const { error } = await client.from('model_configs').insert(
-    DEFAULT_MODELS.map((m) => ({
-      ...m,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }))
-  );
-  if (error) throw new Error(`Failed to seed default models: ${error.message}`);
+  for (const m of DEFAULT_MODELS) {
+    const id = randomUUID();
+    await query(
+      `INSERT INTO model_configs (id, model_id, display_name, provider, description, is_enabled, default_temperature, default_max_tokens, sort_order) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        m.model_id,
+        m.display_name,
+        m.provider,
+        m.description,
+        m.is_enabled,
+        parseFloat(m.default_temperature),
+        m.default_max_tokens,
+        m.sort_order,
+      ]
+    );
+  }
 }
