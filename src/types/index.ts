@@ -45,6 +45,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
   modelId?: string;
+  attachments?: Attachment[];
   createdAt: Date;
 }
 
@@ -102,8 +103,10 @@ export interface Attachment {
   type: 'image' | 'document' | 'code';
   mimeType: string;
   size: number;
+  /** Base64 data URL, e.g. "data:image/png;base64,iVBOR..." */
   url: string;
-  content?: string; // 文本内容
+  /** Decoded text content for text/code files */
+  content?: string;
 }
 
 // 文件树节点类型

@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip } from 'lucide-react';
-import { UploadArea } from './UploadArea';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Send, Paperclip, X, Image, FileText, Code } from 'lucide-react';
 import type { WorkspaceMessage, WorkspaceFile, Attachment } from '@/types';
 
 interface AiChatProps {
@@ -11,25 +10,123 @@ interface AiChatProps {
   files: WorkspaceFile[];
 }
 
+/** Maximum file size: 5MB */
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+/** Convert a File to a base64 data URL */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Classify a file into attachment type */
+function classifyFile(file: File): Attachment['type'] {
+  if (file.type.startsWith('image/')) return 'image';
+  const codeExts = ['.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.go', '.rs', '.c', '.cpp', '.h', '.css', '.html', '.json', '.yaml', '.yml', '.toml', '.sql', '.sh', '.bash', '.zsh'];
+  const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+  if (codeExts.includes(ext)) return 'code';
+  return 'document';
+}
+
+/** Icon for attachment type */
+function AttachmentTypeIcon({ type }: { type: Attachment['type'] }) {
+  switch (type) {
+    case 'image': return <Image className="w-3 h-3" />;
+    case 'code': return <Code className="w-3 h-3" />;
+    default: return <FileText className="w-3 h-3" />;
+  }
+}
+
 export function AiChat({ messages, onSendMessage, files }: AiChatProps) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [showUpload, setShowUpload] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Handle file selection and convert to base64
+  const handleFiles = useCallback(async (fileList: FileList | File[]) => {
+    const newAttachments: Attachment[] = [];
+    for (const file of Array.from(fileList)) {
+      if (file.size > MAX_FILE_SIZE) {
+        alert(`文件 "${file.name}" 超过 5MB 限制`);
+        continue;
+      }
+      try {
+        const base64 = await fileToBase64(file);
+        newAttachments.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          name: file.name,
+          type: classifyFile(file),
+          mimeType: file.type || 'application/octet-stream',
+          size: file.size,
+          url: base64,
+        });
+      } catch {
+        alert(`无法读取文件 "${file.name}"`);
+      }
+    }
+    setAttachments(prev => [...prev, ...newAttachments]);
+  }, []);
+
+  const removeAttachment = (id: string) => {
+    setAttachments(prev => prev.filter(a => a.id !== id));
+  };
+
+  // Drag & drop
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files.length > 0) {
+      handleFiles(e.dataTransfer.files);
+    }
+  }, [handleFiles]);
+
   const handleSend = () => {
-    if (!input.trim()) return;
+    if (!input.trim() && attachments.length === 0) return;
     onSendMessage(input, attachments.length > 0 ? attachments : undefined);
     setInput('');
     setAttachments([]);
   };
 
   return (
-    <div className="h-full flex flex-col bg-card border-l border-border">
+    <div
+      className="h-full flex flex-col bg-card border-l border-border relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-10 bg-primary/10 border-2 border-dashed border-primary rounded-lg flex items-center justify-center backdrop-blur-sm">
+          <div className="text-center">
+            <Paperclip className="w-6 h-6 mx-auto mb-2 text-primary" />
+            <p className="text-xs font-medium text-primary">释放以上传文件</p>
+          </div>
+        </div>
+      )}
+
       {/* 标题 */}
       <div className="h-10 flex items-center px-4 border-b border-border">
         <span className="text-sm font-medium">AI 编程助手</span>
@@ -42,6 +139,7 @@ export function AiChat({ messages, onSendMessage, files }: AiChatProps) {
             <div className="text-4xl mb-4">🤖</div>
             <p>开始与 AI 编程助手对话</p>
             <p className="text-xs mt-2">AI 可以帮你编写代码、解释概念、调试问题</p>
+            <p className="text-xs mt-1 text-muted-foreground/60">支持拖拽文件上传附件</p>
           </div>
         ) : (
           messages.map(message => (
@@ -56,12 +154,31 @@ export function AiChat({ messages, onSendMessage, files }: AiChatProps) {
                     : 'bg-muted'
                 }`}
               >
-                <div className="text-sm whitespace-pre-wrap">{message.content}</div>
+                {/* Attachments */}
                 {message.attachments && message.attachments.length > 0 && (
-                  <div className="mt-2 text-xs opacity-70">
-                    📎 {message.attachments.length} 个附件
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {message.attachments.map(att => (
+                      <div key={att.id} className="flex items-center gap-1">
+                        {att.type === 'image' ? (
+                          <img
+                            src={att.url}
+                            alt={att.name}
+                            className="max-w-[120px] max-h-[80px] rounded object-cover"
+                          />
+                        ) : (
+                          <div className={`flex items-center gap-1 rounded px-2 py-1 text-[10px] ${
+                            message.role === 'user' ? 'bg-primary-foreground/20' : 'bg-background/50'
+                          }`}>
+                            <AttachmentTypeIcon type={att.type} />
+                            <span className="max-w-[80px] truncate">{att.name}</span>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
+
+                <div className="text-sm whitespace-pre-wrap">{message.content}</div>
               </div>
             </div>
           ))
@@ -69,29 +186,22 @@ export function AiChat({ messages, onSendMessage, files }: AiChatProps) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 上传区域 */}
-      {showUpload && (
-        <div className="border-t border-border p-2">
-          <UploadArea
-            onUpload={url => {
-              setAttachments(prev => [...prev, { id: Date.now().toString(), name: "attachment", type: "image", mimeType: "image/png", size: 0, url }]);
-              setShowUpload(false);
-            }}
-          />
-        </div>
-      )}
-
       {/* 附件预览 */}
       {attachments.length > 0 && (
         <div className="border-t border-border p-2 flex gap-2 flex-wrap">
-          {attachments.map((url, i) => (
-            <div key={i} className="text-xs bg-muted rounded px-2 py-1 flex items-center gap-1">
-              📎 附件 {i + 1}
+          {attachments.map(att => (
+            <div key={att.id} className="group relative flex items-center gap-2 bg-muted rounded-lg px-2 py-1.5 text-xs">
+              {att.type === 'image' ? (
+                <img src={att.url} alt={att.name} className="w-6 h-6 rounded object-cover" />
+              ) : (
+                <AttachmentTypeIcon type={att.type} />
+              )}
+              <span className="max-w-[100px] truncate">{att.name}</span>
               <button
-                onClick={() => setAttachments(prev => prev.filter((_, idx) => idx !== i))}
-                className="text-destructive hover:text-destructive/80"
+                onClick={() => removeAttachment(att.id)}
+                className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-destructive text-destructive-foreground rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
               >
-                ×
+                <X className="w-2.5 h-2.5" />
               </button>
             </div>
           ))}
@@ -101,12 +211,27 @@ export function AiChat({ messages, onSendMessage, files }: AiChatProps) {
       {/* 输入区域 */}
       <div className="border-t border-border p-2">
         <div className="flex gap-2">
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={e => {
+              if (e.target.files) handleFiles(e.target.files);
+              e.target.value = '';
+            }}
+          />
+
+          {/* Paperclip button */}
           <button
-            onClick={() => setShowUpload(!showUpload)}
-            className="p-2 text-muted-foreground hover:text-foreground"
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-muted"
+            title="上传附件"
           >
             <Paperclip className="w-4 h-4" />
           </button>
+
           <input
             type="text"
             value={input}
@@ -122,7 +247,7 @@ export function AiChat({ messages, onSendMessage, files }: AiChatProps) {
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim()}
+            disabled={!input.trim() && attachments.length === 0}
             className="p-2 bg-primary text-primary-foreground rounded disabled:opacity-50"
           >
             <Send className="w-4 h-4" />
