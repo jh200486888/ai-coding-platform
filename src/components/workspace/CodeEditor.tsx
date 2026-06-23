@@ -1,46 +1,70 @@
 'use client';
 
-import dynamic from 'next/dynamic';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import CodeMirror from '@uiw/react-codemirror';
+import { javascript } from '@codemirror/lang-javascript';
+import { python } from '@codemirror/lang-python';
+import { html } from '@codemirror/lang-html';
+import { css } from '@codemirror/lang-css';
+import { json } from '@codemirror/lang-json';
+import { markdown } from '@codemirror/lang-markdown';
+import { sql } from '@codemirror/lang-sql';
+import { php } from '@codemirror/lang-php';
+import { java } from '@codemirror/lang-java';
+import { cpp } from '@codemirror/lang-cpp';
+import { rust } from '@codemirror/lang-rust';
+import { oneDark } from '@codemirror/theme-one-dark';
 import type { WorkspaceFile } from '@/types';
-
-const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false });
+import type { Extension } from '@codemirror/state';
 
 interface CodeEditorProps {
   file: WorkspaceFile | null;
   onChange?: (content: string) => void;
 }
 
-function getLanguageFromFilename(filename: string): string {
+function getLanguageExtension(filename: string): Extension {
   const ext = filename.split('.').pop()?.toLowerCase();
-  const languageMap: Record<string, string> = {
-    js: 'javascript',
-    jsx: 'javascript',
-    ts: 'typescript',
-    tsx: 'typescript',
-    py: 'python',
-    html: 'html',
-    css: 'css',
-    json: 'json',
-    md: 'markdown',
-    sql: 'sql',
-    sh: 'shell',
-    bash: 'shell',
-    yml: 'yaml',
-    yaml: 'yaml',
-    xml: 'xml',
-    java: 'java',
-    go: 'go',
-    rs: 'rust',
-    rb: 'ruby',
-    php: 'php',
-  };
-  return languageMap[ext || ''] || 'plaintext';
+  switch (ext) {
+    case 'js':
+    case 'jsx':
+    case 'ts':
+    case 'tsx':
+      return javascript({ typescript: ext === 'ts' || ext === 'tsx', jsx: ext === 'jsx' || ext === 'tsx' });
+    case 'py':
+      return python();
+    case 'html':
+    case 'htm':
+      return html();
+    case 'css':
+    case 'scss':
+    case 'less':
+      return css();
+    case 'json':
+      return json();
+    case 'md':
+    case 'markdown':
+      return markdown();
+    case 'sql':
+      return sql();
+    case 'php':
+      return php();
+    case 'java':
+      return java();
+    case 'c':
+    case 'cpp':
+    case 'h':
+    case 'hpp':
+      return cpp();
+    case 'rs':
+      return rust();
+    default:
+      return [];
+  }
 }
 
 export function CodeEditor({ file, onChange }: CodeEditorProps) {
   const [content, setContent] = useState('');
-  const [theme, setTheme] = useState<'vs-dark' | 'light'>('vs-dark');
+  const [isDark, setIsDark] = useState(true);
 
   useEffect(() => {
     if (file) {
@@ -50,11 +74,15 @@ export function CodeEditor({ file, onChange }: CodeEditorProps) {
     }
   }, [file]);
 
-  const handleChange = (value: string | undefined) => {
-    const newContent = value || '';
-    setContent(newContent);
-    onChange?.(newContent);
+  const handleChange = (value: string) => {
+    setContent(value);
+    onChange?.(value);
   };
+
+  const extensions = useMemo(() => {
+    if (!file) return [];
+    return [getLanguageExtension(file.name)];
+  }, [file]);
 
   if (!file) {
     return (
@@ -73,31 +101,48 @@ export function CodeEditor({ file, onChange }: CodeEditorProps) {
       <div className="h-10 bg-card border-b border-border flex items-center px-4">
         <span className="text-sm font-medium">{file.name}</span>
         <button
-          onClick={() => setTheme(theme === 'vs-dark' ? 'light' : 'vs-dark')}
+          onClick={() => setIsDark(!isDark)}
           className="ml-auto text-xs text-muted-foreground hover:text-foreground"
         >
-          {theme === 'vs-dark' ? '浅色' : '深色'}
+          {isDark ? '浅色' : '深色'}
         </button>
       </div>
 
       {/* 编辑器 */}
-      <div className="flex-1">
-        <MonacoEditor
-          height="100%"
-          language={getLanguageFromFilename(file.name)}
+      <div className="flex-1 overflow-auto">
+        <CodeMirror
           value={content}
+          height="100%"
+          theme={isDark ? oneDark : 'light'}
+          extensions={extensions}
           onChange={handleChange}
-          theme={theme}
-          options={{
-            minimap: { enabled: true },
-            fontSize: 14,
-            lineNumbers: 'on',
-            roundedSelection: false,
-            scrollBeyondLastLine: false,
-            readOnly: false,
-            automaticLayout: true,
-            tabSize: 2,
-            wordWrap: 'on',
+          basicSetup={{
+            lineNumbers: true,
+            highlightActiveLineGutter: true,
+            highlightSpecialChars: true,
+            history: true,
+            foldGutter: true,
+            drawSelection: true,
+            dropCursor: true,
+            allowMultipleSelections: true,
+            indentOnInput: true,
+            syntaxHighlighting: true,
+            bracketMatching: true,
+            closeBrackets: true,
+            autocompletion: true,
+            rectangularSelection: true,
+            crosshairCursor: false,
+            highlightActiveLine: true,
+            highlightSelectionMatches: true,
+            closeBracketsKeymap: true,
+            searchKeymap: true,
+            foldKeymap: true,
+            completionKeymap: true,
+            lintKeymap: true,
+          }}
+          style={{
+            fontSize: '14px',
+            height: '100%',
           }}
         />
       </div>
