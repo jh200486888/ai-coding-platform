@@ -4,7 +4,10 @@ const nextConfig: NextConfig = {
   // outputFileTracingRoot: path.resolve(__dirname, '../../'),  // Uncomment and add 'import path from "path"' if needed
   /* config options here */
   allowedDevOrigins: ['*.dev.coze.site'],
-  serverExternalPackages: ['mysql2'],
+  serverExternalPackages: ['mysql2', 'mysql2/promise'],
+  experimental: {
+    serverComponentsExternalPackages: ['mysql2', 'mysql2/promise'],
+  },
   images: {
     remotePatterns: [
       {
