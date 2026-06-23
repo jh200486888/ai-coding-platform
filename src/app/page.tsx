@@ -15,7 +15,7 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [models, setModels] = useState<ModelConfig[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState('doubao-seed-2-0-pro-260215');
+  const [selectedModel, setSelectedModel] = useState('deepseek-v4-flash');
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -29,7 +29,13 @@ export default function Home() {
       .then((d) => {
         if (d.data) {
           setModels(d.data);
-          if (d.data.length > 0) setSelectedModel(d.data[0].model_id);
+          // 优先选择 deepseek-v4-flash 作为默认模型
+          const defaultModel = d.data.find((m: ModelConfig) => m.model_id === 'deepseek-v4-flash');
+          if (defaultModel) {
+            setSelectedModel('deepseek-v4-flash');
+          } else if (d.data.length > 0) {
+            setSelectedModel(d.data[0].model_id);
+          }
         }
       })
       .catch(() => {});
