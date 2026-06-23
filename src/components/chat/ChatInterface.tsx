@@ -215,12 +215,14 @@ export function ChatInterface() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* 模型选择器 */}
-      <div className="border-b border-border p-4">
-        <ModelSelector
-          selectedModel={selectedModel}
-          onModelChange={setSelectedModel}
-        />
+      {/* 模型选择器 - 响应式 */}
+      <div className="border-b border-border px-3 py-2 md:px-4 md:py-3">
+        <div className="relative max-w-full">
+          <ModelSelector
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
+          />
+        </div>
       </div>
 
       {/* 消息列表 + 拖拽区域 */}
@@ -229,7 +231,7 @@ export function ChatInterface() {
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        className="flex-1 overflow-y-auto p-4 space-y-4 relative"
+        className="flex-1 overflow-y-auto p-3 md:p-4 space-y-4 relative"
       >
         {/* Drag overlay */}
         {isDragging && (
@@ -259,7 +261,7 @@ export function ChatInterface() {
 
       {/* 附件预览 */}
       {attachments.length > 0 && (
-        <div className="border-t border-border px-4 py-2 flex gap-2 flex-wrap">
+        <div className="border-t border-border px-3 py-2 md:px-4 flex gap-2 flex-wrap">
           {attachments.map(att => (
             <div
               key={att.id}
@@ -286,10 +288,10 @@ export function ChatInterface() {
         </div>
       )}
 
-      {/* 输入框 */}
-      <div className="border-t border-border p-4">
-        <form onSubmit={handleSubmit} className="flex gap-2">
-          {/* 附件按钮 */}
+      {/* 输入框 - 响应式 */}
+      <div className="border-t border-border px-3 py-3 md:px-4 md:py-4">
+        <form onSubmit={handleSubmit} className="flex gap-2 items-center">
+          {/* 附件按钮 - 始终可见 */}
           <input
             ref={fileInputRef}
             type="file"
@@ -303,7 +305,7 @@ export function ChatInterface() {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-muted"
+            className="p-2 text-muted-foreground hover:text-foreground transition-colors rounded-lg hover:bg-muted shrink-0"
             title="上传附件"
           >
             <Paperclip className="w-5 h-5" />
@@ -314,13 +316,13 @@ export function ChatInterface() {
             value={input}
             onChange={e => setInput(e.target.value)}
             placeholder="输入消息..."
-            className="flex-1 bg-input border border-border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
+            className="flex-1 min-w-0 bg-input border border-border rounded-lg px-3 py-2 text-sm md:text-base focus:outline-none focus:ring-2 focus:ring-primary"
             disabled={isLoading}
           />
           <button
             type="submit"
             disabled={isLoading || (!input.trim() && attachments.length === 0)}
-            className="bg-primary text-primary-foreground px-4 py-2 rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-primary text-primary-foreground px-3 py-2 rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
           >
             {isLoading ? (
               <Loader2 className="w-5 h-5 animate-spin" />

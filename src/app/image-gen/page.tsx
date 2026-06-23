@@ -103,26 +103,26 @@ export default function ImageGenPage() {
 
   return (
     <div className="flex flex-col h-screen">
-      {/* Header */}
-      <header className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-card">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="text-muted-foreground hover:text-foreground transition-colors">
+      {/* Header - 响应式 */}
+      <header className="flex items-center justify-between px-3 py-2.5 md:px-4 border-b border-border bg-card">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
+          <Link href="/" className="text-muted-foreground hover:text-foreground transition-colors shrink-0">
             <ArrowLeft className="w-4 h-4" />
           </Link>
-          <h1 className="text-base font-semibold">AI 图片生成</h1>
+          <h1 className="text-sm md:text-base font-semibold truncate">AI 图片生成</h1>
         </div>
-        <nav className="flex items-center gap-2">
-          <Link href="/" className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md hover:bg-muted transition-colors">
-            <MessageSquare className="w-3.5 h-3.5" />
-            对话
+        <nav className="flex items-center gap-1 md:gap-2">
+          <Link href="/" className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-md hover:bg-muted transition-colors">
+            <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden sm:inline">对话</span>
           </Link>
-          <Link href="/workspace" className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md hover:bg-muted transition-colors">
-            <Code2 className="w-3.5 h-3.5" />
-            工作区
+          <Link href="/workspace" className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-md hover:bg-muted transition-colors">
+            <Code2 className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden sm:inline">工作区</span>
           </Link>
-          <Link href="/admin" className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md hover:bg-muted transition-colors">
-            <Settings className="w-3.5 h-3.5" />
-            管理
+          <Link href="/admin" className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-md hover:bg-muted transition-colors">
+            <Settings className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden sm:inline">管理</span>
           </Link>
         </nav>
       </header>
