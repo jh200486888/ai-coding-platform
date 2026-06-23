@@ -5,9 +5,6 @@ const nextConfig: NextConfig = {
   /* config options here */
   allowedDevOrigins: ['*.dev.coze.site'],
   serverExternalPackages: ['mysql2', 'mysql2/promise'],
-  experimental: {
-    serverComponentsExternalPackages: ['mysql2', 'mysql2/promise'],
-  },
   images: {
     remotePatterns: [
       {
