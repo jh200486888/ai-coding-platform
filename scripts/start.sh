@@ -2,7 +2,6 @@
 set -Eeuo pipefail
 
 COZE_WORKSPACE_PATH="${COZE_WORKSPACE_PATH:-$(pwd)}"
-
 cd "${COZE_WORKSPACE_PATH}"
 
 # Read port from .preview if it exists, otherwise use DEPLOY_RUN_PORT or default 5000
@@ -16,5 +15,17 @@ export PORT
 export HOSTNAME="0.0.0.0"
 export COZE_PROJECT_ENV="${COZE_PROJECT_ENV:-PROD}"
 
-echo "Starting Next.js server on port ${PORT}..."
-exec pnpm next start -p "${PORT}"
+# Use standalone output if available
+STANDALONE_DIR=".next/standalone"
+if [ -f "${STANDALONE_DIR}/server.js" ]; then
+    echo "Starting standalone server on port ${PORT}..."
+    cd "${STANDALONE_DIR}"
+    exec node server.js
+elif [ -f "${STANDALONE_DIR}/workspace/projects/server.js" ]; then
+    echo "Starting standalone server on port ${PORT}..."
+    cd "${STANDALONE_DIR}/workspace/projects"
+    exec node server.js
+else
+    echo "Starting Next.js server on port ${PORT}..."
+    exec pnpm next start -p "${PORT}"
+fi
