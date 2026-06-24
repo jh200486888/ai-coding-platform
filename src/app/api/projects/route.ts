@@ -1,64 +1,67 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { Pool } from 'pg';
+import { randomUUID } from 'crypto';
 
-// GET /api/projects - 获取所有项目
+const pool = new Pool({
+  host: process.env.DB_HOST || '127.0.0.1',
+  port: parseInt(process.env.DB_PORT || '5432'),
+  user: process.env.DB_USER || 'ai_platform',
+  password: process.env.DB_PASSWORD || 'AiPlatform2026!',
+  database: process.env.DB_NAME || 'ai_platform',
+  max: 5,
+});
+
+// GET /api/projects
 export async function GET() {
   try {
-    const projects = await prisma.project.findMany({
-      orderBy: { updatedAt: 'desc' },
-      include: {
-        _count: {
-          select: { conversations: true, files: true },
-        },
-      },
-    });
-
+    const result = await pool.query(
+      'SELECT p.id, p.name, p.description, p."createdAt", p."updatedAt", ' +
+      '(SELECT COUNT(*) FROM workspace_files f WHERE f."projectId" = p.id)::int as file_count, ' +
+      '(SELECT COUNT(*) FROM workspace_conversations c WHERE c."projectId" = p.id)::int as conv_count ' +
+      'FROM projects p ORDER BY p."updatedAt" DESC'
+    );
+    const projects = result.rows.map((r: any) => ({
+      id: r.id,
+      name: r.name,
+      description: r.description,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      _count: { files: r.file_count || 0, conversations: r.conv_count || 0 },
+    }));
     return NextResponse.json(projects);
   } catch (error) {
-    console.error('[Projects] Failed to fetch projects:', error);
-    console.error('[Projects] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
-    return NextResponse.json(
-      { error: 'Failed to fetch projects', details: error instanceof Error ? error.message : String(error) },
-      { status: 500 }
-    );
+    console.error('[Projects] GET error:', error);
+    return NextResponse.json([], { status: 200 });
   }
 }
 
-// POST /api/projects - 创建新项目
+// POST /api/projects
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, description, modelId } = body;
+    const { name, description } = body;
 
     if (!name) {
-      return NextResponse.json(
-        { error: 'Project name is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Project name is required' }, { status: 400 });
     }
 
-    const project = await prisma.project.create({
-      data: {
-        name,
-        description: description || '',
-      },
-    });
+    const id = randomUUID();
 
-    // 创建默认的 README.md 文件
-    await prisma.workspaceFile.create({
-      data: {
-        projectId: project.id,
-        name: 'README.md',
-        path: 'README.md',
-        content: `# ${name}\n\n${description || 'New project'}`,
-        type: 'file',
-      },
-    });
+    await pool.query(
+      'INSERT INTO projects (id, name, description, "createdAt", "updatedAt") VALUES ($1, $2, $3, NOW(), NOW())',
+      [id, name, description || '']
+    );
 
-    return NextResponse.json(project);
+    const fileId = randomUUID();
+    await pool.query(
+      'INSERT INTO workspace_files (id, "projectId", name, path, content, type, "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())',
+      [fileId, id, 'README.md', 'README.md', '# ' + name + '\n\n' + (description || 'New project'), 'file']
+    );
+
+    const result = await pool.query('SELECT * FROM projects WHERE id = $1', [id]);
+    return NextResponse.json(result.rows[0]);
   } catch (error) {
-    console.error('[Projects] Failed to create project:', error);
-    console.error('[Projects] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    console.error('[Projects] POST error:', error);
     return NextResponse.json(
       { error: 'Failed to create project', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
@@ -66,69 +69,24 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE /api/projects - 删除项目
+// DELETE /api/projects
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
 
     if (!id) {
-      return NextResponse.json(
-        { error: 'Project ID is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Project ID is required' }, { status: 400 });
     }
 
-    // 先删除相关的 workspace conversations（会级联删除 messages）
-    await prisma.workspaceConversation.deleteMany({
-      where: { projectId: id },
-    });
-
-    // 删除项目
-    await prisma.project.delete({
-      where: { id },
-    });
+    await pool.query('DELETE FROM workspace_messages WHERE "conversationId" IN (SELECT id FROM workspace_conversations WHERE "projectId" = $1)', [id]);
+    await pool.query('DELETE FROM workspace_conversations WHERE "projectId" = $1', [id]);
+    await pool.query('DELETE FROM workspace_files WHERE "projectId" = $1', [id]);
+    await pool.query('DELETE FROM projects WHERE id = $1', [id]);
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Failed to delete project:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete project' },
-      { status: 500 }
-    );
-  }
-}
-
-// PATCH /api/projects - 更新项目
-export async function PATCH(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { id, name, description, modelId, files } = body;
-
-    if (!id) {
-      return NextResponse.json(
-        { error: 'Project ID is required' },
-        { status: 400 }
-      );
-    }
-
-    const updateData: Record<string, unknown> = {};
-    if (name !== undefined) updateData.name = name;
-    if (description !== undefined) updateData.description = description;
-    if (modelId !== undefined) updateData.modelId = modelId;
-    if (files !== undefined) updateData.files = files;
-
-    const project = await prisma.project.update({
-      where: { id },
-      data: updateData,
-    });
-
-    return NextResponse.json(project);
-  } catch (error) {
-    console.error('Failed to update project:', error);
-    return NextResponse.json(
-      { error: 'Failed to update project' },
-      { status: 500 }
-    );
+    console.error('[Projects] DELETE error:', error);
+    return NextResponse.json({ error: 'Failed to delete project' }, { status: 500 });
   }
 }

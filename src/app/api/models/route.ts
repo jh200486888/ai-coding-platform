@@ -1,96 +1,54 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { NextResponse } from 'next/server';
+import { listModelConfigs, upsertModelConfig, deleteModelConfig, seedDefaultModels } from '@/lib/db';
 
-// GET /api/models - 获取所有模型配置
 export async function GET() {
   try {
-    const models = await prisma.modelConfig.findMany({
-      orderBy: { sortOrder: 'asc' },
-    });
-    return NextResponse.json(models);
+    await seedDefaultModels();
+    const models = await listModelConfigs();
+    return NextResponse.json({ data: models });
   } catch (error) {
-    console.error('[Models] Failed to fetch models:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch models' },
-      { status: 500 }
-    );
+    const msg = error instanceof Error ? error.message : 'Internal server error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
-// POST /api/models - 创建新的模型配置
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { modelId, name, provider, isActive, sortOrder } = body;
+    const { model_id, display_name, provider, description, is_enabled, default_temperature, default_max_tokens, sort_order } = body;
 
-    if (!modelId || !name || !provider) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+    if (!model_id || !display_name || !provider) {
+      return NextResponse.json({ error: 'model_id, display_name, and provider are required' }, { status: 400 });
     }
 
-    // 检查是否已存在
-    const existing = await prisma.modelConfig.findFirst({
-      where: { modelId },
+    const config = await upsertModelConfig({
+      model_id,
+      display_name,
+      provider,
+      description,
+      is_enabled: is_enabled !== undefined ? (is_enabled ? 1 : 0) : 1,
+      default_temperature,
+      default_max_tokens,
+      sort_order,
     });
-
-    if (existing) {
-      // 更新已有模型
-      const updated = await prisma.modelConfig.update({
-        where: { id: existing.id },
-        data: {
-          name,
-          provider,
-          isActive: isActive !== undefined ? isActive : true,
-        },
-      });
-      return NextResponse.json(updated);
-    }
-
-    const newModel = await prisma.modelConfig.create({
-      data: {
-        modelId,
-        name,
-        provider,
-        isActive: isActive !== undefined ? isActive : true,
-        sortOrder: sortOrder || 0,
-      },
-    });
-
-    return NextResponse.json(newModel);
+    return NextResponse.json({ data: config });
   } catch (error) {
-    console.error('[Models] Failed to create model:', error);
-    return NextResponse.json(
-      { error: 'Failed to create model' },
-      { status: 500 }
-    );
+    const msg = error instanceof Error ? error.message : 'Internal server error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
 
-// DELETE /api/models - 删除模型配置
-export async function DELETE(request: NextRequest) {
+export async function DELETE(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
-
     if (!id) {
-      return NextResponse.json(
-        { error: 'Missing model ID' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'id is required' }, { status: 400 });
     }
-
-    await prisma.modelConfig.delete({
-      where: { id },
-    });
-
+    await deleteModelConfig(id);
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('[Models] Failed to delete model:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete model' },
-      { status: 500 }
-    );
+    const msg = error instanceof Error ? error.message : 'Internal server error';
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { query, queryOne, run } from '@/lib/db';
 
 // GET /api/workspace/files - 获取项目文件
 export async function GET(request: NextRequest) {
@@ -8,24 +8,18 @@ export async function GET(request: NextRequest) {
     const projectId = searchParams.get('projectId');
 
     if (!projectId) {
-      return NextResponse.json(
-        { error: 'Project ID is required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Project ID is required' }, { status: 400 });
     }
 
-    const files = await prisma.workspaceFile.findMany({
-      where: { projectId },
-      orderBy: { path: 'asc' },
-    });
+    const files = await query(
+      'SELECT id, "projectId", name, path, content, language, type, "parentId", "createdAt", "updatedAt" FROM workspace_files WHERE "projectId" = $1 ORDER BY path ASC',
+      [projectId]
+    );
 
     return NextResponse.json(files);
   } catch (error) {
     console.error('Failed to fetch files:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch files' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to fetch files' }, { status: 500 });
   }
 }
 
@@ -33,52 +27,38 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { projectId, path, content, name, language } = body;
+    const { projectId, path, content, name, language, type } = body;
 
     if (!projectId || !path) {
-      return NextResponse.json(
-        { error: 'Project ID and file path are required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Project ID and file path are required' }, { status: 400 });
     }
 
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-    });
+    // Check if file exists
+    const existing = await queryOne(
+      'SELECT id FROM workspace_files WHERE "projectId" = $1 AND path = $2',
+      [projectId, path]
+    );
 
-    if (!project) {
-      return NextResponse.json(
-        { error: 'Project not found' },
-        { status: 404 }
+    if (existing) {
+      // Update
+      await run(
+        'UPDATE workspace_files SET content = $1, name = $2, language = $3, "updatedAt" = NOW() WHERE id = $4',
+        [content || '', name || path.split('/').pop() || path, language || null, existing.id]
       );
+      return NextResponse.json({ success: true, action: 'updated', id: existing.id });
+    } else {
+      // Create
+      const { randomUUID } = await import('crypto');
+      const id = randomUUID();
+      await run(
+        'INSERT INTO workspace_files (id, "projectId", name, path, content, language, type, "updatedAt") VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())',
+        [id, projectId, name || path.split('/').pop() || path, path, content || '', language || null, type || 'file']
+      );
+      return NextResponse.json({ success: true, action: 'created', id });
     }
-
-    // 使用 upsert 创建或更新文件
-    const file = await prisma.workspaceFile.upsert({
-      where: {
-        projectId_path: { projectId, path },
-      },
-      update: {
-        content: content || '',
-        name: name || path.split('/').pop() || path,
-        language: language || null,
-      },
-      create: {
-        projectId,
-        path,
-        name: name || path.split('/').pop() || path,
-        content: content || '',
-        language: language || null,
-      },
-    });
-
-    return NextResponse.json({ success: true, file });
   } catch (error) {
     console.error('Failed to save file:', error);
-    return NextResponse.json(
-      { error: 'Failed to save file' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to save file' }, { status: 500 });
   }
 }
 
@@ -90,22 +70,17 @@ export async function DELETE(request: NextRequest) {
     const path = searchParams.get('path');
 
     if (!projectId || !path) {
-      return NextResponse.json(
-        { error: 'Project ID and file path are required' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Project ID and file path are required' }, { status: 400 });
     }
 
-    await prisma.workspaceFile.deleteMany({
-      where: { projectId, path },
-    });
+    await run(
+      'DELETE FROM workspace_files WHERE "projectId" = $1 AND path = $2',
+      [projectId, path]
+    );
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Failed to delete file:', error);
-    return NextResponse.json(
-      { error: 'Failed to delete file' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to delete file' }, { status: 500 });
   }
 }

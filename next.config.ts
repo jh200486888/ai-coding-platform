@@ -1,8 +1,10 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  // outputFileTracingRoot: path.resolve(__dirname, '../../'),  // Uncomment and add 'import path from "path"' if needed
+  /* config options here */
   allowedDevOrigins: ['*.dev.coze.site'],
-  serverExternalPackages: ['@prisma/client'],
+  serverExternalPackages: ['mysql2', 'mysql2/promise'],
   images: {
     remotePatterns: [
       {
@@ -11,12 +13,6 @@ const nextConfig: NextConfig = {
         pathname: '/**',
       },
     ],
-  },
-  experimental: {
-    serverActions: {
-      bodySizeLimit: '10mb',
-    },
-    optimizePackageImports: ['lucide-react', '@radix-ui/react-slot', '@radix-ui/react-dialog', '@radix-ui/react-tooltip', '@radix-ui/react-separator', '@radix-ui/react-label'],
   },
 };
 

@@ -160,3 +160,9 @@ Desktop.ini
 # Misc
 .coze-logs
 .codegraph
+agent-/
+backups/
+moshop-saas/
+hello.py
+public/cute-sheep.svg
+src/storage/

@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { Panel, Group, Separator } from 'react-resizable-panels';
+import Link from 'next/link';
+import { ArrowLeft } from 'lucide-react';
 import { FileTree } from './FileTree';
 import { CodeEditor } from './CodeEditor';
 import { AiChat } from './AiChat';
@@ -113,7 +115,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
     <div className="h-full flex flex-col">
       {/* Top toolbar: model selection */}
       <div className="h-10 border-b border-border bg-card flex items-center px-4 gap-3">
-        <span className="text-sm text-muted-foreground">模型:</span>
+        <Link href="/" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"><ArrowLeft size={14} /> 首页</Link><span className="text-sm text-muted-foreground ml-2">模型:</span>
         <select
           value={selectedModelId}
           onChange={(e) => setSelectedModelId(e.target.value)}

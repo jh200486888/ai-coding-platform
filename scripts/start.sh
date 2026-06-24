@@ -2,30 +2,16 @@
 set -Eeuo pipefail
 
 COZE_WORKSPACE_PATH="${COZE_WORKSPACE_PATH:-$(pwd)}"
-cd "${COZE_WORKSPACE_PATH}"
 
-# Read port from .preview if it exists, otherwise use DEPLOY_RUN_PORT or default 5000
-if [ -f "${COZE_WORKSPACE_PATH}/.preview" ]; then
-    PORT=$(cat "${COZE_WORKSPACE_PATH}/.preview" | grep -oE '[0-9]+' | head -1)
-else
-    PORT=${DEPLOY_RUN_PORT:-5000}
-fi
+PORT=5000
+DEPLOY_RUN_PORT="${DEPLOY_RUN_PORT:-$PORT}"
 
-export PORT
-export HOSTNAME="0.0.0.0"
-export COZE_PROJECT_ENV="${COZE_PROJECT_ENV:-PROD}"
 
-# Use standalone output if available
-STANDALONE_DIR=".next/standalone"
-if [ -f "${STANDALONE_DIR}/server.js" ]; then
-    echo "Starting standalone server on port ${PORT}..."
-    cd "${STANDALONE_DIR}"
-    exec node server.js
-elif [ -f "${STANDALONE_DIR}/workspace/projects/server.js" ]; then
-    echo "Starting standalone server on port ${PORT}..."
-    cd "${STANDALONE_DIR}/workspace/projects"
-    exec node server.js
-else
-    echo "Starting Next.js server on port ${PORT}..."
-    exec pnpm next start -p "${PORT}"
-fi
+start_service() {
+    cd "${COZE_WORKSPACE_PATH}"
+    echo "Starting HTTP service on port ${DEPLOY_RUN_PORT} for deploy..."
+    PORT=${DEPLOY_RUN_PORT} node dist/server.js
+}
+
+echo "Starting HTTP service on port ${DEPLOY_RUN_PORT} for deploy..."
+start_service

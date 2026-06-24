@@ -1,20 +1,25 @@
 'use client';
 
-import { User, Bot, Image, FileText, Code } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { User, Bot, Image, FileText, Code, Copy, Check, Pencil } from 'lucide-react';
 import type { Message, Attachment } from '@/types';
 
 interface MessageBubbleProps {
   message: Message;
+  isEditing?: boolean;
+  editContent?: string;
+  onEdit?: () => void;
+  onEditChange?: (v: string) => void;
+  onEditSave?: () => void;
+  onEditCancel?: () => void;
 }
 
-/** Format file size */
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Icon for attachment type */
 function AttachmentTypeIcon({ type }: { type: Attachment['type'] }) {
   switch (type) {
     case 'image':
@@ -26,23 +31,79 @@ function AttachmentTypeIcon({ type }: { type: Attachment['type'] }) {
   }
 }
 
-/** Attachment display component */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/_(.+?)_/g, '$1')
+    .replace(/~~(.+?)~~/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^[-*+]\s+/gm, '• ')
+    .replace(/^\d+\.\s+/gm, '')
+    .replace(/^>\s+/gm, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^---+$/gm, '──────────');
+}
+
+interface ContentSegment {
+  type: 'code' | 'text';
+  content: string;
+  lang?: string;
+}
+
+function parseContent(text: string): ContentSegment[] {
+  const segments: ContentSegment[] = [];
+  const regex = /```(\w*)\n?([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      const textBefore = text.slice(lastIndex, match.index).trim();
+      if (textBefore) segments.push({ type: 'text', content: textBefore });
+    }
+    segments.push({ type: 'code', lang: match[1] || '', content: match[2].replace(/\n$/, '') });
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    const remaining = text.slice(lastIndex).trim();
+    if (remaining) segments.push({ type: 'text', content: remaining });
+  }
+  if (segments.length === 0 && text) segments.push({ type: 'text', content: text });
+  return segments;
+}
+
+function CodeBlock({ content, lang }: { content: string; lang?: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }, [content]);
+  return (
+    <div className="my-2 rounded-lg overflow-hidden border border-border bg-[#1a1a2e]">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[#16162a] border-b border-border">
+        <span className="text-xs text-muted-foreground font-mono">{lang || 'code'}</span>
+        <button onClick={handleCopy} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-0.5 rounded hover:bg-muted/50">
+          {copied ? (<><Check className="w-3 h-3 text-green-400" /><span className="text-green-400">已复制</span></>) : (<><Copy className="w-3 h-3" /><span>复制</span></>)}
+        </button>
+      </div>
+      <pre className="p-3 overflow-x-auto text-sm"><code className="text-green-300 font-mono whitespace-pre">{content}</code></pre>
+    </div>
+  );
+}
+
 function AttachmentItem({ attachment }: { attachment: Attachment }) {
   if (attachment.type === 'image') {
     return (
       <div className="group relative">
-        <img
-          src={attachment.url}
-          alt={attachment.name}
-          className="max-w-[200px] max-h-[150px] rounded-lg object-cover border border-border/50"
-        />
-        <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] px-2 py-1 rounded-b-lg opacity-0 group-hover:opacity-100 transition-opacity truncate">
-          {attachment.name}
-        </div>
+        <img src={attachment.url} alt={attachment.name} className="max-w-[200px] max-h-[150px] rounded-lg object-cover border border-border/50" />
+        <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] px-2 py-1 rounded-b-lg opacity-0 group-hover:opacity-100 transition-opacity truncate">{attachment.name}</div>
       </div>
     );
   }
-
   return (
     <div className="flex items-center gap-2 bg-muted/50 border border-border/50 rounded-lg px-3 py-2 max-w-[200px]">
       <AttachmentTypeIcon type={attachment.type} />
@@ -54,52 +115,74 @@ function AttachmentItem({ attachment }: { attachment: Attachment }) {
   );
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+function RenderedContent({ content }: { content: string }) {
+  const segments = parseContent(content);
+  return (
+    <>
+      {segments.map((seg, i) => {
+        if (seg.type === 'code') return <CodeBlock key={i} content={seg.content} lang={seg.lang} />;
+        return <span key={i} className="whitespace-pre-wrap break-words">{stripMarkdown(seg.content)}</span>;
+      })}
+    </>
+  );
+}
+
+export function MessageBubble({ message, isEditing, editContent, onEdit, onEditChange, onEditSave, onEditCancel }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const hasAttachments = message.attachments && message.attachments.length > 0;
 
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-      <div
-        className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-          isUser ? 'bg-primary' : 'bg-muted'
-        }`}
-      >
-        {isUser ? (
-          <User className="w-4 h-4 text-primary-foreground" />
-        ) : (
-          <Bot className="w-4 h-4 text-muted-foreground" />
-        )}
+      <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isUser ? 'bg-primary' : 'bg-muted'}`}>
+        {isUser ? <User className="w-4 h-4 text-primary-foreground" /> : <Bot className="w-4 h-4 text-muted-foreground" />}
       </div>
-      <div
-        className={`flex-1 max-w-[80%] rounded-lg px-4 py-3 ${
-          isUser
-            ? 'bg-primary text-primary-foreground'
-            : 'bg-card border border-border'
-        }`}
-      >
-        {/* Attachments */}
+      <div className={`flex-1 max-w-[80%] rounded-lg px-4 py-3 ${isUser ? 'bg-primary text-primary-foreground' : 'bg-card border border-border'}`}>
         {hasAttachments && (
           <div className={`flex flex-wrap gap-2 mb-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
-            {message.attachments!.map(att => (
-              <AttachmentItem key={att.id} attachment={att} />
-            ))}
+            {message.attachments!.map(att => <AttachmentItem key={att.id} attachment={att} />)}
           </div>
         )}
 
-        {/* Text content */}
-        {message.content && (
-          <div className="text-sm whitespace-pre-wrap break-words">
-            {message.content}
+        {/* 编辑模式 */}
+        {isEditing && isUser ? (
+          <div className="space-y-2">
+            <textarea
+              value={editContent}
+              onChange={e => onEditChange?.(e.target.value)}
+              className="w-full bg-primary-foreground/10 text-primary-foreground border border-primary-foreground/20 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none"
+              rows={3}
+              autoFocus
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={onEditCancel} className="px-3 py-1 text-xs rounded-lg bg-primary-foreground/10 hover:bg-primary-foreground/20 transition-colors">取消</button>
+              <button onClick={onEditSave} className="px-3 py-1 text-xs rounded-lg bg-primary-foreground text-primary font-medium hover:bg-primary-foreground/90 transition-colors">发送</button>
+            </div>
           </div>
+        ) : (
+          <>
+            {message.content && (
+              <div className="text-sm break-words">
+                {isUser ? (
+                  <span className="whitespace-pre-wrap break-words">{message.content}</span>
+                ) : (
+                  <RenderedContent content={message.content} />
+                )}
+              </div>
+            )}
+            {/* 用户消息显示编辑按钮 */}
+            {isUser && message.content && !isEditing && (
+              <button
+                onClick={onEdit}
+                className="mt-1.5 flex items-center gap-1 text-[10px] text-primary-foreground/50 hover:text-primary-foreground/90 transition-colors"
+              >
+                <Pencil className="w-2.5 h-2.5" />
+                编辑
+              </button>
+            )}
+          </>
         )}
 
-        {/* Timestamp */}
-        <div
-          className={`text-xs mt-1 ${
-            isUser ? 'text-primary-foreground/70' : 'text-muted-foreground'
-          }`}
-        >
+        <div className={`text-xs mt-1 ${isUser ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
           {new Date(message.createdAt).toLocaleTimeString()}
         </div>
       </div>

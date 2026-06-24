@@ -96,8 +96,8 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
   // Model list content (shared)
   const modelListContent = (
     <>
-      {/* Search input (mobile) */}
-      {isMobile && (
+      {/* Search input */}
+      {(
         <div className="px-4 py-2 border-b border-border">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />

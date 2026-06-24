@@ -11,6 +11,7 @@ export const MODELS: AIModel[] = [
   { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'openai', description: '稳定版本' },
   { id: 'o3', name: 'o3', provider: 'openai', description: '推理模型' },
   { id: 'o3-mini', name: 'o3 Mini', provider: 'openai', description: '轻量推理模型' },
+  { id: 'gpt-image-2', name: 'GPT Image 2', provider: 'openai-image', description: '图片生成模型' },
 
   // Anthropic (4个)
   { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', provider: 'anthropic', description: '最强旗舰模型' },
@@ -67,6 +68,9 @@ export const MODELS: AIModel[] = [
 
   // Cohere (1个)
   { id: 'command-r-plus', name: 'Command R+', provider: 'cohere', description: '企业级模型' },
+
+  // Banana (1个)
+  { id: 'nano-banana-pro', name: 'Nano Banana Pro', provider: 'banana', description: '轻量极速模型' },
 ];
 
 // 厂商名称映射
@@ -84,6 +88,8 @@ const providerNames: Record<string, string> = {
   mistral: 'Mistral AI',
   xai: 'xAI',
   cohere: 'Cohere',
+  'openai-image': 'OpenAI Image',
+  banana: 'Banana',
 };
 
 // 按厂商分组
