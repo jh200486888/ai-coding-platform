@@ -9,8 +9,9 @@ export async function GET() {
     });
     return NextResponse.json(projects);
   } catch (error) {
-    console.error('Failed to fetch workspace projects:', error);
-    return NextResponse.json({ error: 'Failed to fetch projects' }, { status: 500 });
+    console.error('[Workspace Projects] Failed to fetch projects:', error);
+    console.error('[Workspace Projects] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    return NextResponse.json({ error: 'Failed to fetch projects', details: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }
 
@@ -33,7 +34,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(project, { status: 201 });
   } catch (error) {
-    console.error('Failed to create workspace project:', error);
-    return NextResponse.json({ error: 'Failed to create project' }, { status: 500 });
+    console.error('[Workspace Projects] Failed to create project:', error);
+    console.error('[Workspace Projects] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+    return NextResponse.json({ error: 'Failed to create project', details: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }

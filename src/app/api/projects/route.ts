@@ -15,9 +15,10 @@ export async function GET() {
 
     return NextResponse.json(projects);
   } catch (error) {
-    console.error('Failed to fetch projects:', error);
+    console.error('[Projects] Failed to fetch projects:', error);
+    console.error('[Projects] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     return NextResponse.json(
-      { error: 'Failed to fetch projects' },
+      { error: 'Failed to fetch projects', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
@@ -56,9 +57,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(project);
   } catch (error) {
-    console.error('Failed to create project:', error);
+    console.error('[Projects] Failed to create project:', error);
+    console.error('[Projects] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     return NextResponse.json(
-      { error: 'Failed to create project' },
+      { error: 'Failed to create project', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }

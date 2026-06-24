@@ -17,9 +17,10 @@ export async function GET() {
 
     return NextResponse.json(safeApiKeys);
   } catch (error) {
-    console.error('Failed to fetch API keys:', error);
+    console.error('[API Keys] Failed to fetch API keys:', error);
+    console.error('[API Keys] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     return NextResponse.json(
-      { error: 'Failed to fetch API keys' },
+      { error: 'Failed to fetch API keys', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
@@ -55,9 +56,10 @@ export async function POST(request: NextRequest) {
       apiKey: newApiKey.apiKey.substring(0, 8) + '...',
     });
   } catch (error) {
-    console.error('Failed to create API key:', error);
+    console.error('[API Keys] Failed to create API key:', error);
+    console.error('[API Keys] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     return NextResponse.json(
-      { error: 'Failed to create API key' },
+      { error: 'Failed to create API key', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
@@ -82,9 +84,10 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Failed to delete API key:', error);
+    console.error('[API Keys] Failed to delete API key:', error);
+    console.error('[API Keys] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
     return NextResponse.json(
-      { error: 'Failed to delete API key' },
+      { error: 'Failed to delete API key', details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
