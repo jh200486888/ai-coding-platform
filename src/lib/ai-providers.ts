@@ -7,7 +7,7 @@ export interface ProviderConfig {
   apiKeyPrefix?: string;
 }
 
-// 支持的 AI 提供商列表
+// 支持的 AI 提供商列表（去除 dashscope/volcengine 重复项）
 export const PROVIDERS: Record<string, ProviderConfig> = {
   deepseek: {
     id: 'deepseek',
@@ -69,16 +69,17 @@ export const PROVIDERS: Record<string, ProviderConfig> = {
     name: 'xAI',
     baseUrl: 'https://api.x.ai/v1',
   },
-  dashscope: {
-    id: 'dashscope',
-    name: '阿里百炼',
-    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  baidu: {
+    id: 'baidu',
+    name: '百度文心',
+    baseUrl: 'https://qianfan.baidubce.com/v2',
   },
-  volcengine: {
-    id: 'volcengine',
-    name: '火山引擎',
-    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
-  },
+};
+
+// Provider 别名映射：前端模型 provider → 数据库可能存储的 provider
+export const PROVIDER_ALIASES: Record<string, string[]> = {
+  qwen: ['dashscope'],
+  doubao: ['volcengine'],
 };
 
 // 获取提供商配置
@@ -91,6 +92,14 @@ export function getAllProviders(): ProviderConfig[] {
   return Object.values(PROVIDERS);
 }
 
+// 使用 OpenAI 兼容 Chat Completions 的厂商列表
+const OPENAI_COMPAT_PROVIDERS = new Set([
+  'deepseek', 'dashscope', 'zhipu', 'moonshot', 'yi',
+  'minimax', 'doubao', 'qianfan', 'hunyuan', 'openrouter',
+  'together', 'groq', 'mistral', 'xai', 'baidu', 'qwen',
+  'volcengine', 'cohere',
+]);
+
 // 根据提供商获取模型配置（用于 AI SDK）
 export function getModelByProvider(providerId: string, modelId: string, apiKey: string) {
   const provider = PROVIDERS[providerId];
@@ -98,26 +107,26 @@ export function getModelByProvider(providerId: string, modelId: string, apiKey: 
     throw new Error(`Provider ${providerId} not found`);
   }
 
-  // 动态导入对应的 AI SDK 提供商
+  if (OPENAI_COMPAT_PROVIDERS.has(providerId)) {
+    // 使用 OpenAI 兼容接口，强制走 chat completions API
+    const { createOpenAI } = require('@ai-sdk/openai');
+    const openai = createOpenAI({
+      apiKey,
+      baseURL: provider.baseUrl,
+    });
+    // 用 .chat() 强制走 /chat/completions 而非 /responses
+    return openai.chat(modelId);
+  }
+
   switch (providerId) {
-    case 'openai':
-    case 'deepseek':
-    case 'dashscope':
-    case 'zhipu':
-    case 'moonshot':
-    case 'yi':
-    case 'minimax':
-    case 'doubao':
-    case 'qianfan':
-    case 'hunyuan':
-    case 'openrouter':
-    case 'together': {
-      // 使用 OpenAI 兼容接口
+    case 'openai': {
       const { createOpenAI } = require('@ai-sdk/openai');
-      return createOpenAI({
+      const openai = createOpenAI({
         apiKey,
         baseURL: provider.baseUrl,
-      })(modelId);
+      });
+      // OpenAI 官方可以用 responses API
+      return openai(modelId);
     }
     case 'anthropic': {
       const { createAnthropic } = require('@ai-sdk/anthropic');

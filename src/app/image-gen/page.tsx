@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, MessageSquare, Code2, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { ArrowLeft, MessageSquare, Code2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { ControlPanel, getStylePrefix, type ImageGenParams } from '@/components/image-gen/ControlPanel';
 import { ImageDisplay, type GeneratedImage } from '@/components/image-gen/ImageDisplay';
 import { PromptInput } from '@/components/image-gen/PromptInput';
@@ -119,10 +119,6 @@ export default function ImageGenPage() {
           <Link href="/workspace" className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-md hover:bg-muted transition-colors">
             <Code2 className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden sm:inline">工作区</span>
-          </Link>
-          <Link href="/admin" className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-md hover:bg-muted transition-colors">
-            <Settings className="w-3.5 h-3.5 shrink-0" />
-            <span className="hidden sm:inline">管理</span>
           </Link>
         </nav>
       </header>

@@ -1,6 +1,5 @@
 import Link from 'next/link';
-import { ArrowLeft, Key, Settings } from 'lucide-react';
-import { ApiKeyManager } from '@/components/admin/ApiKeyManager';
+import { ArrowLeft, Settings } from 'lucide-react';
 import { ModelManager } from '@/components/admin/ModelManager';
 import { LogoutButton } from '@/components/admin/LogoutButton';
 
@@ -25,13 +24,8 @@ export default function AdminPage() {
       </header>
 
       {/* 主内容区 */}
-      <main className="max-w-4xl mx-auto p-6 space-y-8">
-        <section>
-          <ApiKeyManager />
-        </section>
-        <section>
-          <ModelManager />
-        </section>
+      <main className="max-w-4xl mx-auto p-6">
+        <ModelManager />
       </main>
     </div>
   );

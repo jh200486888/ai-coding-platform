@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, X, Check, Monitor, Smartphone, Search } from 'lucide-react';
-import type { ModelConfig } from '@/types';
+import { getAllModels, getModelsByProvider } from '@/lib/models';
 
 interface ModelSelectorProps {
   selectedModel: string;
@@ -11,22 +11,18 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorProps) {
-  const [models, setModels] = useState<ModelConfig[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [mounted, setMounted] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // 直接用前端模型列表，不走数据库
+  const models = getAllModels();
+  const providers = getModelsByProvider();
 
   useEffect(() => {
-    fetch('/api/models')
-      .then(res => res.json())
-      .then(data => setModels(data))
-      .catch(console.error);
+    setMounted(true);
   }, []);
 
   useEffect(() => {
@@ -54,7 +50,6 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
         setIsOpen(false);
       }
     };
-    // Delay to avoid immediate close from the trigger click
     const timer = setTimeout(() => {
       document.addEventListener('mousedown', handleClickOutside);
     }, 0);
@@ -76,26 +71,16 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
 
   const selectedModelConfig = models.find(m => m.id === selectedModel);
 
-  // Group by provider
-  const groupedModels = models.reduce((acc, model) => {
-    const provider = model.provider;
-    if (!acc[provider]) acc[provider] = [];
-    acc[provider].push(model);
-    return acc;
-  }, {} as Record<string, ModelConfig[]>);
-
   // Filter models by search query
-  const filteredGroupedModels = searchQuery.trim()
-    ? Object.entries(groupedModels).reduce((acc, [provider, providerModels]) => {
-        const q = searchQuery.toLowerCase();
-        const filtered = providerModels.filter(m =>
-          (m.displayName ?? m.name).toLowerCase().includes(q) ||
-          m.modelId.toLowerCase().includes(q)
-        );
-        if (filtered.length > 0) acc[provider] = filtered;
-        return acc;
-      }, {} as Record<string, ModelConfig[]>)
-    : groupedModels;
+  const filteredProviders = searchQuery.trim()
+    ? providers.map(p => ({
+        ...p,
+        models: p.models.filter(m =>
+          m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          m.id.toLowerCase().includes(searchQuery.toLowerCase())
+        ),
+      })).filter(p => p.models.length > 0)
+    : providers;
 
   const handleSelect = (modelId: string) => {
     onModelChange(modelId);
@@ -129,12 +114,12 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
       )}
       {/* Model list */}
       <div className="overflow-y-auto flex-1 overscroll-contain">
-        {Object.entries(filteredGroupedModels).map(([provider, providerModels]) => (
-          <div key={provider}>
+        {filteredProviders.map(provider => (
+          <div key={provider.id}>
             <div className="px-4 py-2 text-xs font-medium text-muted-foreground bg-muted/50 sticky top-0 z-10">
-              {provider}
+              {provider.name}
             </div>
-            {providerModels.map(model => (
+            {provider.models.map(model => (
               <button
                 key={model.id}
                 onClick={() => handleSelect(model.id)}
@@ -143,8 +128,10 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
                 }`}
               >
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium truncate">{model.displayName ?? model.name}</div>
-                  <div className="text-xs text-muted-foreground truncate">{model.modelId}</div>
+                  <div className="text-sm font-medium truncate">{model.name}</div>
+                  {model.description && (
+                    <div className="text-xs text-muted-foreground truncate">{model.description}</div>
+                  )}
                 </div>
                 {selectedModel === model.id && (
                   <Check className="w-4 h-4 text-primary shrink-0 ml-2" />
@@ -155,10 +142,10 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
         ))}
         {models.length === 0 && (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-            暂无可用模型，请先在后台管理中添加
+            暂无可用模型
           </div>
         )}
-        {models.length > 0 && Object.keys(filteredGroupedModels).length === 0 && (
+        {models.length > 0 && filteredProviders.length === 0 && (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">
             未找到匹配的模型
           </div>
@@ -179,15 +166,14 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
         <Monitor className="w-4 h-4 text-primary shrink-0 hidden md:block" />
         <Smartphone className="w-4 h-4 text-primary shrink-0 md:hidden" />
         <span className="text-sm font-medium truncate">
-          {selectedModelConfig ? (selectedModelConfig.displayName ?? selectedModelConfig.name) : '选择模型'}
+          {selectedModelConfig ? selectedModelConfig.name : '选择模型'}
         </span>
         <ChevronDown className={`w-4 h-4 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {/* Desktop: dropdown - rendered inline with click-outside detection */}
+      {/* Desktop: dropdown */}
       {!isMobile && isOpen && (
         <div ref={dropdownRef} className="absolute top-full left-0 mt-2 w-72 bg-card border border-border rounded-lg shadow-lg z-50 flex flex-col max-h-96 overflow-hidden">
-          {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <span className="text-sm font-semibold">选择模型</span>
           </div>
@@ -198,14 +184,11 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
       {/* Mobile: full-screen overlay via Portal */}
       {isMobile && isOpen && mounted && createPortal(
         <>
-          {/* Backdrop */}
           <div
             className="fixed inset-0 z-[9998] bg-black/60 backdrop-blur-sm"
             onClick={() => { setIsOpen(false); setSearchQuery(''); }}
           />
-          {/* Sheet */}
           <div className="fixed inset-x-0 bottom-0 z-[9999] bg-card border-t border-border rounded-t-2xl shadow-2xl flex flex-col max-h-[75vh] safe-area-pb">
-            {/* Drag handle + header */}
             <div className="flex flex-col items-center pt-3 pb-1 shrink-0">
               <div className="w-10 h-1 rounded-full bg-muted-foreground/30 mb-3" />
               <div className="flex items-center justify-between w-full px-4 pb-2">
@@ -220,7 +203,6 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
               </div>
             </div>
             {modelListContent}
-            {/* Safe area padding for iOS */}
             <div className="shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }} />
           </div>
         </>,

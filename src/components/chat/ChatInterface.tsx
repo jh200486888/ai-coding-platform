@@ -41,7 +41,7 @@ export function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('deepseek-v3');
+  const [selectedModel, setSelectedModel] = useState('deepseek-v4-pro');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -150,7 +150,7 @@ export function ChatInterface() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to get response');
+        let errorMsg = '请求失败，请检查 API Key 配置'; try { const errData = await response.json(); if (errData.error) errorMsg = errData.error; } catch {} throw new Error(errorMsg);
       }
 
       const reader = response.body?.getReader();
@@ -179,7 +179,7 @@ export function ChatInterface() {
             if (data === '[DONE]') continue;
             try {
               const parsed = JSON.parse(data);
-              if (parsed.text) {
+              if (parsed.error) { assistantContent += "❌ " + parsed.error; } else if (parsed.text) {
                 assistantContent += parsed.text;
               }
             } catch {
@@ -204,7 +204,7 @@ export function ChatInterface() {
         {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
-          content: '抱歉，发生了错误。请检查 API Key 配置是否正确。',
+          content: error instanceof Error ? error.message : '抱歉，发生了未知错误',
           createdAt: new Date(),
         },
       ]);

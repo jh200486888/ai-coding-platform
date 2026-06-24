@@ -1,6 +1,6 @@
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import Link from 'next/link';
-import { Code2, MessageSquare, Settings, Palette } from 'lucide-react';
+import { Code2, MessageSquare, Palette } from 'lucide-react';
 
 export default function Home() {
   return (
@@ -27,13 +27,6 @@ export default function Home() {
           >
             <Code2 className="w-4 h-4 shrink-0" />
             <span className="hidden sm:inline">编程工作区</span>
-          </Link>
-          <Link
-            href="/admin"
-            className="flex items-center gap-1.5 px-2.5 py-2 text-xs md:text-sm font-medium rounded-md hover:bg-muted transition-colors"
-          >
-            <Settings className="w-4 h-4 shrink-0" />
-            <span className="hidden sm:inline">后台管理</span>
           </Link>
         </nav>
       </header>

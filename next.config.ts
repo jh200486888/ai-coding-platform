@@ -3,7 +3,6 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   allowedDevOrigins: ['*.dev.coze.site'],
   serverExternalPackages: ['@prisma/client'],
-  output: 'standalone',
   images: {
     remotePatterns: [
       {
