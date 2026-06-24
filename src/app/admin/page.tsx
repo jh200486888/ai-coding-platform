@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { ArrowLeft, Key, Settings } from 'lucide-react';
 import { ApiKeyManager } from '@/components/admin/ApiKeyManager';
 import { ModelManager } from '@/components/admin/ModelManager';
+import { LogoutButton } from '@/components/admin/LogoutButton';
 
 export default function AdminPage() {
   return (
@@ -20,6 +21,7 @@ export default function AdminPage() {
           </div>
           <h1 className="text-lg font-semibold">后台管理</h1>
         </div>
+        <LogoutButton />
       </header>
 
       {/* 主内容区 */}

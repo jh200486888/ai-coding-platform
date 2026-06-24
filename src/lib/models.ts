@@ -88,6 +88,8 @@ export function getModelsByProvider(): Provider[] {
     mistral: 'Mistral AI',
     xai: 'xAI',
     cohere: 'Cohere',
+    dashscope: '阿里百炼',
+    volcengine: '火山引擎',
   };
 
   return Array.from(providerMap.entries()).map(([id, models]) => ({
@@ -136,6 +138,8 @@ export function getProviders(): Provider[] {
     mistral: 'Mistral AI',
     xai: 'xAI',
     cohere: 'Cohere',
+    dashscope: '阿里百炼',
+    volcengine: '火山引擎',
   };
 
   return Array.from(providerMap.entries()).map(([id, models]) => ({

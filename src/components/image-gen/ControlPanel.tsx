@@ -105,15 +105,39 @@ export function ControlPanel({ params, onChange }: ControlPanelProps) {
     if (file && file.type.startsWith('image/')) handleFile(file);
   }, [handleFile]);
 
+  // Model definitions
+  const MODELS = [
+    { id: 'gpt-image-2', name: 'GPT Image 2', provider: 'OpenAI', desc: '最新一代', maxN: 10, supportsEdit: true },
+    { id: 'qwen-image-2.0', name: '通义万相 2.0', provider: '阿里百炼', desc: '7B 模型', maxN: 4, supportsEdit: false },
+    { id: 'qwen-image-2.0-pro', name: '通义万相 2.0 Pro', provider: '阿里百炼', desc: '更高精度', maxN: 4, supportsEdit: false },
+    { id: 'wan2.6-t2i', name: '万相 2.6', provider: '阿里百炼', desc: '推荐版', maxN: 4, supportsEdit: false },
+    { id: 'SeedDream-3.0', name: '即梦 3.0', provider: '火山引擎', desc: '中文理解极强', maxN: 4, supportsEdit: false },
+  ];
+
+  const currentModel = MODELS.find(m => m.id === params.model) || MODELS[0];
+
+  // Update max count based on selected model
+  const availableCounts = COUNTS.filter(c => c.id <= currentModel.maxN);
+
   return (
     <div className="w-[280px] flex-shrink-0 border-r border-border bg-card overflow-y-auto p-4 space-y-5">
       {/* Model */}
       <section>
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">模型</h3>
-        <div className="px-3 py-2 rounded-lg bg-primary/10 border border-primary/30 text-xs">
-          <span className="font-medium text-primary">GPT Image 2</span>
-          <span className="text-muted-foreground ml-2">最新一代</span>
-        </div>
+        <select
+          value={params.model}
+          onChange={(e) => update('model', e.target.value)}
+          className="w-full px-3 py-2 rounded-lg bg-muted/50 border border-border text-sm focus:outline-none focus:border-primary transition-colors"
+        >
+          {MODELS.map(m => (
+            <option key={m.id} value={m.id}>
+              {m.name} ({m.provider}) - {m.desc}
+            </option>
+          ))}
+        </select>
+        {currentModel.supportsEdit && (
+          <p className="text-[10px] text-muted-foreground mt-1">支持参考图编辑</p>
+        )}
       </section>
 
       {/* Aspect Ratio */}
@@ -214,7 +238,7 @@ export function ControlPanel({ params, onChange }: ControlPanelProps) {
       <section>
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">生成数量</h3>
         <div className="flex gap-2">
-          {COUNTS.map(c => (
+          {availableCounts.map(c => (
             <button
               key={c.id}
               onClick={() => update('count', c.id)}

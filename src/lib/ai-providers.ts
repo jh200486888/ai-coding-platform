@@ -69,6 +69,16 @@ export const PROVIDERS: Record<string, ProviderConfig> = {
     name: 'xAI',
     baseUrl: 'https://api.x.ai/v1',
   },
+  dashscope: {
+    id: 'dashscope',
+    name: '阿里百炼',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  },
+  volcengine: {
+    id: 'volcengine',
+    name: '火山引擎',
+    baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
+  },
 };
 
 // 获取提供商配置

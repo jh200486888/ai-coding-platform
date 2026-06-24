@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { streamText, type ModelMessage } from 'ai';
 import { prisma } from '@/lib/db';
-import { getModelByProvider } from '@/lib/ai-providers';
+import { getModelByProvider, decodeApiKey } from '@/lib/ai-providers';
 import { getModelById } from '@/lib/models';
 
 interface AttachmentPayload {
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 获取 AI 模型实例
-    const model = getModelByProvider(modelConfig.provider, modelConfig.id, apiKey.apiKey);
+    const model = getModelByProvider(modelConfig.provider, modelConfig.id, decodeApiKey(apiKey.apiKey));
     if (!model) {
       return new Response(
         JSON.stringify({ error: `Failed to create model for provider ${modelConfig.provider}` }),
