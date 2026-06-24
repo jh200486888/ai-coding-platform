@@ -2,14 +2,14 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, MessageSquare, Code2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { MessageSquare, Code2, PanelLeftClose, PanelLeftOpen, Palette } from 'lucide-react';
 import { ControlPanel, getStylePrefix, type ImageGenParams } from '@/components/image-gen/ControlPanel';
 import { ImageDisplay, type GeneratedImage } from '@/components/image-gen/ImageDisplay';
 import { PromptInput } from '@/components/image-gen/PromptInput';
 import { GenerationHistory, loadHistory, saveHistory, clearHistory } from '@/components/image-gen/GenerationHistory';
 
 const DEFAULT_PARAMS: ImageGenParams = {
-  model: 'gpt-image-2',
+  model: 'qwen-image-2.0',
   ratio: '1:1',
   resolution: '1k',
   quality: 'low',
@@ -106,8 +106,8 @@ export default function ImageGenPage() {
       {/* Header - 响应式 */}
       <header className="flex items-center justify-between px-3 py-2.5 md:px-4 border-b border-border bg-card">
         <div className="flex items-center gap-2 md:gap-3 min-w-0">
-          <Link href="/" className="text-muted-foreground hover:text-foreground transition-colors shrink-0">
-            <ArrowLeft className="w-4 h-4" />
+          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shrink-0"><Palette className="w-5 h-5 text-primary-foreground" /></div>
           </Link>
           <h1 className="text-sm md:text-base font-semibold truncate">AI 图片生成</h1>
         </div>

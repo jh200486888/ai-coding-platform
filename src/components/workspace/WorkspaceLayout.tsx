@@ -7,7 +7,7 @@ import { CodeEditor } from './CodeEditor';
 import { AiChat } from './AiChat';
 import { Terminal } from './Terminal';
 import { getAllModels } from '@/lib/models';
-import type { WorkspaceFile, WorkspaceMessage, Attachment } from '@/types';
+import type { WorkspaceFile } from '@/types';
 
 interface WorkspaceLayoutProps {
   projectId: string;
@@ -16,26 +16,20 @@ interface WorkspaceLayoutProps {
 export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [activeFile, setActiveFile] = useState<WorkspaceFile | null>(null);
-  const [messages, setMessages] = useState<WorkspaceMessage[]>([]);
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
   const [showTerminal, setShowTerminal] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState('deepseek-v4-pro');
 
   const allModels = getAllModels();
 
-  // 加载项目文件
-  useEffect(() => {
-    fetchFiles();
-    fetchMessages();
-  }, [projectId]);
-
+  // Load project files
   const fetchFiles = async () => {
     try {
       const response = await fetch(`/api/workspace/files?projectId=${projectId}`);
       if (response.ok) {
         const data = await response.json();
         setFiles(data);
-        // 自动选中第一个文件
+        // Auto-select first file
         if (data.length > 0 && data.some((f: WorkspaceFile) => f.type === 'file')) {
           const firstFile = data.find((f: WorkspaceFile) => f.type === 'file');
           if (firstFile) setActiveFile(firstFile);
@@ -46,40 +40,18 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
     }
   };
 
-  const fetchMessages = async () => {
-    try {
-      const response = await fetch(`/api/workspace/conversations?project_id=${projectId}`);
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data) && data.length > 0) {
-          const msgs = data.map((m: any) => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            conversationId: m.conversationId,
-            createdAt: m.createdAt,
-          }));
-          setMessages(msgs);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load messages:', err);
-    }
-  };
+  useEffect(() => {
+    fetchFiles();
+  }, [projectId]);
 
   const handleFileCreate = async (name: string, type: 'file' | 'folder', parentId?: string) => {
-    const path = name; // 简化：文件名即路径
+    const path = name;
     const response = await fetch('/api/workspace/files', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId, path, name, type, content: '' }),
     });
     if (response.ok) {
-      const result = await response.json();
-      if (result.file) {
-        setFiles(prev => [...prev, result.file]);
-      }
-      // 重新加载确保同步
       fetchFiles();
     }
   };
@@ -92,9 +64,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
     });
     if (response.ok) {
       setFiles(prev => prev.filter(f => f.id !== fileId));
-      if (activeFile?.id === fileId) {
-        setActiveFile(null);
-      }
+      if (activeFile?.id === fileId) setActiveFile(null);
     }
   };
 
@@ -114,113 +84,34 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
   };
 
   const handleFileSelect = (file: WorkspaceFile) => {
-    if (file.type === 'file') {
-      setActiveFile(file);
-    }
+    if (file.type === 'file') setActiveFile(file);
   };
 
-  const handleSendMessage = async (content: string, attachments?: Attachment[]) => {
-    const userMessage: WorkspaceMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content,
-      attachments,
-      conversationId: projectId,
-      createdAt: new Date(),
-    };
-    setMessages(prev => [...prev, userMessage]);
-
-    try {
-      const response = await fetch('/api/workspace/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationId: projectId,
-          modelId: selectedModelId,
-          messages: [...messages, userMessage].map(m => ({
-            role: m.role,
-            content: m.content,
-          })),
-          files: files.reduce((acc, f) => {
-            if (f.type === 'file' && f.content) {
-              acc[f.path] = f.content;
-            }
-            return acc;
-          }, {} as Record<string, string>),
-        }),
-      });
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || '请求失败');
-      }
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let assistantContent = '';
-
-      const assistantMessage: WorkspaceMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: '',
-        conversationId: projectId,
-        createdAt: new Date(),
-      };
-
-      setMessages(prev => [...prev, assistantMessage]);
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value);
-          assistantContent += chunk;
-
-          setMessages(prev =>
-            prev.map(m =>
-              m.id === assistantMessage.id
-                ? { ...m, content: assistantContent }
-                : m
-            )
-          );
-        }
-      }
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : '未知错误';
-      const errorMessage: WorkspaceMessage = {
-        id: (Date.now() + 2).toString(),
-        role: 'assistant',
-        content: `❌ ${errMsg}`,
-        conversationId: projectId,
-        createdAt: new Date(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
-    }
+  // Called when AI tool calls change files — refresh file list
+  const handleFilesChanged = () => {
+    fetchFiles();
   };
 
   const handleTerminalCommand = async (command: string) => {
     setTerminalOutput(prev => [...prev, `$ ${command}`]);
-
     try {
       const response = await fetch('/api/workspace/terminal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ conversationId: projectId, command }),
       });
-
       const data = await response.json();
       if (data.output) {
         setTerminalOutput(prev => [...prev, data.output]);
       }
-    } catch (error) {
+    } catch {
       setTerminalOutput(prev => [...prev, 'Error executing command']);
     }
   };
 
   return (
     <div className="h-full flex flex-col">
-      {/* 顶部工具栏：模型选择 */}
+      {/* Top toolbar: model selection */}
       <div className="h-10 border-b border-border bg-card flex items-center px-4 gap-3">
         <span className="text-sm text-muted-foreground">模型:</span>
         <select
@@ -234,14 +125,14 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
         </select>
         <div className="flex-1" />
         <span className="text-xs text-muted-foreground">
-          {files.length} 个文件
+          {files.filter(f => f.type === 'file').length} 个文件
         </span>
       </div>
 
       <Group orientation="vertical" className="flex-1">
         <Panel defaultSize={showTerminal ? 75 : 100} minSize={50}>
           <Group orientation="horizontal" className="h-full">
-            {/* 文件树 */}
+            {/* File tree */}
             <Panel defaultSize={20} minSize={15} maxSize={35}>
               <FileTree
                 files={files}
@@ -254,26 +145,25 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
 
             <Separator className="w-1 bg-border hover:bg-primary transition-colors" />
 
-            {/* 代码编辑器 */}
+            {/* Code editor */}
             <Panel defaultSize={50} minSize={30}>
               <CodeEditor
                 file={activeFile}
                 onChange={content => {
-                  if (activeFile) {
-                    handleFileUpdate(activeFile.id, content);
-                  }
+                  if (activeFile) handleFileUpdate(activeFile.id, content);
                 }}
               />
             </Panel>
 
             <Separator className="w-1 bg-border hover:bg-primary transition-colors" />
 
-            {/* AI 对话 */}
+            {/* AI chat */}
             <Panel defaultSize={30} minSize={20} maxSize={50}>
               <AiChat
-                messages={messages}
-                onSendMessage={handleSendMessage}
+                projectId={projectId}
+                modelId={selectedModelId}
                 files={files}
+                onFilesChanged={handleFilesChanged}
               />
             </Panel>
           </Group>
@@ -293,7 +183,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
         )}
       </Group>
 
-      {/* 底部工具栏 */}
+      {/* Bottom toolbar */}
       <div className="h-10 border-t border-border bg-card flex items-center px-4 gap-4">
         <button
           onClick={() => setShowTerminal(!showTerminal)}

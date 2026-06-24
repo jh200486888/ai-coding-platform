@@ -107,10 +107,11 @@ export function ControlPanel({ params, onChange }: ControlPanelProps) {
 
   // Model definitions
   const MODELS = [
-    { id: 'gpt-image-2', name: 'GPT Image 2', provider: 'OpenAI', desc: '最新一代', maxN: 10, supportsEdit: true },
-    { id: 'qwen-image-2.0', name: '通义万相 2.0', provider: '阿里百炼', desc: '7B 模型', maxN: 4, supportsEdit: false },
-    { id: 'qwen-image-2.0-pro', name: '通义万相 2.0 Pro', provider: '阿里百炼', desc: '更高精度', maxN: 4, supportsEdit: false },
+    { id: 'qwen-image-2.0', name: '通义万相 2.0', provider: '阿里百炼', desc: '快速生图', maxN: 4, supportsEdit: false },
+    { id: 'qwen-image-2.0-pro', name: '通义万相 2.0 Pro', provider: '阿里百炼', desc: '高清生图', maxN: 4, supportsEdit: false },
     { id: 'wan2.6-t2i', name: '万相 2.6', provider: '阿里百炼', desc: '推荐版', maxN: 4, supportsEdit: false },
+    { id: 'wanx-v1-edit', name: '万相图生图', provider: '阿里百炼', desc: '参考图改图', maxN: 4, supportsEdit: true },
+    { id: 'gpt-image-2', name: 'GPT Image 2', provider: 'OpenAI', desc: '需API Key', maxN: 10, supportsEdit: true },
     { id: 'SeedDream-3.0', name: '即梦 3.0', provider: '火山引擎', desc: '中文理解极强', maxN: 4, supportsEdit: false },
   ];
 
@@ -136,7 +137,7 @@ export function ControlPanel({ params, onChange }: ControlPanelProps) {
           ))}
         </select>
         {currentModel.supportsEdit && (
-          <p className="text-[10px] text-muted-foreground mt-1">支持参考图编辑</p>
+          <p className="text-[10px] text-muted-foreground mt-1">✅ 支持上传参考图，AI 按要求改图</p>
         )}
       </section>
 
@@ -276,7 +277,7 @@ export function ControlPanel({ params, onChange }: ControlPanelProps) {
 
       {/* Reference Image */}
       <section>
-        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">参考图 (图生图)</h3>
+        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">参考图 (电商海报/图生图)</h3>
         {params.referenceImage ? (
           <div className="relative group">
             <img

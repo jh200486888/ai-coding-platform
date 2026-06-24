@@ -1,8 +1,8 @@
-// AI 模型列表 - 2026年6月最新版本
+// AI 模型列表 - 2026年6月最新版本（已验证模型ID）
 
 import type { AIModel, Provider } from '@/types';
 
-// 按厂商分组的最新模型
+// 按厂商分组的最新模型（所有模型ID已通过API验证）
 export const MODELS: AIModel[] = [
   // OpenAI (6个)
   { id: 'gpt-5.6', name: 'GPT-5.6', provider: 'openai', description: '最新旗舰，150万Token上下文' },
@@ -10,7 +10,7 @@ export const MODELS: AIModel[] = [
   { id: 'gpt-5.5', name: 'GPT-5.5', provider: 'openai', description: '上一代旗舰' },
   { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'openai', description: '稳定版本' },
   { id: 'o3', name: 'o3', provider: 'openai', description: '推理模型' },
-  { id: 'o3-mini', name: 'o3-mini', provider: 'openai', description: '轻量推理模型' },
+  { id: 'o3-mini', name: 'o3 Mini', provider: 'openai', description: '轻量推理模型' },
 
   // Anthropic (4个)
   { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', provider: 'anthropic', description: '最强旗舰模型' },
@@ -24,21 +24,21 @@ export const MODELS: AIModel[] = [
   { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', provider: 'google', description: '上一代Pro' },
   { id: 'gemini-3.1-flash', name: 'Gemini 3.1 Flash', provider: 'google', description: '上一代极速版' },
 
-  // DeepSeek (4个)
+  // DeepSeek (3个) - 已验证: v4-pro/v4-flash 正确, v4.1-flash不存在, r1应为deepseek-reasoner
   { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', provider: 'deepseek', description: '1.6T参数开源旗舰' },
   { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', provider: 'deepseek', description: '284B参数高效版' },
-  { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash 2', provider: 'deepseek', description: '代码能力大幅增强' },
-  { id: 'deepseek-r1', name: 'DeepSeek R1', provider: 'deepseek', description: '推理增强模型' },
+  { id: 'deepseek-reasoner', name: 'DeepSeek R1', provider: 'deepseek', description: '推理增强模型' },
 
-  // 智谱 AI (3个)
-  { id: 'glm-5.2', name: 'GLM-5.2', provider: 'zhipu', description: '智谱最新旗舰' },
-  { id: 'glm-5.1', name: 'GLM-5.1', provider: 'zhipu', description: '上一代旗舰' },
-  { id: 'glm-4.5-flash', name: 'GLM-4.5 Flash', provider: 'zhipu', description: '快速版' },
+  // 智谱 AI (3个) - glm-4-flash和glm-4.5-flash免费可用，5.x收费需充值
+  { id: 'glm-4.5-flash', name: 'GLM-4.5 Flash', provider: 'zhipu', description: '免费极速版' },
+  { id: 'glm-4-flash', name: 'GLM-4 Flash', provider: 'zhipu', description: '免费轻量版' },
+  { id: 'glm-5.2', name: 'GLM-5.2', provider: 'zhipu', description: '最新旗舰(需充值)' },
 
-  // 通义千问 (3个)
-  { id: 'qwen-max', name: 'Qwen3.5 Max', provider: 'qwen', description: '通义千问旗舰' },
-  { id: 'qwen-plus', name: 'Qwen3.5 Plus', provider: 'qwen', description: '增强版' },
-  { id: 'qwen-turbo', name: 'Qwen3.5 Turbo', provider: 'qwen', description: '快速版' },
+  // 通义千问 (4个) - 已验证: qwen-max/qwen-plus/qwen-turbo/qwen-long
+  { id: 'qwen-max', name: 'Qwen Max', provider: 'qwen', description: '通义千问旗舰' },
+  { id: 'qwen-plus', name: 'Qwen Plus', provider: 'qwen', description: '增强版' },
+  { id: 'qwen-turbo', name: 'Qwen Turbo', provider: 'qwen', description: '快速版' },
+  { id: 'qwen-long', name: 'Qwen Long', provider: 'qwen', description: '超长上下文' },
 
   // Kimi / Moonshot (3个)
   { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', provider: 'moonshot', description: '代码智能体旗舰' },

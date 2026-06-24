@@ -2,16 +2,18 @@ import { ChatInterface } from '@/components/chat/ChatInterface';
 import Link from 'next/link';
 import { Code2, MessageSquare, Palette } from 'lucide-react';
 
-export default function Home() {
+export default function HomePage() {
   return (
     <div className="flex flex-col h-screen">
       {/* 顶部导航栏 - 响应式 */}
       <header className="flex items-center justify-between px-3 py-3 md:px-4 border-b border-border bg-card">
         <div className="flex items-center gap-2 md:gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shrink-0">
-            <MessageSquare className="w-5 h-5 text-primary-foreground" />
-          </div>
-          <h1 className="text-base md:text-lg font-semibold truncate">AI 编程平台</h1>
+          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shrink-0">
+              <MessageSquare className="w-5 h-5 text-primary-foreground" />
+            </div>
+            <h1 className="text-base md:text-lg font-semibold truncate">AI 编程平台</h1>
+          </Link>
         </div>
         <nav className="flex items-center gap-1 md:gap-2">
           <Link

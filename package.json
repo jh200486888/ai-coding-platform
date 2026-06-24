@@ -16,6 +16,7 @@
     "@ai-sdk/anthropic": "^3.0.85",
     "@ai-sdk/google": "^3.0.83",
     "@ai-sdk/openai": "^3.0.74",
+    "@ai-sdk/react": "^3.0.211",
     "@monaco-editor/react": "^4.7.0",
     "@prisma/client": "^6.0.0",
     "@radix-ui/react-dialog": "^1.1.15",

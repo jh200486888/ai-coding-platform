@@ -2,8 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Plus, Code2, Trash2 } from 'lucide-react';
-import { ProjectCard } from '@/components/workspace/ProjectCard';
+import { ArrowLeft, Plus, Code2, Trash2, MessageSquare, FileText, Home, Clock } from 'lucide-react';
 import type { Project } from '@/types';
 
 export default function WorkspacePage() {
@@ -45,39 +44,58 @@ export default function WorkspacePage() {
     const response = await fetch(`/api/projects?id=${id}`, {
       method: 'DELETE',
     });
-    
+
     if (response.ok) {
       fetchProjects();
     }
   };
 
+  const formatDate = (date: string | Date) => {
+    const d = typeof date === "string" ? new Date(date) : date;
+    const now = new Date();
+    const diff = now.getTime() - d.getTime();
+    if (diff < 60000) return '刚刚';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`;
+    return d.toLocaleDateString('zh-CN');
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* 顶部导航栏 */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-card">
-        <div className="flex items-center gap-3">
-          <Link
-            href="/"
-            className="p-2 hover:bg-muted rounded-md transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5" />
+      <header className="flex items-center justify-between px-3 py-2.5 md:px-4 border-b border-border bg-card">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
+          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center shrink-0">
+              <Code2 className="w-5 h-5 text-primary-foreground" />
+            </div>
+            <h1 className="text-sm md:text-base font-semibold truncate">编程工作区</h1>
           </Link>
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-primary/60 flex items-center justify-center">
-            <Code2 className="w-5 h-5 text-primary-foreground" />
-          </div>
-          <h1 className="text-lg font-semibold">编程工作区</h1>
         </div>
-        <button
-          onClick={() => setShowNewProject(true)}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          新建项目
-        </button>
+        <nav className="flex items-center gap-1 md:gap-2">
+          <Link href="/" className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium rounded-md hover:bg-muted transition-colors">
+            <Home className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden sm:inline">首页</span>
+          </Link>
+        </nav>
       </header>
 
       {/* 主内容区 */}
-      <main className="max-w-6xl mx-auto p-6">
+      <main className="max-w-6xl mx-auto p-4 md:p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-xl font-semibold">我的项目</h2>
+            <p className="text-sm text-muted-foreground mt-1">共 {projects.length} 个项目</p>
+          </div>
+          <button
+            onClick={() => setShowNewProject(true)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            新建项目
+          </button>
+        </div>
+
         {/* 新建项目对话框 */}
         {showNewProject && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -87,6 +105,7 @@ export default function WorkspacePage() {
                 type="text"
                 value={newProjectName}
                 onChange={e => setNewProjectName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleCreateProject(); }}
                 placeholder="项目名称"
                 className="w-full bg-background border border-border rounded px-3 py-2 text-sm"
                 autoFocus
@@ -128,12 +147,42 @@ export default function WorkspacePage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {projects.map(project => (
-              <Link key={project.id} href={`/workspace/${project.id}`}>
-                <ProjectCard
-                  project={project}
-                  onDelete={() => handleDeleteProject(project.id)}
-                />
-              </Link>
+              <div key={project.id} className="group relative bg-card border border-border rounded-lg p-4 hover:border-primary/50 transition-colors">
+                <Link href={`/workspace/${project.id}`} className="block">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                      <Code2 className="w-5 h-5 text-primary" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-medium truncate">{project.name}</h3>
+                      {project.description && (
+                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{project.description}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <FileText className="w-3 h-3" />
+                      {(project as any)._count?.files || 0} 个文件
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <MessageSquare className="w-3 h-3" />
+                      {(project as any)._count?.conversations || 0} 条对话
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {formatDate(project.updatedAt)}
+                    </span>
+                  </div>
+                </Link>
+                <button
+                  onClick={(e) => { e.preventDefault(); handleDeleteProject(project.id); }}
+                  className="absolute top-3 right-3 p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md opacity-0 group-hover:opacity-100 transition-all"
+                  title="删除项目"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
             ))}
           </div>
         )}
