@@ -1,47 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { createHash } from 'crypto';
 
 // Admin credentials (hardcoded for simplicity)
 const ADMIN_USERNAME = 'admin';
 const ADMIN_PASSWORD = 'admin123';
 
-// Secret key for cookie signing (should be changed in production)
-const COOKIE_SECRET = process.env.ADMIN_COOKIE_SECRET || 'change-this-secret-in-production';
+// Secret key for session generation
+const SESSION_SECRET = 'ai-coding-platform-admin-secret-2024';
 
 // Session duration: 24 hours
 const SESSION_DURATION = 24 * 60 * 60 * 1000;
 
-function hashPassword(password: string): string {
-  return createHash('sha256').update(password + COOKIE_SECRET).digest('hex');
-}
-
-function createSessionToken(username: string): string {
-  const timestamp = Date.now();
-  const payload = `${username}:${timestamp}:${hashPassword(username + timestamp.toString())}`;
-  return Buffer.from(payload).toString('base64');
-}
-
-function verifySessionToken(token: string): boolean {
-  try {
-    const payload = Buffer.from(token, 'base64').toString('utf-8');
-    const parts = payload.split(':');
-    if (parts.length !== 3) return false;
-    
-    const [username, timestamp, hash] = parts;
-    const expectedHash = hashPassword(username + timestamp);
-    
-    // Check if hash matches
-    if (hash !== expectedHash) return false;
-    
-    // Check if session is expired
-    const sessionTime = parseInt(timestamp, 10);
-    if (Date.now() - sessionTime > SESSION_DURATION) return false;
-    
-    return true;
-  } catch {
-    return false;
-  }
+// 简单的 session 生成函数（与 middleware.ts 保持一致）
+function createSessionToken(): string {
+  const timestamp = Date.now().toString();
+  // 简单的混淆：将 secret 和 timestamp 混合
+  const mixed = SESSION_SECRET.split('').map((c, i) => 
+    String.fromCharCode(c.charCodeAt(0) ^ timestamp.charCodeAt(i % timestamp.length))
+  ).join('');
+  // 使用 base64 编码
+  const session = btoa(`admin:${timestamp}:${mixed.slice(0, 16)}`);
+  return session;
 }
 
 // POST /api/admin/login - Login
@@ -66,7 +45,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create session token
-    const token = createSessionToken(username);
+    const token = createSessionToken();
 
     // Set cookie
     const cookieStore = await cookies();
@@ -93,11 +72,33 @@ export async function GET() {
   const cookieStore = await cookies();
   const token = cookieStore.get('admin_session');
 
-  if (!token || !verifySessionToken(token.value)) {
+  if (!token) {
     return NextResponse.json({ authenticated: false });
   }
 
-  return NextResponse.json({ authenticated: true });
+  // 验证 session
+  try {
+    const decoded = atob(token.value);
+    const parts = decoded.split(':');
+    if (parts.length < 2 || parts[0] !== 'admin') {
+      return NextResponse.json({ authenticated: false });
+    }
+    
+    const timestamp = parseInt(parts[1], 10);
+    if (isNaN(timestamp)) {
+      return NextResponse.json({ authenticated: false });
+    }
+    
+    // 检查是否在24小时内
+    const now = Date.now();
+    if ((now - timestamp) >= SESSION_DURATION) {
+      return NextResponse.json({ authenticated: false });
+    }
+    
+    return NextResponse.json({ authenticated: true });
+  } catch {
+    return NextResponse.json({ authenticated: false });
+  }
 }
 
 // DELETE /api/admin/logout - Logout
@@ -106,6 +107,3 @@ export async function DELETE() {
   cookieStore.delete('admin_session');
   return NextResponse.json({ success: true });
 }
-
-// Export for use in middleware
-export { verifySessionToken };

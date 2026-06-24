@@ -129,31 +129,3 @@ model WorkspaceMessage {
   @@index([conversationId])
   @@map("workspace_messages")
 }
-
-// Supabase 平台表（只读，不管理）
-model health_check {
-  id        Int       @id @default(autoincrement())
-  updatedAt DateTime? @map("updated_at") @db.Timestamptz
-
-  @@map("health_check")
-}
-
-// Supabase 平台消息表（只读，不管理）
-model platform_messages {
-  id             String    @id @default(uuid())
-  conversationId String    @map("conversation_id")
-  topic          String
-  role           String
-  content        String    @db.Text
-  extension      String    @db.Text
-  modelId        String?   @map("model_id")
-  payload        Json?
-  event          String?
-  tokenCount     Int?      @map("token_count")
-  private        Boolean?
-  createdAt      DateTime  @map("created_at") @db.Timestamptz
-  updatedAt      DateTime? @map("updated_at")
-  insertedAt     DateTime? @map("inserted_at")
-
-  @@map("messages")
-}
