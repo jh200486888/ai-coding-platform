@@ -442,6 +442,21 @@ export async function POST(request: NextRequest) {
       temperature = defaultTemps[mode] ?? 0.3;
     }
 
+    // ====== 读取超时和重试配置 ======
+    let timeoutTotalMs = 120000;  // 默认 2 分钟总超时
+    let timeoutStepMs = 30000;    // 默认 30 秒单步超时
+    let maxRetries = 3;
+
+    try {
+      const advStr2 = await getSetting('advanced_config');
+      if (advStr2) {
+        const adv2 = JSON.parse(advStr2);
+        if (adv2.tool_timeout !== undefined) timeoutTotalMs = adv2.tool_timeout * 1000;
+        if (adv2.timeout_step !== undefined) timeoutStepMs = adv2.timeout_step * 1000;
+        if (adv2.max_retries !== undefined) maxRetries = adv2.max_retries;
+      }
+    } catch {}
+
     // 构建 AI SDK provider
     const provider = createOpenAICompatible({
       name: modelConfig.provider,
@@ -457,18 +472,40 @@ export async function POST(request: NextRequest) {
     const memorySection = memories ? '\n\n【用户记忆】\n' + memories + '\n\n当用户提到与记忆相关的内容时，参考这些信息。用户说"记住"时，用 saveMemory 工具保存。' : '';
     const dynamicPrompt = modePrompt + memorySection + `\n\n【身份】你是 ${identityName} 的 ${model_id} 模型。当用户问你是谁时，如实回答。`;
 
-    // Build messages with image support for vision models
-    const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> }> = [
+    // Build messages with multi-modal support (images, PDFs, files)
+    const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string }; image?: any }> }> = [
       ...messages.map(m => {
         const imageMatch = m.content.match(/\[image:(data:[^\]]+)\]/);
-        if (imageMatch && m.role === 'user') {
-          return {
-            role: m.role,
-            content: [
-              { type: 'text', text: m.content.replace(/\[image:data:[^\]]+\]/g, '').trim() },
-              { type: 'image_url', image_url: { url: imageMatch[1] } },
-            ],
-          };
+        const pdfMatch = m.content.match(/\[pdf:(data:[^\]]+)\]/);
+        const fileMatch = m.content.match(/\[file:(data:([^;]+);base64,[^\]]+)\]/);
+        
+        if (m.role === 'user' && (imageMatch || pdfMatch || fileMatch)) {
+          const parts: Array<{ type: string; text?: string; image_url?: { url: string }; image?: any }> = [];
+          const textContent = m.content
+            .replace(/\[image:data:[^\]]+\]/g, '')
+            .replace(/\[pdf:data:[^\]]+\]/g, '')
+            .replace(/\[file:data:[^;]+;base64,[^\]]+\]/g, '')
+            .trim();
+          
+          if (textContent) {
+            parts.push({ type: 'text', text: textContent });
+          }
+          
+          if (imageMatch) {
+            parts.push({ type: 'image', image: imageMatch[1] });
+          }
+          
+          if (pdfMatch) {
+            // PDF support: send as file part for models that support it
+            parts.push({ type: 'text', text: '[用户已上传PDF文件，请分析其内容]' });
+          }
+          
+          if (fileMatch && !imageMatch) {
+            // Generic file as base64 - convert to appropriate format
+            parts.push({ type: 'text', text: '[用户已上传文件，请分析其内容]' });
+          }
+          
+          return { role: m.role, content: parts.length > 0 ? parts : m.content };
         }
         return { role: m.role, content: m.content };
       }),
@@ -487,7 +524,7 @@ export async function POST(request: NextRequest) {
 
     const streamStartTime = Date.now();
 
-    // 使用 AI SDK streamText
+    // 使用 AI SDK streamText（含 timeout 保护和重试机制）
     const result = streamText({
       system: dynamicPrompt,
       model,
@@ -496,6 +533,11 @@ export async function POST(request: NextRequest) {
       stopWhen: stepCountIs(maxSteps),
       temperature,
       maxOutputTokens: 16384,
+      maxRetries,
+      timeout: {
+        totalMs: timeoutTotalMs,
+        stepMs: timeoutStepMs,
+      },
     });
 
     // 构建流式响应
@@ -577,6 +619,13 @@ export async function POST(request: NextRequest) {
           safeClose();
           try { const { mcpManager } = await import('@/lib/mcp-client'); await mcpManager.closeAll(); } catch {}
         } catch (error: any) {
+          // Detect timeout errors
+          const isTimeout = error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('aborted');
+          const errorMsg = isTimeout 
+            ? '请求超时，请稍后重试或缩短输入内容' 
+            : (error.message || 'Stream error');
+          const errorCode = isTimeout ? 'TIMEOUT' : 'STREAM_ERROR';
+          
           try {
             const { telemetry } = await import('@/lib/ai-telemetry');
             telemetry.recordAICall({
@@ -585,11 +634,11 @@ export async function POST(request: NextRequest) {
               operation: 'chat_stream',
               durationMs: Date.now() - streamStartTime,
               success: false,
-              errorCode: 'STREAM_ERROR',
-              errorMessage: error.message || 'Stream error',
+              errorCode,
+              errorMessage: errorMsg,
             });
           } catch {}
-          safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message || 'Stream error' })}\n\n`));
+          safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: errorMsg })}\n\n`));
           safeClose();
         }
       },

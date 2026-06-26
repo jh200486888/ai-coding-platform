@@ -1,4 +1,5 @@
 'use client';
+import { toast } from 'sonner';
 
 import { useState, useRef } from 'react';
 import { Paperclip, Upload, X, Image, FileText, FileCode } from 'lucide-react';
@@ -73,7 +74,7 @@ export function AttachmentUpload({
 
   const processFile = async (file: File): Promise<Attachment | null> => {
     if (file.size > maxSize) {
-      alert(`文件 ${file.name} 超过最大限制 ${formatFileSize(maxSize)}`);
+      toast.warning(`文件 ${file.name} 超过最大限制 ${formatFileSize(maxSize)}`);
       return null;
     }
 
@@ -108,7 +109,7 @@ export function AttachmentUpload({
 
   const handleFiles = async (files: FileList | File[]) => {
     if (attachments.length + files.length > maxFiles) {
-      alert(`最多只能上传 ${maxFiles} 个文件`);
+      toast.warning(`最多只能上传 ${maxFiles} 个文件`);
       return;
     }
 

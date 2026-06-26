@@ -1,4 +1,5 @@
 'use client';
+import { toast } from 'sonner';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { MessageBubble } from './MessageBubble';
@@ -251,7 +252,7 @@ export function ChatInterface() {
     const newAttachments: Attachment[] = [];
     for (const file of Array.from(files)) {
       if (file.size > MAX_FILE_SIZE) {
-        alert(`文件 "${file.name}" 超过 5MB 限制`);
+        toast.warning(`文件 "${file.name}" 超过 5MB 限制`);
         continue;
       }
       try {
@@ -265,7 +266,7 @@ export function ChatInterface() {
           url: base64,
         });
       } catch {
-        alert(`无法读取文件 "${file.name}"`);
+        toast.error(`无法读取文件 "${file.name}"`);
       }
     }
     setAttachments(prev => [...prev, ...newAttachments]);

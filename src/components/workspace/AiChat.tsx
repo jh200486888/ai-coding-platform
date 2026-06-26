@@ -1,4 +1,5 @@
 'use client';
+import { toast } from 'sonner';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Paperclip, X, Image, FileText, Code, Wrench, CheckCircle, XCircle, Loader2, MessageSquare, Brain, CircleCheck, CircleX, LoaderCircle } from 'lucide-react';
@@ -178,7 +179,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
     const newAttachments: Attachment[] = [];
     for (const file of Array.from(fileList)) {
       if (file.size > MAX_FILE_SIZE) {
-        alert('文件 "' + file.name + '" 超过 5MB 限制');
+        toast.warning('文件 "' + file.name + '" 超过 5MB 限制');
         continue;
       }
       try {
@@ -192,7 +193,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
           url: base64,
         });
       } catch {
-        alert('无法读取文件 "' + file.name + '"');
+        toast.error('无法读取文件 "' + file.name + '"');
       }
     }
     setAttachments(prev => [...prev, ...newAttachments]);

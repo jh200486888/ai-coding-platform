@@ -1,4 +1,5 @@
 'use client';
+import { toast } from 'sonner';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { Upload, X, Loader2 } from 'lucide-react';
@@ -143,7 +144,7 @@ export function ControlPanel({ params, onChange }: ControlPanelProps) {
   const handleFile = useCallback((file: File) => {
     const maxSize = config.maxUploadSizeMB * 1024 * 1024;
     if (file.size > maxSize) {
-      alert(`文件大小不能超过 ${config.maxUploadSizeMB}MB`);
+      toast.warning(`文件大小不能超过 ${config.maxUploadSizeMB}MB`);
       return;
     }
     const reader = new FileReader();

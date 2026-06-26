@@ -1,4 +1,5 @@
 'use client';
+import { toast } from 'sonner';
 
 import { useState, useEffect, useCallback } from 'react';
 import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette, Activity, Plug, Brain } from 'lucide-react';
@@ -304,10 +305,10 @@ function ModelsPanel() {
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       if (data.data) setModels(data.data);
-      if (showFeedback) alert("模型列表已刷新");
+      if (showFeedback) toast.success("模型列表已刷新");
     } catch (err) {
       console.error("Failed to fetch models:", err);
-      if (showFeedback) alert("刷新失败：" + (err instanceof Error ? err.message : "未知错误"));
+      if (showFeedback) toast.error("刷新失败：" + (err instanceof Error ? err.message : "未知错误"));
     } finally {
       if (showFeedback) setRefreshing(false);
     }
@@ -401,10 +402,10 @@ function ModelsPanel() {
         });
       }
       await fetchModels();
-      alert(`成功导入 ${MODELS_DATA.length} 个模型！`);
+      toast.success(`成功导入 ${MODELS_DATA.length} 个模型！`);
     } catch (err) {
       console.error('Import error:', err);
-      alert('导入失败');
+      toast.error('导入失败');
     } finally {
       setImporting(false);
     }
@@ -572,10 +573,10 @@ function ConversationsPanel() {
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       if (data.data) setConversations(data.data);
-      if (showFeedback) alert("对话记录已刷新");
+      if (showFeedback) toast.success("对话记录已刷新");
     } catch (err) {
       console.error("Failed to fetch conversations:", err);
-      if (showFeedback) alert("刷新失败：" + (err instanceof Error ? err.message : "未知错误"));
+      if (showFeedback) toast.error("刷新失败：" + (err instanceof Error ? err.message : "未知错误"));
     } finally {
       if (showFeedback) setConvRefreshing(false);
     }
@@ -739,9 +740,9 @@ function SettingsPanel() {
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'mode_prompts', value: JSON.stringify(modePrompts) }) }),
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'advanced_config', value: JSON.stringify(advConfig) }) }),
       ]);
-      alert('\u8bbe\u7f6e\u5df2\u4fdd\u5b58\uff01');
+      toast.success('\u8bbe\u7f6e\u5df2\u4fdd\u5b58\uff01');
       fetchSettings();
-    } catch (err) { console.error('Failed to save settings:', err); alert('\u4fdd\u5b58\u5931\u8d25'); }
+    } catch (err) { console.error('Failed to save settings:', err); toast.error('\u4fdd\u5b58\u5931\u8d25'); }
     finally { setLoading(false); }
   };
 

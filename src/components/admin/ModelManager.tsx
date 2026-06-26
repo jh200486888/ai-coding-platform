@@ -1,4 +1,5 @@
 'use client';
+import { toast } from 'sonner';
 
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Key, Eye, EyeOff } from 'lucide-react';
@@ -41,7 +42,7 @@ export function ModelManager() {
 
   const handleAdd = async () => {
     if (!newKey.apiKey) {
-      alert('请填写 API Key');
+      toast.warning('请填写 API Key');
       return;
     }
 
@@ -64,7 +65,7 @@ export function ModelManager() {
       fetchApiKeys();
     } else {
       const data = await response.json();
-      alert(data.error || '添加失败');
+      toast.error(data.error || '添加失败');
     }
   };
 

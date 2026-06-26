@@ -1,4 +1,5 @@
 "use client";
+import { toast } from 'sonner';
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Save, RefreshCw, ToggleLeft, ToggleRight } from 'lucide-react';
 
@@ -45,8 +46,8 @@ export function McpServersPanel() {
       setServers(updated);
       setEditForm({ id: '', name: '', url: '', type: 'http', enabled: true });
       setEditing(false);
-      alert('保存成功');
-    } catch (err) { alert('保存失败'); }
+      toast.success('保存成功');
+    } catch (err) { toast.error('保存失败'); }
     finally { setLoading(false); }
   };
 
