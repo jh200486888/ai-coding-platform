@@ -4,6 +4,20 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig } from '@/lib/db';
 import { z } from 'zod';
 import { tool } from 'ai';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+const execAsync = promisify(exec);
+
+// 从 system-prompt.md 加载系统提示词
+function loadSystemPrompt(): string {
+  try {
+    return readFileSync(join(process.cwd(), 'system-prompt.md'), 'utf-8').trim();
+  } catch {
+    return '你是AI编程搭档，能直接操作服务器。收到任务后立即执行，做完总结结果。';
+  }
+}
 
 // ============ 工具执行函数 ============
 const PROJECT_DIR = '/www/wwwroot/agent.piyiguo.com';
@@ -27,33 +41,46 @@ async function execEditFile(path: string, oldText: string, newText: string): Pro
 }
 
 async function execReadFile(path: string): Promise<string> {
-  const fs = await import('fs/promises');
-  const filePath = `${PROJECT_DIR}/${path}`;
-  const content = await fs.readFile(filePath, 'utf-8');
-  return content.slice(0, 50000);
+  try {
+    const fs = await import('fs/promises');
+    const filePath = `${PROJECT_DIR}/${path}`;
+    const content = await fs.readFile(filePath, 'utf-8');
+    return content.slice(0, 50000);
+  } catch (e: any) {
+    return `❌ 读取文件失败: ${e.message || '文件不存在或无法读取'}`;
+  }
 }
 
 async function execRunCommand(command: string): Promise<string> {
-  const { execSync } = await import('child_process');
-  const result = execSync(command, {
-    cwd: PROJECT_DIR,
-    timeout: 120000,
-    encoding: 'utf-8',
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  return result.slice(0, 10000) || '✅ 命令执行成功（无输出）';
+  try {
+    const { stdout, stderr } = await execAsync(command, {
+      cwd: PROJECT_DIR,
+      timeout: 120000,
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    const output = (stdout || '') + (stderr ? '\n[stderr] ' + stderr : '');
+    return output.slice(0, 10000) || '✅ 命令执行成功（无输出）';
+  } catch (e: any) {
+    const errMsg = e.stderr?.slice(0, 500) || e.stdout?.slice(0, 500) || e.message || '未知错误';
+    return `❌ 命令执行失败: ${errMsg}`;
+  }
 }
 
 async function execDeploy(): Promise<string> {
-  const { execSync } = await import('child_process');
   const steps = ['pnpm install', 'pnpm build', 'pm2 restart ai-coding-platform'];
   const results: string[] = [];
   for (const step of steps) {
     try {
-      const r = execSync(step, { cwd: PROJECT_DIR, timeout: 180000, encoding: 'utf-8', maxBuffer: 10*1024*1024 });
-      results.push(`✅ ${step}: ${r.slice(0, 500)}`);
+      const { stdout, stderr } = await execAsync(step, {
+        cwd: PROJECT_DIR,
+        timeout: 180000,
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      const output = (stdout || '') + (stderr ? '\n[stderr] ' + stderr : '');
+      results.push(`✅ ${step}: ${output.slice(0, 500)}`);
     } catch (e: any) {
-      results.push(`❌ ${step}: ${e.message?.slice(0, 500)}`);
+      const errMsg = e.stderr?.slice(0, 500) || e.stdout?.slice(0, 500) || e.message || '未知错误';
+      results.push(`❌ ${step}: ${errMsg}`);
       break;
     }
   }
@@ -204,22 +231,8 @@ const PROVIDER_URLS: Record<string, string> = {
   banana: 'https://api.banana.dev/v1',
 };
 
-// ============ 系统提示词 ============
-const SYSTEM_PROMPT = `你是一个专业的AI编程助手，运行在服务器上，可以直接操作文件和执行命令。
-
-【绝对规则】
-1. 禁止展示代码！必须用 createFile 工具创建文件
-2. 禁止说明部署步骤！必须用 deploy 工具部署
-3. 禁止使用"我来帮你"、"让我看看"等引导性语言
-4. 禁止使用 ** 加粗或 Markdown 格式化
-5. 禁止说"我无法访问/执行"——你已经在服务器上
-6. 禁止说"无法访问外部链接"——用 runCommand 执行 curl
-
-【工作流】
-收到需求 → 思考方案 → 调用工具执行 → 确认结果 → 简洁回复
-
-你是真实运行在服务器上的，不是在模拟。直接行动，不要犹豫。
-- 完成后用1-2句话总结做了什么、结果如何。`;
+// ============ 系统提示词（从 system-prompt.md 动态加载） ============
+const SYSTEM_PROMPT = loadSystemPrompt();
 
 // ============ 模式系统提示词 ============
 const MODE_PROMPTS: Record<string, string> = {
@@ -411,6 +424,7 @@ export async function POST(request: NextRequest) {
       messages: chatMessages as any,
       tools: MODE_TOOLS[mode]?.length ? tools : undefined,
       stopWhen: isStepCount(8),
+      allowSystemInMessages: true,
       temperature: 0.3,
       maxOutputTokens: 16384,
     });
@@ -428,8 +442,9 @@ export async function POST(request: NextRequest) {
 
         try {
           let fullContent = '';
+          const toolCallRecords: Array<{ name: string; status: string; summary: string }> = [];
 
-          for await (const event of result.stream) { 
+          for await (const event of result.stream) {
             switch (event.type) {
               case 'text-delta': {
                 const text = (event as any).text || '';
@@ -450,7 +465,9 @@ export async function POST(request: NextRequest) {
                 const toolName = (event as any).toolName || 'unknown';
                 const callId = (event as any).toolCallId || '';
                 const output = typeof (event as any).output === 'string' ? (event as any).output : JSON.stringify((event as any).output);
-                safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'tool-result', toolName, callId, success: !output.startsWith('❌'), summary: output.slice(0, 200) })}\n\n`));
+                const success = !output.startsWith('❌');
+                toolCallRecords.push({ name: toolName, status: success ? 'done' : 'error', summary: output.slice(0, 100) });
+                safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'tool-result', toolName, callId, success, summary: output.slice(0, 200) })}\n\n`));
                 break;
               }
               case 'error': {
@@ -461,9 +478,16 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // 保存助手消息
+          // 保存助手消息 with tool execution log
           if (fullContent) {
-            try { await createMessage(convId!, 'assistant', fullContent, model_id); } catch {}
+            try {
+              let savedContent = fullContent;
+              if (toolCallRecords.length > 0) {
+                const execLog = toolCallRecords.map((tc, i) => `${i + 1}. ${tc.name}: ${tc.status === 'done' ? '✅' : '❌'} ${tc.summary}`).join('\n');
+                savedContent = fullContent + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
+              }
+              await createMessage(convId!, 'assistant', savedContent, model_id);
+            } catch {}
           }
 
           safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done', conversation_id: convId })}\n\n`));
