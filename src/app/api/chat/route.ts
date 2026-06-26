@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { streamText, stepCountIs } from 'ai';
+import { streamText, isStepCount } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig } from '@/lib/db';
 import { z } from 'zod';
@@ -410,7 +410,7 @@ export async function POST(request: NextRequest) {
       model,
       messages: chatMessages as any,
       tools: MODE_TOOLS[mode]?.length ? tools : undefined,
-      stopWhen: stepCountIs(8),
+      stopWhen: isStepCount(8),
       temperature: 0.3,
       maxOutputTokens: 16384,
     });
@@ -429,7 +429,7 @@ export async function POST(request: NextRequest) {
         try {
           let fullContent = '';
 
-          for await (const event of result.fullStream) { 
+          for await (const event of result.stream) { 
             switch (event.type) {
               case 'text-delta': {
                 const text = (event as any).text || '';
