@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { MessageBubble } from './MessageBubble';
+import { ToolCallDisplay } from './tool-call-display';
 import { ModelSelector } from './ModelSelector';
 import { Send, Loader2, Paperclip, X, Image, FileText, Code, Brain, Wrench, CircleCheck, CircleX, LoaderCircle, MessageSquare, Plus, ChevronLeft, Trash2, Terminal, PenTool, BarChart3, Palette, MessageCircle, Square, RotateCcw, Download, Search, Pencil, ImageIcon, Clock, X as XIcon } from 'lucide-react';
 import type { Message, Attachment } from '@/types';
@@ -915,28 +916,7 @@ export function ChatInterface() {
             </div>
           )}
 
-          {/* Tool calls display */}
-          {toolCalls.length > 0 && (
-            <div className="space-y-2">
-              {toolCalls.map(tc => (
-                <div
-                  key={tc.callId}
-                  className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg border ${
-                    tc.status === 'running' ? 'bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300' :
-                    tc.status === 'done' ? 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300' :
-                    'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
-                  }`}
-                >
-                  {tc.status === 'running' && <LoaderCircle className="w-3.5 h-3.5 animate-spin" />}
-                  {tc.status === 'done' && <CircleCheck className="w-3.5 h-3.5" />}
-                  {tc.status === 'error' && <CircleX className="w-3.5 h-3.5" />}
-                  <Wrench className="w-3.5 h-3.5" />
-                  <span className="font-medium">{{createFile:"创建文件",editFile:"修改文件",deleteFile:"删除文件",readFile:"读取文件",runCommand:"执行命令",deploy:"部署项目",searchWeb:"联网搜索",saveMemory:"保存记忆"}[tc.toolName] || tc.toolName}</span>
-                  {tc.summary && <span className="text-muted-foreground">— {tc.summary}</span>}
-                </div>
-              ))}
-            </div>
-          )}
+          {toolCalls.length > 0 && <ToolCallDisplay toolCalls={toolCalls} />}
 
 {/* Regenerate button */}
           {!isLoading && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && (
