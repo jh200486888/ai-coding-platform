@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { prisma } from '@/lib/db';
+import { queryOne } from '@/lib/db';
 import { decodeApiKey, PROVIDER_ALIASES } from '@/lib/ai-providers';
 
 // Model configurations
@@ -119,11 +119,11 @@ function resolveQuality(resolution: string): 'low' | 'medium' | 'high' {
 }
 
 async function getApiKey(provider: string): Promise<string | null> {
-  let apiKey = await prisma.apiKey.findFirst({ where: { provider, isActive: true } });
+  let apiKey = await queryOne("SELECT id, provider, name, \"apiKey\", \"baseUrl\", \"isActive\", \"createdAt\", \"updatedAt\" FROM api_keys WHERE provider = $1 AND \"isActive\" = true", [provider]);
   if (apiKey?.apiKey) return decodeApiKey(apiKey.apiKey);
   const aliases = PROVIDER_ALIASES[provider] || [];
   for (const alias of aliases) {
-    apiKey = await prisma.apiKey.findFirst({ where: { provider: alias, isActive: true } });
+    apiKey = await queryOne("SELECT id, provider, name, \"apiKey\", \"baseUrl\", \"isActive\", \"createdAt\", \"updatedAt\" FROM api_keys WHERE provider = $1 AND \"isActive\" = true", [alias]);
     if (apiKey?.apiKey) return decodeApiKey(apiKey.apiKey);
   }
   return null;

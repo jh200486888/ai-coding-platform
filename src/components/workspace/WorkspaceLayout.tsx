@@ -1,18 +1,22 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Panel, Group, Separator } from 'react-resizable-panels';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { FileTree } from './FileTree';
 import { CodeEditor } from './CodeEditor';
 import { AiChat } from './AiChat';
 import { Terminal } from './Terminal';
-import { getAllModels } from '@/lib/models';
 import type { WorkspaceFile } from '@/types';
 
 interface WorkspaceLayoutProps {
   projectId: string;
+}
+
+interface DbModel {
+  model_id: string;
+  display_name: string;
+  provider: string;
 }
 
 export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
@@ -20,9 +24,24 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
   const [activeFile, setActiveFile] = useState<WorkspaceFile | null>(null);
   const [terminalOutput, setTerminalOutput] = useState<string[]>([]);
   const [showTerminal, setShowTerminal] = useState(false);
-  const [selectedModelId, setSelectedModelId] = useState('deepseek-v4-pro');
+  const [selectedModelId, setSelectedModelId] = useState('');
+  const [models, setModels] = useState<DbModel[]>([]);
 
-  const allModels = getAllModels();
+  // Load models from database
+  useEffect(() => {
+    fetch('/api/workspace/models')
+      .then(r => r.json())
+      .then(data => {
+        const list: DbModel[] = Array.isArray(data) ? data : (data.data || []);
+        setModels(list);
+        if (list.length > 0 && !selectedModelId) {
+          setSelectedModelId(list[0].model_id);
+        }
+      })
+      .catch(() => {
+        // fallback to empty
+      });
+  }, []);
 
   // Load project files
   const fetchFiles = async () => {
@@ -31,7 +50,6 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
       if (response.ok) {
         const data = await response.json();
         setFiles(data);
-        // Auto-select first file
         if (data.length > 0 && data.some((f: WorkspaceFile) => f.type === 'file')) {
           const firstFile = data.find((f: WorkspaceFile) => f.type === 'file');
           if (firstFile) setActiveFile(firstFile);
@@ -89,7 +107,6 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
     if (file.type === 'file') setActiveFile(file);
   };
 
-  // Called when AI tool calls change files — refresh file list
   const handleFilesChanged = () => {
     fetchFiles();
   };
@@ -112,17 +129,19 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
   };
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-screen flex flex-col overflow-hidden">
       {/* Top toolbar: model selection */}
-      <div className="h-10 border-b border-border bg-card flex items-center px-4 gap-3">
-        <Link href="/" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"><ArrowLeft size={14} /> 首页</Link><span className="text-sm text-muted-foreground ml-2">模型:</span>
+      <div className="h-10 shrink-0 border-b border-border bg-card flex items-center px-4 gap-3">
+        <Link href="/" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"><ArrowLeft size={14} /> 首页</Link>
+        <span className="text-sm text-muted-foreground ml-2">模型:</span>
         <select
           value={selectedModelId}
           onChange={(e) => setSelectedModelId(e.target.value)}
           className="bg-background border border-border rounded px-2 py-1 text-sm"
         >
-          {allModels.map(m => (
-            <option key={m.id} value={m.id}>{m.name}</option>
+          {models.length === 0 && <option value="">未配置模型</option>}
+          {models.map(m => (
+            <option key={m.model_id} value={m.model_id}>{m.display_name}</option>
           ))}
         </select>
         <div className="flex-1" />
@@ -131,62 +150,59 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
         </span>
       </div>
 
-      <Group orientation="vertical" className="flex-1">
-        <Panel defaultSize={showTerminal ? 75 : 100} minSize={50}>
-          <Group orientation="horizontal" className="h-full">
-            {/* File tree */}
-            <Panel defaultSize={20} minSize={15} maxSize={35}>
-              <FileTree
-                files={files}
-                activeFile={activeFile}
-                onFileSelect={handleFileSelect}
-                onFileCreate={handleFileCreate}
-                onFileDelete={handleFileDelete}
-              />
-            </Panel>
+      {/* Main content area - flex layout */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* File tree panel */}
+        <div className="w-[20%] min-w-[180px] max-w-[35%] shrink-0 overflow-hidden">
+          <FileTree
+            files={files}
+            activeFile={activeFile}
+            onFileSelect={handleFileSelect}
+            onFileCreate={handleFileCreate}
+            onFileDelete={handleFileDelete}
+          />
+        </div>
 
-            <Separator className="w-1 bg-border hover:bg-primary transition-colors" />
+        {/* Resize handle */}
+        <div className="w-1 bg-border hover:bg-primary transition-colors cursor-col-resize shrink-0" />
 
-            {/* Code editor */}
-            <Panel defaultSize={50} minSize={30}>
-              <CodeEditor
-                file={activeFile}
-                onChange={content => {
-                  if (activeFile) handleFileUpdate(activeFile.id, content);
-                }}
-              />
-            </Panel>
+        {/* Code editor panel */}
+        <div className="flex-1 min-w-0 overflow-hidden">
+          <CodeEditor
+            file={activeFile}
+            onChange={content => {
+              if (activeFile) handleFileUpdate(activeFile.id, content);
+            }}
+          />
+        </div>
 
-            <Separator className="w-1 bg-border hover:bg-primary transition-colors" />
+        {/* Resize handle */}
+        <div className="w-1 bg-border hover:bg-primary transition-colors cursor-col-resize shrink-0" />
 
-            {/* AI chat */}
-            <Panel defaultSize={30} minSize={20} maxSize={50}>
-              <AiChat
-                projectId={projectId}
-                modelId={selectedModelId}
-                files={files}
-                onFilesChanged={handleFilesChanged}
-              />
-            </Panel>
-          </Group>
-        </Panel>
+        {/* AI chat panel */}
+        <div className="w-[30%] min-w-[250px] max-w-[50%] shrink-0 overflow-hidden">
+          <AiChat
+            projectId={projectId}
+            modelId={selectedModelId}
+            files={files}
+            onFilesChanged={handleFilesChanged}
+          />
+        </div>
+      </div>
 
-        {showTerminal && (
-          <>
-            <Separator className="h-1 bg-border hover:bg-primary transition-colors" />
-            <Panel defaultSize={25} minSize={15}>
-              <Terminal
-                output={terminalOutput}
-                onCommand={handleTerminalCommand}
-                onClose={() => setShowTerminal(false)}
-              />
-            </Panel>
-          </>
-        )}
-      </Group>
+      {/* Terminal panel (conditional) */}
+      {showTerminal && (
+        <div className="h-[200px] shrink-0 border-t border-border">
+          <Terminal
+            output={terminalOutput}
+            onCommand={handleTerminalCommand}
+            onClose={() => setShowTerminal(false)}
+          />
+        </div>
+      )}
 
       {/* Bottom toolbar */}
-      <div className="h-10 border-t border-border bg-card flex items-center px-4 gap-4">
+      <div className="h-10 shrink-0 border-t border-border bg-card flex items-center px-4 gap-4">
         <button
           onClick={() => setShowTerminal(!showTerminal)}
           className="text-sm text-muted-foreground hover:text-foreground"

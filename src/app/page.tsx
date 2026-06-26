@@ -26,7 +26,7 @@ function ProjectPanel({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
     fetch('/api/projects')
       .then(r => r.json())
       .then(data => {
-        if (data.data) setProjects(data.data);
+        setProjects(Array.isArray(data) ? data : (data.data || []));
       })
       .catch(() => {});
   }

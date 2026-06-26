@@ -1,132 +1,71 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { listApiKeys, getApiKeyByProvider, upsertApiKey, deleteApiKey, query, queryOne, run } from '@/lib/db';
 import { encodeApiKey } from '@/lib/ai-providers';
+import { randomUUID } from 'crypto';
 
-// GET /api/api-keys - 获取所有 API Key
 export async function GET() {
   try {
-    const apiKeys = await prisma.apiKey.findMany({
-      orderBy: { createdAt: 'desc' },
-    });
-
-    // 隐藏实际的 API Key，只返回前几位
-    const safeApiKeys = apiKeys.map((key: { id: string; name: string; provider: string; apiKey: string; createdAt: Date }) => ({
+    const apiKeys = await listApiKeys();
+    const safeApiKeys = apiKeys.map((key: any) => ({
       ...key,
-      apiKey: key.apiKey.substring(0, 8) + '...',
+      apiKey: key.api_key_encrypted ? key.api_key_encrypted.substring(0, 8) + '...' : '',
     }));
-
     return NextResponse.json(safeApiKeys);
   } catch (error) {
-    console.error('[API Keys] Failed to fetch API keys:', error);
-    console.error('[API Keys] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
-    return NextResponse.json(
-      { error: 'Failed to fetch API keys', details: error instanceof Error ? error.message : String(error) },
-      { status: 500 }
-    );
+    console.error('[API Keys] Failed:', error);
+    return NextResponse.json({ error: 'Failed to fetch API keys' }, { status: 500 });
   }
 }
 
-// POST /api/api-keys - 创建新的 API Key
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { provider, name, apiKey, baseUrl } = body;
-
     if (!provider || !name || !apiKey) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
-
-    // 编码 API Key
     const encodedApiKey = encodeApiKey(apiKey);
-
-    const newApiKey = await prisma.apiKey.create({
-      data: {
-        provider,
-        name,
-        apiKey: encodedApiKey,
-        baseUrl: baseUrl || null,
-      },
-    });
-
-    return NextResponse.json({
-      ...newApiKey,
-      apiKey: newApiKey.apiKey.substring(0, 8) + '...',
-    });
+    const newKey = await upsertApiKey({ provider, provider_name: name, api_key_encrypted: encodedApiKey, base_url: baseUrl });
+    return NextResponse.json({ ...newKey, api_key_encrypted: newKey.api_key_encrypted ? newKey.api_key_encrypted.substring(0, 8) + '...' : '' }, { status: 201 });
   } catch (error) {
-    console.error('[API Keys] Failed to create API key:', error);
-    console.error('[API Keys] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
-    return NextResponse.json(
-      { error: 'Failed to create API key', details: error instanceof Error ? error.message : String(error) },
-      { status: 500 }
-    );
+    console.error('[API Keys] Failed:', error);
+    return NextResponse.json({ error: 'Failed to create API key' }, { status: 500 });
   }
 }
 
-// DELETE /api/api-keys - 删除 API Key
 export async function DELETE(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
-
-    if (!id) {
-      return NextResponse.json(
-        { error: 'Missing API key ID' },
-        { status: 400 }
-      );
-    }
-
-    await prisma.apiKey.delete({
-      where: { id },
-    });
-
+    if (!id) return NextResponse.json({ error: 'Missing API key ID' }, { status: 400 });
+    await deleteApiKey(id);
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('[API Keys] Failed to delete API key:', error);
-    console.error('[API Keys] Error details:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
-    return NextResponse.json(
-      { error: 'Failed to delete API key', details: error instanceof Error ? error.message : String(error) },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to delete API key' }, { status: 500 });
   }
 }
 
-// PATCH /api/api-keys - 更新 API Key
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
     const { id, provider, name, apiKey, baseUrl, isActive } = body;
-
-    if (!id) {
-      return NextResponse.json(
-        { error: 'Missing API key ID' },
-        { status: 400 }
-      );
+    if (!id) return NextResponse.json({ error: 'Missing API key ID' }, { status: 400 });
+    const updates: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (provider !== undefined) { updates.push(`provider = $${idx++}`); params.push(provider); }
+    if (name !== undefined) { updates.push(`name = $${idx++}`); params.push(name); }
+    if (apiKey !== undefined) { updates.push(`"apiKey" = $${idx++}`); params.push(encodeApiKey(apiKey)); }
+    if (baseUrl !== undefined) { updates.push(`"baseUrl" = $${idx++}`); params.push(baseUrl); }
+    if (isActive !== undefined) { updates.push(`"isActive" = $${idx++}`); params.push(isActive); }
+    if (updates.length > 0) {
+      updates.push(`"updatedAt" = NOW()`);
+      params.push(id);
+      await run(`UPDATE api_keys SET ${updates.join(', ')} WHERE id = $${idx}`, params);
     }
-
-    const updateData: Record<string, unknown> = {};
-    if (provider !== undefined) updateData.provider = provider;
-    if (name !== undefined) updateData.name = name;
-    if (apiKey !== undefined) updateData.apiKey = encodeApiKey(apiKey);
-    if (baseUrl !== undefined) updateData.baseUrl = baseUrl;
-    if (isActive !== undefined) updateData.isActive = isActive;
-
-    const updatedApiKey = await prisma.apiKey.update({
-      where: { id },
-      data: updateData,
-    });
-
-    return NextResponse.json({
-      ...updatedApiKey,
-      apiKey: updatedApiKey.apiKey.substring(0, 8) + '...',
-    });
+    const updated = await queryOne('SELECT * FROM api_keys WHERE id = $1', [id]);
+    return NextResponse.json({ ...updated, apiKey: updated?.apikey ? updated.apikey.substring(0, 8) + '...' : '' });
   } catch (error) {
-    console.error('Failed to update API key:', error);
-    return NextResponse.json(
-      { error: 'Failed to update API key' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Failed to update API key' }, { status: 500 });
   }
 }

@@ -1,23 +1,17 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
-import { Upload, X } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { Upload, X, Loader2 } from 'lucide-react';
 
-// ---- Types ----
-export type AspectRatio = '1:1' | '3:4' | '4:3' | '16:9' | '9:16' | '3:1';
-export type Resolution = '1k' | '2k' | '4k';
-export type Quality = 'low' | 'medium' | 'high';
-export type OutputFormat = 'png' | 'webp' | 'jpeg';
-export type BatchCount = 1 | 2 | 4 | 8;
-
+// ---- Types (relaxed to accept dynamic config) ----
 export interface ImageGenParams {
   model: string;
-  ratio: AspectRatio;
-  resolution: Resolution;
-  quality: Quality;
+  ratio: string;
+  resolution: string;
+  quality: string;
   style: string;
-  count: BatchCount;
-  outputFormat: OutputFormat;
+  count: number;
+  outputFormat: string;
   referenceImage: string | null;
 }
 
@@ -26,77 +20,136 @@ interface ControlPanelProps {
   onChange: (params: ImageGenParams) => void;
 }
 
-// ---- Data ----
-const RATIOS: { id: AspectRatio; label: string; w: number; h: number }[] = [
-  { id: '1:1',  label: '1:1',  w: 32, h: 32 },
-  { id: '3:4',  label: '3:4',  w: 27, h: 36 },
-  { id: '4:3',  label: '4:3',  w: 36, h: 27 },
-  { id: '16:9', label: '16:9', w: 40, h: 22 },
-  { id: '9:16', label: '9:16', w: 22, h: 40 },
-  { id: '3:1',  label: '3:1',  w: 44, h: 16 },
-];
+interface ModelOption { id: string; name: string; provider: string; desc: string; maxN: number; supportsEdit: boolean; enabled: boolean; }
+interface RatioOption { id: string; label: string; w: number; h: number; enabled: boolean; }
+interface ResolutionOption { id: string; label: string; desc: string; enabled: boolean; }
+interface QualityOption { id: string; label: string; enabled: boolean; }
+interface StyleOption { id: string; label: string; prefix: string; enabled: boolean; }
+interface CountOption { id: number; label: string; enabled: boolean; }
+interface FormatOption { id: string; label: string; enabled: boolean; }
 
-const RESOLUTIONS: { id: Resolution; label: string; desc: string }[] = [
-  { id: '1k', label: '1K', desc: '标准' },
-  { id: '2k', label: '2K', desc: '高清' },
-  { id: '4k', label: '4K', desc: 'Beta' },
-];
+interface ImageGenConfig {
+  models: ModelOption[];
+  ratios: RatioOption[];
+  resolutions: ResolutionOption[];
+  qualities: QualityOption[];
+  styles: StyleOption[];
+  counts: CountOption[];
+  formats: FormatOption[];
+  maxUploadSizeMB: number;
+  defaultModel: string;
+  defaultRatio: string;
+  defaultResolution: string;
+  defaultQuality: string;
+  defaultStyle: string;
+  defaultCount: number;
+  defaultFormat: string;
+}
 
-const QUALITIES: { id: Quality; label: string }[] = [
-  { id: 'low', label: 'Low' },
-  { id: 'medium', label: 'Medium' },
-  { id: 'high', label: 'High' },
-];
-
-const STYLES: { id: string; label: string; prefix: string }[] = [
-  { id: 'none',         label: '无预设',   prefix: '' },
-  { id: 'photo',        label: '写实摄影', prefix: 'Professional photography, ultra realistic, 8k, high detail: ' },
-  { id: 'illustration', label: '商业插画', prefix: 'Commercial illustration, clean vector style, vibrant colors: ' },
-  { id: 'anime',        label: '动漫风格', prefix: 'Anime style, detailed illustration, vibrant: ' },
-  { id: 'oil',          label: '油画质感', prefix: 'Oil painting texture, rich brushstrokes, classical art: ' },
-  { id: 'watercolor',   label: '水彩画',   prefix: 'Watercolor painting, soft edges, translucent layers: ' },
-  { id: 'minimal',      label: '极简设计', prefix: 'Minimalist design, clean lines, simple composition: ' },
-  { id: 'cyberpunk',    label: '赛博朋克', prefix: 'Cyberpunk style, neon lights, futuristic, dark atmosphere: ' },
-  { id: 'chinese',      label: '中国风',   prefix: 'Chinese traditional art style, ink painting elements, elegant: ' },
-];
-
-const COUNTS: { id: BatchCount; label: string }[] = [
-  { id: 1, label: '1' },
-  { id: 2, label: '2' },
-  { id: 4, label: '4' },
-  { id: 8, label: '8' },
-];
-
-const FORMATS: { id: OutputFormat; label: string }[] = [
-  { id: 'png',  label: 'PNG' },
-  { id: 'webp', label: 'WebP' },
-  { id: 'jpeg', label: 'JPEG' },
-];
+// Fallback defaults (used while loading or if API fails)
+const FALLBACK: ImageGenConfig = {
+  models: [
+    { id: 'qwen-image-2.0', name: '通义万相 2.0', provider: '阿里百炼', desc: '快速生图', maxN: 4, supportsEdit: false, enabled: true },
+    { id: 'qwen-image-2.0-pro', name: '通义万相 2.0 Pro', provider: '阿里百炼', desc: '高清生图', maxN: 4, supportsEdit: false, enabled: true },
+    { id: 'wan2.6-t2i', name: '万相 2.6', provider: '阿里百炼', desc: '推荐版', maxN: 4, supportsEdit: false, enabled: true },
+    { id: 'wanx-v1-edit', name: '万相图生图', provider: '阿里百炼', desc: '参考图改图', maxN: 4, supportsEdit: true, enabled: true },
+    { id: 'gpt-image-2', name: 'GPT Image 2', provider: 'OpenAI', desc: '需API Key', maxN: 10, supportsEdit: true, enabled: true },
+    { id: 'SeedDream-3.0', name: '即梦 3.0', provider: '火山引擎', desc: '中文理解极强', maxN: 4, supportsEdit: false, enabled: true },
+  ],
+  ratios: [
+    { id: '1:1', label: '1:1', w: 32, h: 32, enabled: true },
+    { id: '3:4', label: '3:4', w: 27, h: 36, enabled: true },
+    { id: '4:3', label: '4:3', w: 36, h: 27, enabled: true },
+    { id: '16:9', label: '16:9', w: 40, h: 22, enabled: true },
+    { id: '9:16', label: '9:16', w: 22, h: 40, enabled: true },
+    { id: '3:1', label: '3:1', w: 44, h: 16, enabled: true },
+  ],
+  resolutions: [
+    { id: '1k', label: '1K', desc: '标准', enabled: true },
+    { id: '2k', label: '2K', desc: '高清', enabled: true },
+    { id: '4k', label: '4K', desc: 'Beta', enabled: true },
+  ],
+  qualities: [
+    { id: 'low', label: 'Low', enabled: true },
+    { id: 'medium', label: 'Medium', enabled: true },
+    { id: 'high', label: 'High', enabled: true },
+  ],
+  styles: [
+    { id: 'none', label: '无预设', prefix: '', enabled: true },
+    { id: 'photo', label: '写实摄影', prefix: 'Professional photography, ultra realistic, 8k, high detail: ', enabled: true },
+    { id: 'illustration', label: '商业插画', prefix: 'Commercial illustration, clean vector style, vibrant colors: ', enabled: true },
+    { id: 'anime', label: '动漫风格', prefix: 'Anime style, detailed illustration, vibrant: ', enabled: true },
+    { id: 'oil', label: '油画质感', prefix: 'Oil painting texture, rich brushstrokes, classical art: ', enabled: true },
+    { id: 'watercolor', label: '水彩画', prefix: 'Watercolor painting, soft edges, translucent layers: ', enabled: true },
+    { id: 'minimal', label: '极简设计', prefix: 'Minimalist design, clean lines, simple composition: ', enabled: true },
+    { id: 'cyberpunk', label: '赛博朋克', prefix: 'Cyberpunk style, neon lights, futuristic, dark atmosphere: ', enabled: true },
+    { id: 'chinese', label: '中国风', prefix: 'Chinese traditional art style, ink painting elements, elegant: ', enabled: true },
+  ],
+  counts: [
+    { id: 1, label: '1', enabled: true },
+    { id: 2, label: '2', enabled: true },
+    { id: 4, label: '4', enabled: true },
+    { id: 8, label: '8', enabled: true },
+  ],
+  formats: [
+    { id: 'png', label: 'PNG', enabled: true },
+    { id: 'webp', label: 'WebP', enabled: true },
+    { id: 'jpeg', label: 'JPEG', enabled: true },
+  ],
+  maxUploadSizeMB: 10,
+  defaultModel: 'qwen-image-2.0',
+  defaultRatio: '1:1',
+  defaultResolution: '1k',
+  defaultQuality: 'low',
+  defaultStyle: 'none',
+  defaultCount: 1,
+  defaultFormat: 'png',
+};
 
 export function getStylePrefix(styleId: string): string {
-  return STYLES.find(s => s.id === styleId)?.prefix || '';
+  // Will be overridden by dynamic styles, but keep as fallback
+  return FALLBACK.styles.find(s => s.id === styleId)?.prefix || '';
 }
 
 export function getStyleLabel(styleId: string): string {
-  return STYLES.find(s => s.id === styleId)?.label || '无';
+  return FALLBACK.styles.find(s => s.id === styleId)?.label || '无';
 }
 
-export { STYLES };
+export { FALLBACK as STYLES };
 
 export function ControlPanel({ params, onChange }: ControlPanelProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [config, setConfig] = useState<ImageGenConfig>(FALLBACK);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch config from API
+  useEffect(() => {
+    fetch('/api/image-gen-config')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.data) {
+          setConfig(data.data);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   const update = <K extends keyof ImageGenParams>(key: K, value: ImageGenParams[K]) => {
     onChange({ ...params, [key]: value });
   };
 
   const handleFile = useCallback((file: File) => {
-    if (file.size > 10 * 1024 * 1024) return;
+    const maxSize = config.maxUploadSizeMB * 1024 * 1024;
+    if (file.size > maxSize) {
+      alert(`文件大小不能超过 ${config.maxUploadSizeMB}MB`);
+      return;
+    }
     const reader = new FileReader();
     reader.onload = () => update('referenceImage', reader.result as string);
     reader.readAsDataURL(file);
-  }, []);
+  }, [config.maxUploadSizeMB]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -105,20 +158,25 @@ export function ControlPanel({ params, onChange }: ControlPanelProps) {
     if (file && file.type.startsWith('image/')) handleFile(file);
   }, [handleFile]);
 
-  // Model definitions
-  const MODELS = [
-    { id: 'qwen-image-2.0', name: '通义万相 2.0', provider: '阿里百炼', desc: '快速生图', maxN: 4, supportsEdit: false },
-    { id: 'qwen-image-2.0-pro', name: '通义万相 2.0 Pro', provider: '阿里百炼', desc: '高清生图', maxN: 4, supportsEdit: false },
-    { id: 'wan2.6-t2i', name: '万相 2.6', provider: '阿里百炼', desc: '推荐版', maxN: 4, supportsEdit: false },
-    { id: 'wanx-v1-edit', name: '万相图生图', provider: '阿里百炼', desc: '参考图改图', maxN: 4, supportsEdit: true },
-    { id: 'gpt-image-2', name: 'GPT Image 2', provider: 'OpenAI', desc: '需API Key', maxN: 10, supportsEdit: true },
-    { id: 'SeedDream-3.0', name: '即梦 3.0', provider: '火山引擎', desc: '中文理解极强', maxN: 4, supportsEdit: false },
-  ];
+  // Enabled items from config
+  const enabledModels = config.models.filter(m => m.enabled);
+  const enabledRatios = config.ratios.filter(r => r.enabled);
+  const enabledResolutions = config.resolutions.filter(r => r.enabled);
+  const enabledQualities = config.qualities.filter(q => q.enabled);
+  const enabledStyles = config.styles.filter(s => s.enabled);
+  const enabledCounts = config.counts.filter(c => c.enabled);
+  const enabledFormats = config.formats.filter(f => f.enabled);
 
-  const currentModel = MODELS.find(m => m.id === params.model) || MODELS[0];
+  const currentModel = enabledModels.find(m => m.id === params.model) || enabledModels[0];
+  const availableCounts = enabledCounts.filter(c => c.id <= (currentModel?.maxN || 4));
 
-  // Update max count based on selected model
-  const availableCounts = COUNTS.filter(c => c.id <= currentModel.maxN);
+  if (loading) {
+    return (
+      <div className="w-[280px] flex-shrink-0 border-r border-border bg-card flex items-center justify-center">
+        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="w-[280px] flex-shrink-0 border-r border-border bg-card overflow-y-auto p-4 space-y-5">
@@ -130,13 +188,13 @@ export function ControlPanel({ params, onChange }: ControlPanelProps) {
           onChange={(e) => update('model', e.target.value)}
           className="w-full px-3 py-2 rounded-lg bg-muted/50 border border-border text-sm focus:outline-none focus:border-primary transition-colors"
         >
-          {MODELS.map(m => (
+          {enabledModels.map(m => (
             <option key={m.id} value={m.id}>
               {m.name} ({m.provider}) - {m.desc}
             </option>
           ))}
         </select>
-        {currentModel.supportsEdit && (
+        {currentModel?.supportsEdit && (
           <p className="text-[10px] text-muted-foreground mt-1">✅ 支持上传参考图，AI 按要求改图</p>
         )}
       </section>
@@ -145,7 +203,7 @@ export function ControlPanel({ params, onChange }: ControlPanelProps) {
       <section>
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">尺寸比例</h3>
         <div className="grid grid-cols-3 gap-1.5">
-          {RATIOS.map(s => (
+          {enabledRatios.map(s => (
             <button
               key={s.id}
               onClick={() => update('ratio', s.id)}
@@ -175,7 +233,7 @@ export function ControlPanel({ params, onChange }: ControlPanelProps) {
       <section>
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">分辨率</h3>
         <div className="grid grid-cols-3 gap-2">
-          {RESOLUTIONS.map(r => (
+          {enabledResolutions.map(r => (
             <button
               key={r.id}
               onClick={() => update('resolution', r.id)}
@@ -199,7 +257,7 @@ export function ControlPanel({ params, onChange }: ControlPanelProps) {
       <section>
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">画质</h3>
         <div className="flex gap-2">
-          {QUALITIES.map(q => (
+          {enabledQualities.map(q => (
             <button
               key={q.id}
               onClick={() => update('quality', q.id)}
@@ -219,7 +277,7 @@ export function ControlPanel({ params, onChange }: ControlPanelProps) {
       <section>
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">风格预设</h3>
         <div className="grid grid-cols-3 gap-1.5">
-          {STYLES.map(s => (
+          {enabledStyles.map(s => (
             <button
               key={s.id}
               onClick={() => update('style', s.id)}
@@ -259,7 +317,7 @@ export function ControlPanel({ params, onChange }: ControlPanelProps) {
       <section>
         <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">输出格式</h3>
         <div className="flex gap-2">
-          {FORMATS.map(f => (
+          {enabledFormats.map(f => (
             <button
               key={f.id}
               onClick={() => update('outputFormat', f.id)}
@@ -277,7 +335,7 @@ export function ControlPanel({ params, onChange }: ControlPanelProps) {
 
       {/* Reference Image */}
       <section>
-        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">参考图 (电商海报/图生图)</h3>
+        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">参考图 (最大{config.maxUploadSizeMB}MB)</h3>
         {params.referenceImage ? (
           <div className="relative group">
             <img

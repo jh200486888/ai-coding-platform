@@ -126,10 +126,10 @@ export async function upsertModelConfig(input: {
   const id = randomUUID();
   const isActive = input.is_enabled !== 0;
   await run(
-    `INSERT INTO model_configs (id, "modelId", name, provider, "isActive", "sortOrder")
-     VALUES ($1, $2, $3, $4, $5, $6, NOW())
-     ON CONFLICT ("modelId") DO UPDATE SET name = $3, provider = $4, "isActive" = $5, "sortOrder" = $6, "updatedAt" = NOW()`,
-    [id, input.model_id, input.display_name, input.provider, isActive, input.sort_order || 0]
+    `INSERT INTO model_configs (id, "modelId", name, provider, "isActive", "sortOrder", description, default_temperature, default_max_tokens, "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+     ON CONFLICT ("modelId") DO UPDATE SET name = $3, provider = $4, "isActive" = $5, "sortOrder" = $6, description = $7, default_temperature = $8, default_max_tokens = $9, "updatedAt" = NOW()`,
+    [id, input.model_id, input.display_name, input.provider, isActive, input.sort_order || 0, input.description || '', parseFloat(input.default_temperature as any) || 0.7, input.default_max_tokens || 4096]
   );
   return (await getModelConfig(input.model_id)) as unknown as ModelConfig;
 }
@@ -208,26 +208,6 @@ export async function deleteApiKey(id: string): Promise<void> {
 export const listMessages = getMessages;
 export const getApiKey = getApiKeyByProvider;
 
-// Prisma-compatible stub for old workspace/image-gen routes
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const prisma: any = new Proxy({}, {
-  get() {
-    return new Proxy({}, {
-      get(_t: any, method: string) {
-        return (..._args: any[]) => {
-          if (method === 'findFirst' || method === 'findMany' || method === 'findUnique') return Promise.resolve([]);
-          if (method === 'create') return Promise.resolve({ id: 'stub' });
-          if (method === 'update') return Promise.resolve({ id: 'stub' });
-          if (method === 'delete') return Promise.resolve(undefined);
-          if (method === 'deleteMany') return Promise.resolve(undefined);
-          if (method === 'upsert') return Promise.resolve({ id: 'stub' });
-          return Promise.resolve(undefined);
-        };
-      }
-    });
-  }
-});
-
 // ============ Settings (key-value store) ============
 
 async function ensureSettingsTable(): Promise<void> {
@@ -264,4 +244,96 @@ export async function getAllSettings(): Promise<Record<string, string>> {
     result[row.key] = row.value;
   }
   return result;
+}
+// ============ Projects ============
+
+export async function listProjects(): Promise<any[]> {
+  return query('SELECT id, name, description, tech_stack, "createdAt", "updatedAt" FROM projects ORDER BY "updatedAt" DESC');
+}
+
+export async function getProject(id: string): Promise<any | null> {
+  return queryOne('SELECT id, name, description, tech_stack, "createdAt", "updatedAt" FROM projects WHERE id = $1', [id]);
+}
+
+export async function createProject(name: string, description?: string): Promise<any> {
+  const id = randomUUID();
+  await run('INSERT INTO projects (id, name, description, "createdAt", "updatedAt") VALUES ($1, $2, $3, NOW(), NOW())', [id, name, description || null]);
+  return getProject(id);
+}
+
+export async function updateProject(id: string, updates: { name?: string; description?: string }): Promise<any> {
+  if (updates.name !== undefined) {
+    await run('UPDATE projects SET name = $1, "updatedAt" = NOW() WHERE id = $2', [updates.name, id]);
+  }
+  if (updates.description !== undefined) {
+    await run('UPDATE projects SET description = $1, "updatedAt" = NOW() WHERE id = $2', [updates.description, id]);
+  }
+  return getProject(id);
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  await run('DELETE FROM projects WHERE id = $1', [id]);
+}
+
+// ============ Workspace Conversations ============
+
+export async function listWorkspaceConversations(projectId: string): Promise<any[]> {
+  return query('SELECT id, "projectId", title, "createdAt", "updatedAt" FROM workspace_conversations WHERE "projectId" = $1 ORDER BY "updatedAt" DESC', [projectId]);
+}
+
+export async function getWorkspaceConversation(id: string): Promise<any | null> {
+  return queryOne('SELECT id, "projectId", title, "createdAt", "updatedAt" FROM workspace_conversations WHERE id = $1', [id]);
+}
+
+export async function getWorkspaceConversationWithMessages(id: string): Promise<any | null> {
+  const conv = await getWorkspaceConversation(id);
+  if (!conv) return null;
+  const messages = await query('SELECT id, "conversationId", role, content, "modelId", attachments, "fileChanges", "createdAt" FROM workspace_messages WHERE "conversationId" = $1 ORDER BY "createdAt" ASC', [id]);
+  return { ...conv, messages };
+}
+
+export async function createWorkspaceConversation(projectId: string, title: string): Promise<any> {
+  const id = randomUUID();
+  await run('INSERT INTO workspace_conversations (id, "projectId", title, "createdAt", "updatedAt") VALUES ($1, $2, $3, NOW(), NOW())', [id, projectId, title]);
+  return getWorkspaceConversation(id);
+}
+
+export async function deleteWorkspaceConversation(id: string): Promise<void> {
+  await run('DELETE FROM workspace_conversations WHERE id = $1', [id]);
+}
+
+// ============ Workspace Files ============
+
+export async function listWorkspaceFiles(projectId: string): Promise<any[]> {
+  return query('SELECT id, "projectId", name, path, content, language, type, "parentId", "createdAt", "updatedAt" FROM workspace_files WHERE "projectId" = $1 ORDER BY path ASC', [projectId]);
+}
+
+export async function getWorkspaceFile(id: string): Promise<any | null> {
+  return queryOne('SELECT id, "projectId", name, path, content, language, type, "parentId", "createdAt", "updatedAt" FROM workspace_files WHERE id = $1', [id]);
+}
+
+export async function upsertWorkspaceFile(projectId: string, path: string, content: string): Promise<void> {
+  const name = path.split('/').pop() || path;
+  const existing = await queryOne('SELECT id FROM workspace_files WHERE "projectId" = $1 AND path = $2', [projectId, path]);
+  if (existing) {
+    await run('UPDATE workspace_files SET content = $1, "updatedAt" = NOW() WHERE id = $2', [content, existing.id]);
+  } else {
+    const id = randomUUID();
+    await run("INSERT INTO workspace_files (id, \"projectId\", name, path, content, type, \"createdAt\", \"updatedAt\") VALUES ($1, $2, $3, $4, $5, 'file', NOW(), NOW())", [id, projectId, name, path, content]);
+  }
+}
+
+export async function updateWorkspaceFile(id: string, updates: { name?: string; content?: string; path?: string }): Promise<any> {
+  if (updates.name !== undefined) await run('UPDATE workspace_files SET name = $1, "updatedAt" = NOW() WHERE id = $2', [updates.name, id]);
+  if (updates.content !== undefined) await run('UPDATE workspace_files SET content = $1, "updatedAt" = NOW() WHERE id = $2', [updates.content, id]);
+  if (updates.path !== undefined) await run('UPDATE workspace_files SET path = $1, "updatedAt" = NOW() WHERE id = $2', [updates.path, id]);
+  return getWorkspaceFile(id);
+}
+
+export async function deleteWorkspaceFile(id: string): Promise<void> {
+  await run('DELETE FROM workspace_files WHERE id = $1', [id]);
+}
+
+export async function deleteWorkspaceFileByPath(projectId: string, path: string): Promise<void> {
+  await run('DELETE FROM workspace_files WHERE "projectId" = $1 AND path = $2', [projectId, path]);
 }

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { streamText, isStepCount } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig } from '@/lib/db';
+import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig, queryOne, run } from '@/lib/db';
 import { z } from 'zod';
 import { tool } from 'ai';
 import { exec } from 'child_process';
@@ -38,6 +38,18 @@ async function execEditFile(path: string, oldText: string, newText: string): Pro
   if (newContent === content) return '⚠️ 未找到匹配文本，文件未修改';
   await fs.writeFile(filePath, newContent, 'utf-8');
   return `✅ 文件已修改: ${path}`;
+}
+
+
+async function execDeleteFile(path: string): Promise<string> {
+  const fs = await import('fs/promises');
+  const filePath = `${PROJECT_DIR}/${path}`;
+  try {
+    await fs.unlink(filePath);
+    return `✅ 文件已删除: ${path}`;
+  } catch (e: any) {
+    return `❌ 删除文件失败: ${e.message || '文件不存在或无法删除'}`;
+  }
 }
 
 async function execReadFile(path: string): Promise<string> {
@@ -170,6 +182,13 @@ const tools = {
     }),
     execute: async ({ path, oldText, newText }) => execEditFile(path, oldText, newText),
   }),
+  deleteFile: tool({
+    description: '删除项目中的文件。',
+    inputSchema: z.object({
+      path: z.string().describe('文件相对路径'),
+    }),
+    execute: async ({ path }) => execDeleteFile(path),
+  }),
   readFile: tool({
     description: '读取项目中的文件内容。',
     inputSchema: z.object({
@@ -293,7 +312,7 @@ const MODE_PROMPTS: Record<string, string> = {
 };
 
 const MODE_TOOLS: Record<string, string[]> = {
-  coding: ['createFile', 'editFile', 'readFile', 'runCommand', 'deploy', 'searchWeb', 'saveMemory'],
+  coding: ['createFile', 'editFile', 'deleteFile', 'readFile', 'runCommand', 'deploy', 'searchWeb', 'saveMemory'],
   writing: ['searchWeb', 'saveMemory'],
   analysis: ['searchWeb', 'saveMemory'],
   design: ['saveMemory'],

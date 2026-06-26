@@ -3,24 +3,22 @@
 import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
 import { MessageSquare, Code2, PanelLeftClose, PanelLeftOpen, Palette } from 'lucide-react';
-import { ControlPanel, getStylePrefix, type ImageGenParams } from '@/components/image-gen/ControlPanel';
+import { ControlPanel, type ImageGenParams } from '@/components/image-gen/ControlPanel';
 import { ImageDisplay, type GeneratedImage } from '@/components/image-gen/ImageDisplay';
 import { PromptInput } from '@/components/image-gen/PromptInput';
 import { GenerationHistory, loadHistory, saveHistory, clearHistory } from '@/components/image-gen/GenerationHistory';
 
-const DEFAULT_PARAMS: ImageGenParams = {
-  model: 'qwen-image-2.0',
-  ratio: '1:1',
-  resolution: '1k',
-  quality: 'low',
-  style: 'none',
-  count: 1,
-  outputFormat: 'png',
-  referenceImage: null,
-};
-
 export default function ImageGenPage() {
-  const [params, setParams] = useState<ImageGenParams>(DEFAULT_PARAMS);
+  const [params, setParams] = useState<ImageGenParams>({
+    model: '',
+    ratio: '1:1',
+    resolution: '1k',
+    quality: 'low',
+    style: 'none',
+    count: 1,
+    outputFormat: 'png',
+    referenceImage: null,
+  });
   const [images, setImages] = useState<GeneratedImage[]>([]);
   const [history, setHistory] = useState<GeneratedImage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -30,6 +28,28 @@ export default function ImageGenPage() {
   // Load history from localStorage on mount
   useEffect(() => {
     setHistory(loadHistory());
+  }, []);
+
+  // Fetch default params from config API
+  useEffect(() => {
+    fetch('/api/image-gen-config')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.data) {
+          const cfg = data.data;
+          setParams(prev => ({
+            ...prev,
+            model: cfg.defaultModel || prev.model || cfg.models?.[0]?.id || '',
+            ratio: cfg.defaultRatio || prev.ratio,
+            resolution: cfg.defaultResolution || prev.resolution,
+            quality: cfg.defaultQuality || prev.quality,
+            style: cfg.defaultStyle || prev.style,
+            count: cfg.defaultCount || prev.count,
+            outputFormat: cfg.defaultFormat || prev.outputFormat,
+          }));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleGenerate = useCallback(async (prompt: string) => {

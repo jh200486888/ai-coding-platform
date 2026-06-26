@@ -127,12 +127,40 @@ export function ChatInterface() {
         const data = await res.json();
         const convData = data.data;
         if (convData?.messages) {
-          const loadedMessages: Message[] = convData.messages.map((m: any) => ({
-            id: m.id || Date.now().toString() + Math.random(),
-            role: m.role,
-            content: m.content,
-            createdAt: new Date(m.created_at || m.createdAt || Date.now()),
-          }));
+          const loadedMessages: Message[] = convData.messages.map((m: any) => {
+            let msgContent = m.content || '';
+            // Parse EXEC_LOG to restore tool call badges
+            if (m.role === 'assistant' && msgContent.includes('<!--EXEC_LOG')) {
+              const logMatch = msgContent.match(/<!--EXEC_LOG\n([\s\S]*?)\n-->/);
+              if (logMatch) {
+                const logContent = logMatch[1];
+                const restoredCalls: ToolCall[] = [];
+                const lines = logContent.split('\n');
+                for (const line of lines) {
+                  const match = line.match(/^\d+\.\s+(.+?):\s+(✅|❌)\s*(.*)/);
+                  if (match) {
+                    restoredCalls.push({
+                      callId: 'hist-' + restoredCalls.length,
+                      toolName: match[1],
+                      status: match[2] === '✅' ? 'done' : 'error',
+                      summary: match[3],
+                    });
+                  }
+                }
+                if (restoredCalls.length > 0) {
+                  setToolCalls(restoredCalls);
+                }
+                // Remove EXEC_LOG from displayed content
+                msgContent = msgContent.replace(/\n\n<!--EXEC_LOG\n[\s\S]*?\n-->/, '');
+              }
+            }
+            return {
+              id: m.id || Date.now().toString() + Math.random(),
+              role: m.role,
+              content: msgContent,
+              createdAt: new Date(m.created_at || m.createdAt || Date.now()),
+            };
+          });
           setMessages(loadedMessages);
         } else {
           setMessages([]);
@@ -160,6 +188,29 @@ export function ChatInterface() {
       }
       fetchConversations();
     } catch {}
+  };
+
+  // ===== 重命名对话 =====
+  const [renamingConvId, setRenamingConvId] = useState<string | null>(null);
+  const [renameTitle, setRenameTitle] = useState('');
+
+  const startRename = (convId: string, currentTitle: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingConvId(convId);
+    setRenameTitle(currentTitle);
+  };
+
+  const confirmRename = async (convId: string) => {
+    if (!renameTitle.trim()) { setRenamingConvId(null); return; }
+    try {
+      await fetch(`/api/conversations/${convId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: renameTitle.trim() }),
+      });
+      fetchConversations();
+    } catch {}
+    setRenamingConvId(null);
   };
 
   // Flush streaming content to React state every 50ms (batch rendering)
@@ -648,17 +699,40 @@ export function ChatInterface() {
             >
               <MessageSquare className="w-3.5 h-3.5 shrink-0" />
               <div className="min-w-0 flex-1">
-                <div className="text-sm truncate">{conv.title}</div>
+                {renamingConvId !== conv.id && <div className="text-sm truncate">{conv.title}</div>}
                 <div className="text-xs text-muted-foreground">
                   {new Date(conv.updated_at || conv.created_at).toLocaleDateString('zh-CN')}
                 </div>
               </div>
-              <button
-                onClick={(e) => deleteConversation(conv.id, e)}
-                className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all shrink-0"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
+              {renamingConvId === conv.id ? (
+                <input
+                  type="text"
+                  value={renameTitle}
+                  onChange={e => setRenameTitle(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') confirmRename(conv.id); if (e.key === 'Escape') setRenamingConvId(null); }}
+                  onBlur={() => confirmRename(conv.id)}
+                  onClick={e => e.stopPropagation()}
+                  className="flex-1 min-w-0 text-sm bg-background border border-primary rounded px-1.5 py-0.5 outline-none"
+                  autoFocus
+                />
+              ) : (
+                <>
+                  <button
+                    onClick={(e) => startRename(conv.id, conv.title, e)}
+                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                    title="重命名"
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={(e) => deleteConversation(conv.id, e)}
+                    className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                    title="删除"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </>
+              )}
             </div>
           ))}
           {conversations.filter(conv => !searchQuery || conv.title.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 && (
@@ -857,7 +931,7 @@ export function ChatInterface() {
                   {tc.status === 'done' && <CircleCheck className="w-3.5 h-3.5" />}
                   {tc.status === 'error' && <CircleX className="w-3.5 h-3.5" />}
                   <Wrench className="w-3.5 h-3.5" />
-                  <span className="font-medium">{{createFile:"创建文件",editFile:"修改文件",readFile:"读取文件",runCommand:"执行命令",deploy:"部署项目"}[tc.toolName] || tc.toolName}</span>
+                  <span className="font-medium">{{createFile:"创建文件",editFile:"修改文件",deleteFile:"删除文件",readFile:"读取文件",runCommand:"执行命令",deploy:"部署项目",searchWeb:"联网搜索",saveMemory:"保存记忆"}[tc.toolName] || tc.toolName}</span>
                   {tc.summary && <span className="text-muted-foreground">— {tc.summary}</span>}
                 </div>
               ))}

@@ -15,7 +15,7 @@ const pool = new Pool({
 export async function GET() {
   try {
     const result = await pool.query(
-      'SELECT p.id, p.name, p.description, p."createdAt", p."updatedAt", ' +
+      'SELECT p.id, p.name, p.description, p.tech_stack, p."createdAt", p."updatedAt", ' +
       '(SELECT COUNT(*) FROM workspace_files f WHERE f."projectId" = p.id)::int as file_count, ' +
       '(SELECT COUNT(*) FROM workspace_conversations c WHERE c."projectId" = p.id)::int as conv_count ' +
       'FROM projects p ORDER BY p."updatedAt" DESC'
@@ -24,6 +24,7 @@ export async function GET() {
       id: r.id,
       name: r.name,
       description: r.description,
+      tech_stack: r.tech_stack || '[]',
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
       _count: { files: r.file_count || 0, conversations: r.conv_count || 0 },
@@ -39,7 +40,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, description } = body;
+    const { name, description, techStack } = body;
 
     if (!name) {
       return NextResponse.json({ error: 'Project name is required' }, { status: 400 });
@@ -47,9 +48,16 @@ export async function POST(request: NextRequest) {
 
     const id = randomUUID();
 
+    // Convert techStack string to JSON array
+    let techStackJson = '[]';
+    if (techStack && typeof techStack === 'string') {
+      const techs = techStack.split(',').map((s: string) => s.trim()).filter(Boolean);
+      techStackJson = JSON.stringify(techs);
+    }
+
     await pool.query(
-      'INSERT INTO projects (id, name, description, "createdAt", "updatedAt") VALUES ($1, $2, $3, NOW(), NOW())',
-      [id, name, description || '']
+      'INSERT INTO projects (id, name, description, tech_stack, "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, NOW(), NOW())',
+      [id, name, description || '', techStackJson]
     );
 
     const fileId = randomUUID();

@@ -1,12 +1,57 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette } from 'lucide-react';
+import { ImageGenPanel } from "@/components/admin/ImageGenPanel";
 import Link from 'next/link';
 import { useTheme } from '@/components/theme-provider';
 import type { ModelConfig, ApiKey, Conversation } from '@/lib/types';
 
-type Tab = 'keys' | 'models' | 'conversations';
+// 从 models.ts 导入的模型数据
+const MODELS_DATA = [
+  { id: 'gpt-5.6', name: 'GPT-5.6', provider: 'openai', description: '最新旗舰，150万Token上下文' },
+  { id: 'gpt-5.6-mini', name: 'GPT-5.6 Mini', provider: 'openai', description: '轻量版，高性价比' },
+  { id: 'gpt-5.5', name: 'GPT-5.5', provider: 'openai', description: '上一代旗舰' },
+  { id: 'gpt-4.1', name: 'GPT-4.1', provider: 'openai', description: '稳定版本' },
+  { id: 'o3', name: 'o3', provider: 'openai', description: '推理模型' },
+  { id: 'o3-mini', name: 'o3 Mini', provider: 'openai', description: '轻量推理模型' },
+  { id: 'gpt-image-2', name: 'GPT Image 2', provider: 'openai-image', description: '图片生成模型' },
+  { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', provider: 'anthropic', description: '最强旗舰模型' },
+  { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', provider: 'anthropic', description: '均衡性能主力' },
+  { id: 'claude-haiku-4', name: 'Claude Haiku 4', provider: 'anthropic', description: '快速响应版' },
+  { id: 'claude-opus-4-7', name: 'Claude Opus 4.7', provider: 'anthropic', description: '上一代旗舰' },
+  { id: 'gemini-3.5-pro', name: 'Gemini 3.5 Pro', provider: 'google', description: '最新Pro旗舰' },
+  { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', provider: 'google', description: '极速版 284token/s' },
+  { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', provider: 'google', description: '上一代Pro' },
+  { id: 'gemini-3.1-flash', name: 'Gemini 3.1 Flash', provider: 'google', description: '上一代极速版' },
+  { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', provider: 'deepseek', description: '1.6T参数开源旗舰' },
+  { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', provider: 'deepseek', description: '284B参数高效版' },
+  { id: 'deepseek-reasoner', name: 'DeepSeek R1', provider: 'deepseek', description: '推理增强模型' },
+  { id: 'glm-4.5-flash', name: 'GLM-4.5 Flash', provider: 'zhipu', description: '免费极速版' },
+  { id: 'glm-4-flash', name: 'GLM-4 Flash', provider: 'zhipu', description: '免费轻量版' },
+  { id: 'glm-5.2', name: 'GLM-5.2', provider: 'zhipu', description: '最新旗舰(需充值)' },
+  { id: 'qwen-max', name: 'Qwen Max', provider: 'qwen', description: '通义千问旗舰' },
+  { id: 'qwen-plus', name: 'Qwen Plus', provider: 'qwen', description: '增强版' },
+  { id: 'qwen-turbo', name: 'Qwen Turbo', provider: 'qwen', description: '快速版' },
+  { id: 'qwen-long', name: 'Qwen Long', provider: 'qwen', description: '超长上下文' },
+  { id: 'kimi-k2.7-code', name: 'Kimi K2.7 Code', provider: 'moonshot', description: '代码智能体旗舰' },
+  { id: 'kimi-k2.6', name: 'Kimi K2.6', provider: 'moonshot', description: '长文档处理' },
+  { id: 'moonshot-v1-128k', name: 'Moonshot V1 128K', provider: 'moonshot', description: '经典长上下文' },
+  { id: 'ernie-5.1', name: 'ERNIE 5.1', provider: 'baidu', description: '文心最新版' },
+  { id: 'ernie-5.0', name: 'ERNIE 5.0', provider: 'baidu', description: '文心5.0' },
+  { id: 'doubao-pro-256k', name: '豆包 Pro 256K', provider: 'doubao', description: '长上下文版' },
+  { id: 'doubao-lite-32k', name: '豆包 Lite 32K', provider: 'doubao', description: '轻量版' },
+  { id: 'llama-4-maverick', name: 'Llama 4 Maverick', provider: 'groq', description: 'Meta最新模型' },
+  { id: 'llama-4-scout', name: 'Llama 4 Scout', provider: 'groq', description: '轻量版' },
+  { id: 'mistral-large-2', name: 'Mistral Large 2', provider: 'mistral', description: '旗舰模型' },
+  { id: 'mistral-small-3', name: 'Mistral Small 3', provider: 'mistral', description: '轻量版' },
+  { id: 'grok-3', name: 'Grok 3', provider: 'xai', description: 'xAI旗舰' },
+  { id: 'grok-3-mini', name: 'Grok 3 Mini', provider: 'xai', description: '轻量版' },
+  { id: 'command-r-plus', name: 'Command R+', provider: 'cohere', description: '企业级模型' },
+  { id: 'nano-banana-pro', name: 'Nano Banana Pro', provider: 'banana', description: '轻量极速模型' },
+];
+
+type Tab = 'keys' | 'models' | 'conversations' | 'settings' | 'projects' | 'account' | 'imagegen';
 
 export default function AdminPage() {
   const { theme, setTheme } = useTheme();
@@ -34,15 +79,23 @@ export default function AdminPage() {
 
       {/* Tabs */}
       <div className="max-w-6xl mx-auto px-4 py-6">
-        <div className="flex gap-2 mb-6 border-b border-border pb-4">
+        <div className="flex gap-2 mb-6 border-b border-border pb-4 flex-wrap">
           <TabButton icon={<Key size={16} />} label="API 密钥" active={activeTab === 'keys'} onClick={() => setActiveTab('keys')} />
           <TabButton icon={<Settings size={16} />} label="模型配置" active={activeTab === 'models'} onClick={() => setActiveTab('models')} />
           <TabButton icon={<MessageSquare size={16} />} label="对话记录" active={activeTab === 'conversations'} onClick={() => setActiveTab('conversations')} />
+          <TabButton icon={<Settings size={16} />} label="系统设置" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
+          <TabButton icon={<Folder size={16} />} label="项目管理" active={activeTab === 'projects'} onClick={() => setActiveTab('projects')} />
+          <TabButton icon={<Lock size={16} />} label="账号设置" active={activeTab === 'account'} onClick={() => setActiveTab('account')} />
+          <TabButton icon={<Palette size={16} />} label="图片生成" active={activeTab === 'imagegen'} onClick={() => setActiveTab('imagegen')} />
         </div>
 
         {activeTab === 'keys' && <ApiKeysPanel />}
         {activeTab === 'models' && <ModelsPanel />}
         {activeTab === 'conversations' && <ConversationsPanel />}
+        {activeTab === 'settings' && <SettingsPanel />}
+        {activeTab === 'projects' && <ProjectsPanel />}
+        {activeTab === 'account' && <AccountPanel />}
+        {activeTab === 'imagegen' && <ImageGenPanel />}
       </div>
     </div>
   );
@@ -63,7 +116,6 @@ function TabButton({ icon, label, active, onClick }: { icon: React.ReactNode; la
 }
 
 // ============ API Keys Panel ============
-// 厂商列表
 const PROVIDERS = [
   { id: 'openai', name: 'OpenAI', desc: 'GPT-4o / GPT-4 / GPT-3.5' },
   { id: 'anthropic', name: 'Anthropic', desc: 'Claude 4 / Claude 3.5' },
@@ -146,7 +198,6 @@ function ApiKeysPanel() {
 
       {showForm && (
         <div className="bg-card border border-border rounded-xl p-4 mb-4 space-y-3">
-          {/* 厂商选择下拉框 */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">选择厂商</label>
             <div className="relative">
@@ -228,11 +279,13 @@ function ApiKeysPanel() {
 function ModelsPanel() {
   const [models, setModels] = useState<ModelConfig[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [editingModel, setEditingModel] = useState<ModelConfig | null>(null);
   const [form, setForm] = useState({
-    model_id: '', display_name: '', provider: 'coze', description: '',
+    model_id: '', display_name: '', provider: 'openai', description: '',
     default_temperature: '0.7', default_max_tokens: 4096, sort_order: 0,
   });
   const [loading, setLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const fetchModels = useCallback(async () => {
     const res = await fetch('/api/models');
@@ -251,12 +304,27 @@ function ModelsPanel() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, is_enabled: true }),
       });
-      setForm({ model_id: '', display_name: '', provider: 'coze', description: '', default_temperature: '0.7', default_max_tokens: 4096, sort_order: 0 });
+      setForm({ model_id: '', display_name: '', provider: 'openai', description: '', default_temperature: '0.7', default_max_tokens: 4096, sort_order: 0 });
       setShowForm(false);
+      setEditingModel(null);
       await fetchModels();
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEdit = (model: ModelConfig) => {
+    setEditingModel(model);
+    setForm({
+      model_id: model.model_id,
+      display_name: model.display_name,
+      provider: model.provider,
+      description: model.description || '',
+      default_temperature: model.default_temperature || '0.7',
+      default_max_tokens: model.default_max_tokens || 4096,
+      sort_order: model.sort_order || 0,
+    });
+    setShowForm(true);
   };
 
   const handleDelete = async (id: string) => {
@@ -276,6 +344,52 @@ function ModelsPanel() {
     await fetchModels();
   };
 
+  const handleUpdateSort = async (model: ModelConfig, newSort: number) => {
+    await fetch('/api/models', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...model,
+        sort_order: newSort,
+      }),
+    });
+    await fetchModels();
+  };
+
+  // 批量导入模型
+  const handleBatchImport = async () => {
+    if (models.length > 0) {
+      const confirmed = confirm(`数据库中已有 ${models.length} 个模型，继续导入将添加重复模型。是否继续？`);
+      if (!confirmed) return;
+    }
+    
+    setImporting(true);
+    try {
+      for (let i = 0; i < MODELS_DATA.length; i++) {
+        const m = MODELS_DATA[i];
+        await fetch('/api/models', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model_id: m.id,
+            display_name: m.name,
+            provider: m.provider,
+            description: m.description,
+            is_enabled: true,
+            sort_order: i + 1,
+          }),
+        });
+      }
+      await fetchModels();
+      alert(`成功导入 ${MODELS_DATA.length} 个模型！`);
+    } catch (err) {
+      console.error('Import error:', err);
+      alert('导入失败');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -288,7 +402,14 @@ function ModelsPanel() {
             <RefreshCw size={14} /> 刷新
           </button>
           <button
-            onClick={() => setShowForm(!showForm)}
+            onClick={handleBatchImport}
+            disabled={importing}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700 disabled:opacity-50"
+          >
+            <Upload size={14} /> {importing ? '导入中...' : '批量导入'}
+          </button>
+          <button
+            onClick={() => { setShowForm(!showForm); setEditingModel(null); setForm({ model_id: '', display_name: '', provider: 'openai', description: '', default_temperature: '0.7', default_max_tokens: 4096, sort_order: 0 }); }}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90"
           >
             <Plus size={14} /> 添加模型
@@ -312,7 +433,7 @@ function ModelsPanel() {
               className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
             />
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-3">
             <input
               placeholder="厂商（如 openai）"
               value={form.provider}
@@ -334,6 +455,13 @@ function ModelsPanel() {
               onChange={(e) => setForm({ ...form, default_max_tokens: Number(e.target.value) })}
               className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
             />
+            <input
+              placeholder="排序号"
+              type="number"
+              value={form.sort_order}
+              onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })}
+              className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
+            />
           </div>
           <input
             placeholder="模型描述"
@@ -341,13 +469,21 @@ function ModelsPanel() {
             onChange={(e) => setForm({ ...form, description: e.target.value })}
             className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
           />
-          <button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
-          >
-            <Save size={14} /> 保存
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
+            >
+              <Save size={14} /> {editingModel ? '更新' : '保存'}
+            </button>
+            <button
+              onClick={() => { setShowForm(false); setEditingModel(null); }}
+              className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent"
+            >
+              取消
+            </button>
+          </div>
         </div>
       )}
 
@@ -356,6 +492,12 @@ function ModelsPanel() {
           <div key={model.id} className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
             <div className="flex-1">
               <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={model.sort_order || 0}
+                  onChange={(e) => handleUpdateSort(model, Number(e.target.value))}
+                  className="w-16 px-2 py-1 rounded bg-muted text-xs text-center border border-border"
+                />
                 <span className="font-medium">{model.display_name}</span>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">{model.provider}</span>
                 {model.is_enabled ? (
@@ -369,12 +511,14 @@ function ModelsPanel() {
             </div>
             <div className="flex items-center gap-2">
               <button
+                onClick={() => handleEdit(model)}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/10 text-blue-500 hover:bg-blue-500/20"
+              >
+                编辑
+              </button>
+              <button
                 onClick={() => handleToggleEnabled(model)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  model.is_enabled
-                    ? 'bg-green-500/10 text-green-500 hover:bg-green-500/20'
-                    : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'
-                }`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${model.is_enabled ? 'bg-green-500/10 text-green-500 hover:bg-green-500/20' : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'}`}
               >
                 {model.is_enabled ? '禁用' : '启用'}
               </button>
@@ -465,11 +609,7 @@ function ConversationsPanel() {
               <div className="border-t border-border p-4 space-y-3 max-h-96 overflow-y-auto">
                 {messages.map((msg, i) => (
                   <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${
-                      msg.role === 'user'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted'
-                    }`}>
+                    <div className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'}`}>
                       <div className="text-xs opacity-70 mb-1">{msg.role}</div>
                       <p className="whitespace-pre-wrap">{msg.content.slice(0, 500)}{msg.content.length > 500 ? '...' : ''}</p>
                     </div>
@@ -485,6 +625,497 @@ function ConversationsPanel() {
         {conversations.length === 0 && (
           <div className="text-center text-muted-foreground py-8">No conversations yet</div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ============ Settings Panel ============
+function SettingsPanel() {
+  const [settings, setSettings] = useState<Record<string, string>>({});
+  const [form, setForm] = useState({
+    system_prompt: '',
+    site_title: '',
+    site_description: '',
+    default_model: '',
+  });
+  const [loading, setLoading] = useState(false);
+  const [models, setModels] = useState<{id: string; name: string}[]>([]);
+
+  useEffect(() => {
+    fetchSettings();
+    fetchModels();
+  }, []);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/admin/settings');
+      const data = await res.json();
+      if (data.success && data.data) {
+        setSettings(data.data);
+        setForm({
+          system_prompt: data.data.system_prompt || '',
+          site_title: data.data.site_title || '',
+          site_description: data.data.site_description || '',
+          default_model: data.data.default_model || '',
+        });
+      }
+    } catch (err) {
+      console.error('Failed to fetch settings:', err);
+    }
+  };
+
+  const fetchModels = async () => {
+    try {
+      const res = await fetch('/api/models');
+      const data = await res.json();
+      if (data.data) {
+        setModels(data.data.map((m: any) => ({ id: m.model_id, name: m.display_name })));
+      }
+    } catch (err) {
+      console.error('Failed to fetch models:', err);
+    }
+  };
+
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      alert('设置已保存！');
+      fetchSettings();
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+      alert('保存失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold">系统设置</h2>
+        <button
+          onClick={handleSave}
+          disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
+        >
+          <Save size={14} /> {loading ? '保存中...' : '保存设置'}
+        </button>
+      </div>
+
+      <div className="space-y-6">
+        {/* System Prompt */}
+        <div className="bg-card border border-border rounded-xl p-4">
+          <h3 className="font-medium mb-3">系统提示词 (System Prompt)</h3>
+          <p className="text-xs text-muted-foreground mb-3">
+            设置 AI 的系统提示词，影响所有对话。也可以直接编辑项目根目录的 system-prompt.md 文件。
+          </p>
+          <textarea
+            value={form.system_prompt}
+            onChange={(e) => setForm({ ...form, system_prompt: e.target.value })}
+            rows={12}
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+            placeholder="输入系统提示词..."
+          />
+        </div>
+
+        {/* Site Info */}
+        <div className="bg-card border border-border rounded-xl p-4">
+          <h3 className="font-medium mb-3">网站信息</h3>
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm text-muted-foreground block mb-1">网站标题</label>
+              <input
+                value={form.site_title}
+                onChange={(e) => setForm({ ...form, site_title: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
+                placeholder="AI 编程平台"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-muted-foreground block mb-1">网站描述</label>
+              <input
+                value={form.site_description}
+                onChange={(e) => setForm({ ...form, site_description: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
+                placeholder="您的 AI 编程搭档"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Default Model */}
+        <div className="bg-card border border-border rounded-xl p-4">
+          <h3 className="font-medium mb-3">默认模型</h3>
+          <select
+            value={form.default_model}
+            onChange={(e) => setForm({ ...form, default_model: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
+          >
+            <option value="">-- 选择默认模型 --</option>
+            {models.map(m => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ Projects Panel ============
+interface Project {
+  id: string;
+  name: string;
+  description: string;
+  tech_stack: string;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { files: number; conversations: number };
+}
+
+function ProjectsPanel() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [form, setForm] = useState({ name: '', description: '' });
+  const [loading, setLoading] = useState(false);
+
+  const fetchProjects = useCallback(async () => {
+    try {
+      const res = await fetch('/api/projects');
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setProjects(data);
+      } else if (data.data) {
+        setProjects(data.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch projects:', err);
+    }
+  }, []);
+
+  useEffect(() => { fetchProjects(); }, [fetchProjects]);
+
+  const handleCreate = async () => {
+    if (!form.name) return;
+    setLoading(true);
+    try {
+      await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      setForm({ name: '', description: '' });
+      setShowForm(false);
+      await fetchProjects();
+    } catch (err) {
+      console.error('Failed to create project:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('确定要删除这个项目吗？相关文件和对话记录都将被删除！')) return;
+    try {
+      await fetch(`/api/projects?id=${id}`, { method: 'DELETE' });
+      await fetchProjects();
+      if (selectedProject?.id === id) setSelectedProject(null);
+    } catch (err) {
+      console.error('Failed to delete project:', err);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold">项目管理</h2>
+        <button
+          onClick={() => setShowForm(!showForm)}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90"
+        >
+          <Plus size={14} /> 新建项目
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="bg-card border border-border rounded-xl p-4 mb-4 space-y-3">
+          <input
+            placeholder="项目名称"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
+          />
+          <input
+            placeholder="项目描述（可选）"
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
+          />
+          <button
+            onClick={handleCreate}
+            disabled={loading || !form.name}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
+          >
+            <Save size={14} /> 创建
+          </button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {projects.map((project) => (
+          <div key={project.id} className="bg-card border border-border rounded-xl p-4">
+            <div className="flex items-start justify-between mb-2">
+              <div className="flex-1">
+                <h3 className="font-medium">{project.name}</h3>
+                {project.description && (
+                  <p className="text-sm text-muted-foreground mt-1">{project.description}</p>
+                )}
+              </div>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setSelectedProject(project)}
+                  className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground"
+                  title="查看详情"
+                >
+                  <Eye size={14} />
+                </button>
+                <button
+                  onClick={() => handleDelete(project.id)}
+                  className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                  title="删除项目"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <File size={12} /> {project._count?.files || 0} 文件
+              </span>
+              <span className="flex items-center gap-1">
+                <MessageSquare size={12} /> {project._count?.conversations || 0} 对话
+              </span>
+            </div>
+            <div className="text-xs text-muted-foreground mt-2">
+              {new Date(project.updatedAt).toLocaleString()}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {projects.length === 0 && (
+        <div className="text-center text-muted-foreground py-8">
+          <Folder size={48} className="mx-auto mb-4 opacity-50" />
+          <p>暂无项目</p>
+          <p className="text-sm mt-2">点击"新建项目"创建第一个项目</p>
+        </div>
+      )}
+
+      {/* Project Detail Modal */}
+      {selectedProject && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setSelectedProject(null)}>
+          <div className="bg-card border border-border rounded-xl p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">{selectedProject.name}</h3>
+              <button onClick={() => setSelectedProject(null)} className="p-1 hover:bg-accent rounded">✕</button>
+            </div>
+            {selectedProject.description && (
+              <p className="text-sm text-muted-foreground mb-4">{selectedProject.description}</p>
+            )}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                <span className="text-sm">文件数量</span>
+                <span className="font-medium">{selectedProject._count?.files || 0}</span>
+              </div>
+              <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                <span className="text-sm">对话数量</span>
+                <span className="font-medium">{selectedProject._count?.conversations || 0}</span>
+              </div>
+              <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                <span className="text-sm">创建时间</span>
+                <span className="text-sm">{new Date(selectedProject.createdAt).toLocaleString()}</span>
+              </div>
+              <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
+                <span className="text-sm">更新时间</span>
+                <span className="text-sm">{new Date(selectedProject.updatedAt).toLocaleString()}</span>
+              </div>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <Link
+                href={`/workspace/${selectedProject.id}`}
+                className="flex-1 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm text-center hover:bg-primary/90"
+              >
+                打开项目
+              </Link>
+              <button
+                onClick={() => { handleDelete(selectedProject.id); setSelectedProject(null); }}
+                className="px-4 py-2 rounded-lg bg-destructive text-destructive-foreground text-sm hover:bg-destructive/90"
+              >
+                删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============ Account Panel ============
+function AccountPanel() {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newUsername, setNewUsername] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [currentUsername, setCurrentUsername] = useState('admin');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetchCurrentUsername();
+  }, []);
+
+  const fetchCurrentUsername = async () => {
+    try {
+      const res = await fetch('/api/admin/password');
+      if (res.ok) {
+        const data = await res.json();
+        setCurrentUsername(data.username || 'admin');
+      }
+    } catch (err) {
+      console.error('Failed to fetch username:', err);
+    }
+  };
+
+  const handleChange = async () => {
+    setMessage('');
+    setError('');
+
+    if (!currentPassword) {
+      setError('请输入当前密码');
+      return;
+    }
+
+    if (!newUsername && !newPassword) {
+      setError('请至少填写要修改的用户名或新密码');
+      return;
+    }
+
+    if (newPassword && newPassword !== confirmPassword) {
+      setError('两次输入的新密码不一致');
+      return;
+    }
+
+    if (newPassword && newPassword.length < 6) {
+      setError('新密码至少需要6个字符');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch('/api/admin/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_username: newUsername || undefined,
+          new_password: newPassword || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setMessage('保存成功！');
+        setCurrentPassword('');
+        setNewUsername('');
+        setNewPassword('');
+        setConfirmPassword('');
+        if (newUsername) setCurrentUsername(newUsername);
+      } else {
+        setError(data.error || '保存失败');
+      }
+    } catch (err) {
+      setError('网络错误，请重试');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">账号设置</h2>
+      </div>
+
+      <div className="bg-card border border-border rounded-xl p-6 space-y-4 max-w-md">
+        <div>
+          <label className="text-sm text-muted-foreground mb-1 block">当前用户名</label>
+          <div className="px-3 py-2 rounded-lg bg-muted text-sm">{currentUsername}</div>
+        </div>
+
+        <div>
+          <label className="text-sm text-muted-foreground mb-1 block">当前密码</label>
+          <input
+            type="password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            placeholder="请输入当前密码"
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
+          />
+        </div>
+
+        <div>
+          <label className="text-sm text-muted-foreground mb-1 block">新用户名（留空则不修改）</label>
+          <input
+            type="text"
+            value={newUsername}
+            onChange={(e) => setNewUsername(e.target.value)}
+            placeholder="输入新用户名"
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
+          />
+        </div>
+
+        <div>
+          <label className="text-sm text-muted-foreground mb-1 block">新密码（留空则不修改，至少6位）</label>
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="输入新密码"
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
+          />
+        </div>
+
+        {newPassword && (
+          <div>
+            <label className="text-sm text-muted-foreground mb-1 block">确认新密码</label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="再次输入新密码"
+              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
+            />
+          </div>
+        )}
+
+        {message && <p className="text-sm text-green-500">{message}</p>}
+        {error && <p className="text-sm text-red-500">{error}</p>}
+
+        <button
+          onClick={handleChange}
+          disabled={saving}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
+        >
+          <Save size={14} /> {saving ? '保存中...' : '保存'}
+        </button>
       </div>
     </div>
   );

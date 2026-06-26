@@ -3,26 +3,60 @@ import { streamText, isStepCount } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { z } from 'zod';
 import { tool } from 'ai';
-import { query, queryOne, run } from '@/lib/db';
+import { query, queryOne, run, getSetting } from '@/lib/db';
 import { getApiKeyByProvider, getModelConfig } from '@/lib/db';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { writeFileSync } from 'fs';
 const execAsync = promisify(exec);
 
-// 从 system-prompt.md 加载系统提示词
-function loadSystemPrompt(): string {
+const SYSTEM_PROMPT_FILE = join(process.cwd(), 'system-prompt.md');
+
+// 从数据库读取 system prompt，fallback 到文件
+async function loadSystemPrompt(): Promise<string> {
   try {
-    return readFileSync(join(process.cwd(), 'system-prompt.md'), 'utf-8').trim();
+    // 优先从数据库读取
+    const dbPrompt = await getSetting('system_prompt');
+    if (dbPrompt && dbPrompt.trim()) return dbPrompt.trim();
+  } catch (e) {
+    console.error('[loadSystemPrompt] DB read error:', e);
+  }
+  
+  // fallback 到文件
+  try {
+    return readFileSync(SYSTEM_PROMPT_FILE, 'utf-8').trim();
   } catch {
     return '你是AI编程搭档，能直接操作服务器。收到任务后立即执行，做完总结结果。';
   }
 }
 
+// 保存 system prompt 到数据库和文件
+async function saveSystemPrompt(prompt: string): Promise<void> {
+  try {
+    // 保存到数据库
+    await run(
+      `INSERT INTO settings (key, value, "updatedAt") VALUES ('system_prompt', , NOW())
+       ON CONFLICT (key) DO UPDATE SET value = , "updatedAt" = NOW()`,
+      [prompt]
+    );
+    
+    // 同步到文件
+    try {
+      writeFileSync(SYSTEM_PROMPT_FILE, prompt, 'utf-8');
+    } catch (fileErr) {
+      console.error('[saveSystemPrompt] File write error:', fileErr);
+    }
+  } catch (e) {
+    console.error('[saveSystemPrompt] Error:', e);
+    throw e;
+  }
+}
+
 const PROJECT_DIR = '/www/wwwroot/agent.piyiguo.com';
 
-// Provider URL mappings
+// Provider URL mappings (默认 fallback)
 const PROVIDER_URLS: Record<string, string> = {
   deepseek: 'https://api.deepseek.com/v1',
   zhipu: 'https://open.bigmodel.cn/api/paas/v4',
@@ -57,7 +91,7 @@ async function execCreateFile(projectId: string, path: string, content: string):
   await fs.mkdir(filePath.substring(0, filePath.lastIndexOf('/')), { recursive: true });
   await fs.writeFile(filePath, content, 'utf-8');
 
-  // Save to DB
+  // Save to DB (with error handling)
   const existing = await queryOne('SELECT id FROM workspace_files WHERE "projectId" = $1 AND path = $2', [projectId, path]);
   if (existing) {
     await run('UPDATE workspace_files SET content = $1, "updatedAt" = NOW() WHERE id = $2', [content, existing.id]);
@@ -80,10 +114,22 @@ async function execEditFile(projectId: string, path: string, oldText: string, ne
   if (newContent === content) return '⚠️ 未找到匹配文本，文件未修改';
   await fs.writeFile(filePath, newContent, 'utf-8');
 
-  // Update DB
-  const existing = await queryOne('SELECT id FROM workspace_files WHERE "projectId" = $1 AND path = $2', [projectId, path]);
-  if (existing) {
-    await run('UPDATE workspace_files SET content = $1, "updatedAt" = NOW() WHERE id = $2', [newContent, existing.id]);
+  // Upsert DB
+  try {
+    const existing = await queryOne('SELECT id FROM workspace_files WHERE "projectId" = $1 AND path = $2', [projectId, path]);
+    if (existing) {
+      await run('UPDATE workspace_files SET content = $1, "updatedAt" = NOW() WHERE id = $2', [newContent, existing.id]);
+    } else {
+      const { randomUUID } = await import('crypto');
+      const id = randomUUID();
+      const name = path.split('/').pop() || path;
+      await run(
+        'INSERT INTO workspace_files (id, "projectId", name, path, content, type, "updatedAt") VALUES ($1, $2, $3, $4, $5, \'file\', NOW())',
+        [id, projectId, name, path, newContent]
+      );
+    }
+  } catch (dbErr: any) {
+    console.error('[execEditFile] DB error:', dbErr.message);
   }
   return `✅ 文件已修改: ${path}`;
 }
@@ -92,7 +138,11 @@ async function execDeleteFile(projectId: string, path: string): Promise<string> 
   const fs = await import('fs/promises');
   const filePath = `${PROJECT_DIR}/${path}`;
   try { await fs.unlink(filePath); } catch {}
-  await run('DELETE FROM workspace_files WHERE "projectId" = $1 AND path = $2', [projectId, path]);
+  try {
+    await run('DELETE FROM workspace_files WHERE "projectId" = $1 AND path = $2', [projectId, path]);
+  } catch (dbErr: any) {
+    console.error('[execDeleteFile] DB error:', dbErr.message);
+  }
   return `✅ 文件已删除: ${path}`;
 }
 
@@ -156,6 +206,7 @@ export async function POST(request: NextRequest) {
     }
 
     const apiKey = Buffer.from(apiKeyData.api_key_encrypted, 'base64').toString('utf-8');
+    // 优先从数据库的 api_keys 表的 base_url 读取，否则 fallback 到硬编码的 PROVIDER_URLS
     const baseUrl = apiKeyData.base_url || PROVIDER_URLS[modelConfig.provider] || `https://api.${modelConfig.provider}.com/v1`;
 
     // Build AI SDK provider
@@ -166,9 +217,10 @@ export async function POST(request: NextRequest) {
     });
     const model = provider.languageModel(modelId);
 
-    // System prompt with identity (从 system-prompt.md 动态加载)
+    // System prompt with identity (从数据库或 system-prompt.md 动态加载)
     const identityName = MODEL_IDENTITY[modelConfig.provider] || modelConfig.provider;
-    const systemPrompt = loadSystemPrompt() + `\n\n【身份】你是 ${identityName} 的 ${modelId} 模型。当用户问你是谁时，如实回答。`;
+    const systemPrompt = await loadSystemPrompt();
+    const fullSystemPrompt = systemPrompt + `\n\n【身份】你是 ${identityName} 的 ${modelId} 模型。当用户问你是谁时，如实回答。`;
 
     // Define tools
     const tools = {
@@ -214,7 +266,7 @@ export async function POST(request: NextRequest) {
 
     // Build messages
     const chatMessages = [
-      { role: 'system' as const, content: systemPrompt },
+      { role: 'system' as const, content: fullSystemPrompt },
       ...messages.map((m: { role: string; content: string }) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     ];
 

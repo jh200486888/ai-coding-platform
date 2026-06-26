@@ -1,9 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Send, Loader2 } from 'lucide-react';
 import type { ImageGenParams } from './ControlPanel';
-import { getStyleLabel, STYLES } from './ControlPanel';
 
 interface PromptInputProps {
   params: ImageGenParams;
@@ -11,12 +10,26 @@ interface PromptInputProps {
   isGenerating: boolean;
 }
 
+interface StyleOption { id: string; label: string; prefix: string; enabled: boolean; }
+
 export function PromptInput({ params, onGenerate, isGenerating }: PromptInputProps) {
   const [prompt, setPrompt] = useState('');
+  const [styles, setStyles] = useState<StyleOption[]>([]);
+
+  useEffect(() => {
+    fetch('/api/image-gen-config')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.data?.styles) {
+          setStyles(data.data.styles.filter((s: StyleOption) => s.enabled));
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = () => {
     if (!prompt.trim() || isGenerating) return;
-    const styleEntry = STYLES.find(s => s.id === params.style);
+    const styleEntry = styles.find(s => s.id === params.style);
     const fullPrompt = (styleEntry?.prefix || '') + prompt.trim();
     onGenerate(fullPrompt);
   };
@@ -28,8 +41,8 @@ export function PromptInput({ params, onGenerate, isGenerating }: PromptInputPro
     }
   };
 
-  const styleName = getStyleLabel(params.style);
-  const summary = `GPT Image 2 | ${params.ratio} | ${params.resolution.toUpperCase()} | ${params.quality} | ${styleName} | ${params.count}张 | ${params.outputFormat.toUpperCase()}`;
+  const styleName = styles.find(s => s.id === params.style)?.label || params.style;
+  const summary = `${params.model} | ${params.ratio} | ${params.resolution.toUpperCase()} | ${params.quality} | ${styleName} | ${params.count}张 | ${params.outputFormat.toUpperCase()}`;
 
   return (
     <div className="border-t border-border bg-card/50 p-4">
