@@ -208,30 +208,6 @@ export async function deleteApiKey(id: string): Promise<void> {
 export const listMessages = getMessages;
 export const getApiKey = getApiKeyByProvider;
 
-// ============ Settings ============
-
-export async function getAllSettings(): Promise<Record<string, string>> {
-  const rows = await query<{ key: string; value: string }>('SELECT key, value FROM settings');
-  const result: Record<string, string> = {};
-  for (const row of rows) {
-    result[row.key] = row.value;
-  }
-  return result;
-}
-
-export async function getSetting(key: string): Promise<string | null> {
-  const row = await queryOne<{ value: string }>('SELECT value FROM settings WHERE key = $1', [key]);
-  return row?.value ?? null;
-}
-
-export async function setSetting(key: string, value: string): Promise<void> {
-  await run(
-    `INSERT INTO settings (key, value, "updatedAt") VALUES ($1, $2, NOW())
-     ON CONFLICT (key) DO UPDATE SET value = $2, "updatedAt" = NOW()`,
-    [key, value]
-  );
-}
-
 // Prisma-compatible stub for old workspace/image-gen routes
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const prisma: any = new Proxy({}, {
@@ -251,3 +227,41 @@ export const prisma: any = new Proxy({}, {
     });
   }
 });
+
+// ============ Settings (key-value store) ============
+
+async function ensureSettingsTable(): Promise<void> {
+  await run(`CREATE TABLE IF NOT EXISTS settings (
+    key VARCHAR(255) PRIMARY KEY,
+    value TEXT,
+    "updatedAt" TIMESTAMP DEFAULT NOW()
+  )`);
+}
+
+export async function getSetting(key: string): Promise<string | null> {
+  await ensureSettingsTable();
+  const row = await queryOne<{ value: string }>(
+    'SELECT value FROM settings WHERE key = $1',
+    [key]
+  );
+  return row ? row.value : null;
+}
+
+export async function setSetting(key: string, value: string): Promise<void> {
+  await ensureSettingsTable();
+  await run(
+    `INSERT INTO settings (key, value, "updatedAt") VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = $2, "updatedAt" = NOW()`,
+    [key, value]
+  );
+}
+
+export async function getAllSettings(): Promise<Record<string, string>> {
+  await ensureSettingsTable();
+  const rows = await query<{ key: string; value: string }>('SELECT key, value FROM settings');
+  const result: Record<string, string> = {};
+  for (const row of rows) {
+    result[row.key] = row.value;
+  }
+  return result;
+}
