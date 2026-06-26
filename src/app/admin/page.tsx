@@ -1,8 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette } from 'lucide-react';
+import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette, Activity, Plug, Brain } from 'lucide-react';
 import { ImageGenPanel } from "@/components/admin/ImageGenPanel";
+import { TelemetryPanel } from "@/components/admin/TelemetryPanel";
+import { McpServersPanel } from "@/components/admin/McpServersPanel";
+import { MemoryPanel } from "@/components/admin/MemoryPanel";
 import Link from 'next/link';
 import { useTheme } from '@/components/theme-provider';
 import type { ModelConfig, ApiKey, Conversation } from '@/lib/types';
@@ -51,7 +54,7 @@ const MODELS_DATA = [
   { id: 'nano-banana-pro', name: 'Nano Banana Pro', provider: 'banana', description: '轻量极速模型' },
 ];
 
-type Tab = 'keys' | 'models' | 'conversations' | 'settings' | 'projects' | 'account' | 'imagegen';
+type Tab = 'keys' | 'models' | 'conversations' | 'settings' | 'projects' | 'account' | 'imagegen' | 'telemetry' | 'mcp' | 'memory';
 
 export default function AdminPage() {
   const { theme, setTheme } = useTheme();
@@ -87,6 +90,9 @@ export default function AdminPage() {
           <TabButton icon={<Folder size={16} />} label="项目管理" active={activeTab === 'projects'} onClick={() => setActiveTab('projects')} />
           <TabButton icon={<Lock size={16} />} label="账号设置" active={activeTab === 'account'} onClick={() => setActiveTab('account')} />
           <TabButton icon={<Palette size={16} />} label="图片生成" active={activeTab === 'imagegen'} onClick={() => setActiveTab('imagegen')} />
+          <TabButton icon={<Activity size={16} />} label="AI 监控" active={activeTab === 'telemetry'} onClick={() => setActiveTab('telemetry')} />
+          <TabButton icon={<Plug size={16} />} label="MCP 服务器" active={activeTab === 'mcp'} onClick={() => setActiveTab('mcp')} />
+          <TabButton icon={<Brain size={16} />} label="记忆管理" active={activeTab === 'memory'} onClick={() => setActiveTab('memory')} />
         </div>
 
         {activeTab === 'keys' && <ApiKeysPanel />}
@@ -96,6 +102,9 @@ export default function AdminPage() {
         {activeTab === 'projects' && <ProjectsPanel />}
         {activeTab === 'account' && <AccountPanel />}
         {activeTab === 'imagegen' && <ImageGenPanel />}
+        {activeTab === 'telemetry' && <TelemetryPanel />}
+        {activeTab === 'mcp' && <McpServersPanel />}
+        {activeTab === 'memory' && <MemoryPanel />}
       </div>
     </div>
   );
@@ -286,11 +295,22 @@ function ModelsPanel() {
   });
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const fetchModels = useCallback(async () => {
-    const res = await fetch('/api/models');
-    const data = await res.json();
-    if (data.data) setModels(data.data);
+  const fetchModels = useCallback(async (showFeedback: boolean = false) => {
+    if (showFeedback) setRefreshing(true);
+    try {
+      const res = await fetch("/api/models");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      if (data.data) setModels(data.data);
+      if (showFeedback) alert("模型列表已刷新");
+    } catch (err) {
+      console.error("Failed to fetch models:", err);
+      if (showFeedback) alert("刷新失败：" + (err instanceof Error ? err.message : "未知错误"));
+    } finally {
+      if (showFeedback) setRefreshing(false);
+    }
   }, []);
 
   useEffect(() => { fetchModels(); }, [fetchModels]);
@@ -396,10 +416,11 @@ function ModelsPanel() {
         <h2 className="text-lg font-semibold">模型配置</h2>
         <div className="flex gap-2">
           <button
-            onClick={fetchModels}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent"
+            onClick={() => fetchModels(true)}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent disabled:opacity-50"
           >
-            <RefreshCw size={14} /> 刷新
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} /> {refreshing ? "刷新中..." : "刷新"}
           </button>
           <button
             onClick={handleBatchImport}
@@ -541,11 +562,23 @@ function ConversationsPanel() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<{ role: string; content: string; created_at: string }[]>([]);
+  const [convRefreshing, setConvRefreshing] = useState(false);
 
-  const fetchConversations = useCallback(async () => {
-    const res = await fetch('/api/conversations');
-    const data = await res.json();
-    if (data.data) setConversations(data.data);
+
+  const fetchConversations = useCallback(async (showFeedback: boolean = false) => {
+    if (showFeedback) setConvRefreshing(true);
+    try {
+      const res = await fetch("/api/conversations");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      if (data.data) setConversations(data.data);
+      if (showFeedback) alert("对话记录已刷新");
+    } catch (err) {
+      console.error("Failed to fetch conversations:", err);
+      if (showFeedback) alert("刷新失败：" + (err instanceof Error ? err.message : "未知错误"));
+    } finally {
+      if (showFeedback) setConvRefreshing(false);
+    }
   }, []);
 
   useEffect(() => { fetchConversations(); }, [fetchConversations]);
@@ -575,10 +608,11 @@ function ConversationsPanel() {
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">对话记录</h2>
         <button
-          onClick={fetchConversations}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent"
+          onClick={() => fetchConversations(true)}
+          disabled={convRefreshing}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent disabled:opacity-50"
         >
-          <RefreshCw size={14} /> 刷新
+          <RefreshCw size={14} className={convRefreshing ? "animate-spin" : ""} /> {convRefreshing ? "刷新中..." : "刷新"}
         </button>
       </div>
 
