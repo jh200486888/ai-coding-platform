@@ -688,9 +688,15 @@ function SettingsPanel() {
     max_steps: 15,
     max_retries: 3,
     tool_timeout_seconds: 120,
+    timeout_step: 30,
     memory_context_limit: 30,
     auto_memory_extract: true,
     sub_agent_models: 'deepseek-v4-flash,glm-5-turbo,qwen-3.7-flash',
+    topP: 0.9,
+    presencePenalty: 0,
+    frequencyPenalty: 0,
+    seed: -1,
+    max_output_tokens: 16384,
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showModeTemps, setShowModeTemps] = useState(false);

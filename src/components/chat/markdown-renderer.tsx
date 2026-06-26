@@ -42,12 +42,12 @@ function CodeBlock({ className, children, ...props }: React.HTMLAttributes<HTMLE
           {copied ? (
             <>
               <Check size={14} />
-              <span>Copied</span>
+              <span>已复制</span>
             </>
           ) : (
             <>
               <Copy size={14} />
-              <span>Copy</span>
+              <span>复制</span>
             </>
           )}
         </button>

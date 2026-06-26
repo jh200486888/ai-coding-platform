@@ -442,10 +442,15 @@ export async function POST(request: NextRequest) {
       temperature = defaultTemps[mode] ?? 0.3;
     }
 
-    // ====== 读取超时和重试配置 ======
+    // ====== 读取超时、重试和模型生成参数 ======
     let timeoutTotalMs = 120000;  // 默认 2 分钟总超时
     let timeoutStepMs = 30000;    // 默认 30 秒单步超时
     let maxRetries = 3;
+    let topP: number | undefined = undefined;
+    let presencePenalty: number | undefined = undefined;
+    let frequencyPenalty: number | undefined = undefined;
+    let seed: number | undefined = undefined;
+    let maxOutputTokens = 16384;
 
     try {
       const advStr2 = await getSetting('advanced_config');
@@ -454,6 +459,11 @@ export async function POST(request: NextRequest) {
         if (adv2.tool_timeout !== undefined) timeoutTotalMs = adv2.tool_timeout * 1000;
         if (adv2.timeout_step !== undefined) timeoutStepMs = adv2.timeout_step * 1000;
         if (adv2.max_retries !== undefined) maxRetries = adv2.max_retries;
+        if (adv2.topP !== undefined && adv2.topP !== 0.9) topP = adv2.topP;
+        if (adv2.presencePenalty !== undefined && adv2.presencePenalty !== 0) presencePenalty = adv2.presencePenalty;
+        if (adv2.frequencyPenalty !== undefined && adv2.frequencyPenalty !== 0) frequencyPenalty = adv2.frequencyPenalty;
+        if (adv2.seed !== undefined && adv2.seed !== -1) seed = adv2.seed;
+        if (adv2.max_output_tokens !== undefined) maxOutputTokens = adv2.max_output_tokens;
       }
     } catch {}
 
@@ -524,21 +534,28 @@ export async function POST(request: NextRequest) {
 
     const streamStartTime = Date.now();
 
-    // 使用 AI SDK streamText（含 timeout 保护和重试机制）
-    const result = streamText({
+    // 构建 streamText 参数（含超时保护和模型生成参数）
+    const streamOptions: any = {
       system: dynamicPrompt,
       model,
       messages: chatMessages as any,
       tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
       stopWhen: stepCountIs(maxSteps),
       temperature,
-      maxOutputTokens: 16384,
+      maxOutputTokens,
       maxRetries,
       timeout: {
         totalMs: timeoutTotalMs,
         stepMs: timeoutStepMs,
       },
-    });
+    };
+    // 只在非默认值时传入，避免对不支持的模型产生副作用
+    if (topP !== undefined) streamOptions.topP = topP;
+    if (presencePenalty !== undefined) streamOptions.presencePenalty = presencePenalty;
+    if (frequencyPenalty !== undefined) streamOptions.frequencyPenalty = frequencyPenalty;
+    if (seed !== undefined) streamOptions.seed = seed;
+
+    const result = streamText(streamOptions);
 
     // 构建流式响应
     const encoder = new TextEncoder();

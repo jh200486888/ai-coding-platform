@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { FileTree } from './FileTree';
 import { CodeEditor } from './CodeEditor';
 import { AiChat } from './AiChat';
@@ -150,55 +151,57 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
         </span>
       </div>
 
-      {/* Main content area - flex layout */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* File tree panel */}
-        <div className="w-[20%] min-w-[180px] max-w-[35%] shrink-0 overflow-hidden">
-          <FileTree
-            files={files}
-            activeFile={activeFile}
-            onFileSelect={handleFileSelect}
-            onFileCreate={handleFileCreate}
-            onFileDelete={handleFileDelete}
-          />
-        </div>
+      {/* Main content area - resizable panels */}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <ResizablePanelGroup orientation="horizontal">
+          {/* File tree panel */}
+          <ResizablePanel defaultSize={20} minSize={12} maxSize={35}>
+            <FileTree
+              files={files}
+              activeFile={activeFile}
+              onFileSelect={handleFileSelect}
+              onFileCreate={handleFileCreate}
+              onFileDelete={handleFileDelete}
+            />
+          </ResizablePanel>
 
-        {/* Resize handle */}
-        <div className="w-1 bg-border hover:bg-primary transition-colors cursor-col-resize shrink-0" />
+          <ResizableHandle withHandle />
 
-        {/* Code editor panel */}
-        <div className="flex-1 min-w-0 overflow-hidden">
-          <CodeEditor
-            file={activeFile}
-            onChange={content => {
-              if (activeFile) handleFileUpdate(activeFile.id, content);
-            }}
-          />
-        </div>
+          {/* Code editor panel */}
+          <ResizablePanel defaultSize={50} minSize={30}>
+            <CodeEditor
+              file={activeFile}
+              onChange={content => {
+                if (activeFile) handleFileUpdate(activeFile.id, content);
+              }}
+            />
+          </ResizablePanel>
 
-        {/* Resize handle */}
-        <div className="w-1 bg-border hover:bg-primary transition-colors cursor-col-resize shrink-0" />
+          <ResizableHandle withHandle />
 
-        {/* AI chat panel */}
-        <div className="w-[30%] min-w-[250px] max-w-[50%] shrink-0 overflow-hidden">
-          <AiChat
-            projectId={projectId}
-            modelId={selectedModelId}
-            files={files}
-            onFilesChanged={handleFilesChanged}
-          />
-        </div>
+          {/* AI chat panel */}
+          <ResizablePanel defaultSize={30} minSize={18} maxSize={50}>
+            <AiChat
+              projectId={projectId}
+              modelId={selectedModelId}
+              files={files}
+              onFilesChanged={handleFilesChanged}
+            />
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
 
-      {/* Terminal panel (conditional) */}
+      {/* Terminal panel (conditional, vertically resizable) */}
       {showTerminal && (
-        <div className="h-[200px] shrink-0 border-t border-border">
-          <Terminal
-            output={terminalOutput}
-            onCommand={handleTerminalCommand}
-            onClose={() => setShowTerminal(false)}
-          />
-        </div>
+        <ResizablePanelGroup orientation="vertical" className="h-[200px] shrink-0 border-t border-border">
+          <ResizablePanel defaultSize={100} minSize={30}>
+            <Terminal
+              output={terminalOutput}
+              onCommand={handleTerminalCommand}
+              onClose={() => setShowTerminal(false)}
+            />
+          </ResizablePanel>
+        </ResizablePanelGroup>
       )}
 
       {/* Bottom toolbar */}

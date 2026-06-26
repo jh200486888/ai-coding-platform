@@ -270,16 +270,30 @@ export async function POST(request: NextRequest) {
       ...messages.map((m: { role: string; content: string }) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     ];
 
-    // Use AI SDK streamText
-    const result = streamText({
+    // Read advanced config for workspace chat too
+    let wsMaxOutputTokens = 16384;
+    let wsTopP: number | undefined = undefined;
+    try {
+      const advStr = await getSetting('advanced_config');
+      if (advStr) {
+        const adv = JSON.parse(advStr);
+        if (adv.max_output_tokens !== undefined) wsMaxOutputTokens = adv.max_output_tokens;
+        if (adv.topP !== undefined && adv.topP !== 0.9) wsTopP = adv.topP;
+      }
+    } catch {}
+
+    const wsStreamOptions: any = {
       model,
       messages: chatMessages,
       tools,
       stopWhen: isStepCount(8),
       allowSystemInMessages: true,
       temperature: 0.3,
-      maxOutputTokens: 16384,
-    });
+      maxOutputTokens: wsMaxOutputTokens,
+    };
+    if (wsTopP !== undefined) wsStreamOptions.topP = wsTopP;
+
+    const result = streamText(wsStreamOptions);
 
     // Build streaming response (same format as /api/chat)
     const encoder = new TextEncoder();
