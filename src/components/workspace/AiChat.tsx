@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Paperclip, X, Image, FileText, Code, Wrench, CheckCircle, XCircle, Loader2, MessageSquare, Brain, CircleCheck, CircleX, LoaderCircle } from 'lucide-react';
 import type { WorkspaceFile, Attachment } from '@/types';
+import { ToolCallDisplay } from '@/components/chat/tool-call-display';
 
 interface AiChatProps {
   projectId: string;
@@ -404,24 +405,8 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
                 }
               >
                 {message.toolCalls && message.toolCalls.length > 0 && (
-                  <div className="mb-2 space-y-1">
-                    {message.toolCalls.map(tc => (
-                      <div
-                        key={tc.callId}
-                        className={'flex items-center gap-2 px-3 py-2 rounded-lg text-xs ' +
-                          (tc.status === 'running' ? 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300' :
-                          tc.status === 'done' ? 'bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300' :
-                          'bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300')
-                        }
-                      >
-                        {tc.status === 'running' && <LoaderCircle className="w-3.5 h-3.5 animate-spin" />}
-                        {tc.status === 'done' && <CircleCheck className="w-3.5 h-3.5" />}
-                        {tc.status === 'error' && <CircleX className="w-3.5 h-3.5" />}
-                        <Wrench className="w-3.5 h-3.5" />
-                        <span className="font-medium">{TOOL_NAME_ZH[tc.toolName] || tc.toolName}</span>
-                        {tc.summary && <span className="text-muted-foreground">— {tc.summary}</span>}
-                      </div>
-                    ))}
+                  <div className="mb-2">
+                    <ToolCallDisplay toolCalls={message.toolCalls} />
                   </div>
                 )}
 
