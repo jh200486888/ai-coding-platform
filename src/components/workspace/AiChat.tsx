@@ -59,6 +59,27 @@ const TOOL_NAME_ZH: Record<string, string> = {
   readFile: "读取文件",
 };
 
+// Chinese tool name mapping for history parsing (Chinese -> English for display compatibility)
+const TOOL_NAME_CN: Record<string, string> = {
+  '创建文件': 'createFile',
+  '修改文件': 'editFile',
+  '删除文件': 'deleteFile',
+  '执行命令': 'runCommand',
+  '部署项目': 'deploy',
+  '读取文件': 'readFile',
+  '联网搜索': 'searchWeb',
+  '保存记忆': 'saveMemory',
+};
+
+// Helper function to generate tool args summary
+function getToolArgsSummary(toolName: string, args: any): string {
+  if (!args) return '';
+  if (args.path) return args.path;
+  if (args.command) return args.command.length > 50 ? args.command.slice(0, 50) + '...' : args.command;
+  if (args.query) return args.query;
+  return '';
+}
+
 export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -83,11 +104,43 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data) && data.length > 0) {
-            setMessages(data.map((m: any) => ({
-              id: m.id,
-              role: m.role,
-              content: m.content,
-            })));
+            setMessages(data.map((m: any) => {
+              let content = m.content;
+              let toolCalls: ChatMessage['toolCalls'] = undefined;
+              
+              // 解析 EXEC_LOG 标记，恢复工具调用信息
+              if (m.role === 'assistant' && content.includes('<!--EXEC_LOG')) {
+                const logMatch = content.match(/<!--EXEC_LOG\n([\s\S]*?)\n-->/);
+                if (logMatch) {
+                  const logContent = logMatch[1];
+                  toolCalls = [];
+                  const lines = logContent.split('\n');
+                  for (const line of lines) {
+                    const match = line.match(/^\d+\.\s+(.+?):\s+(✅|❌)\s*(.*)/);
+                    if (match) {
+                      const cnName = match[1];
+                      const status = match[2] === '✅' ? 'done' : 'error';
+                      const summary = match[3];
+                      toolCalls.push({
+                        callId: 'hist-' + toolCalls.length,
+                        toolName: cnName, // 存储中文名
+                        status,
+                        summary,
+                      });
+                    }
+                  }
+                  // 从 content 中移除 EXEC_LOG 部分，避免重复显示
+                  content = content.replace(/\n\n<!--EXEC_LOG\n[\s\S]*?\n-->/, '');
+                }
+              }
+              
+              return {
+                id: m.id,
+                role: m.role,
+                content,
+                toolCalls,
+              };
+            }));
           }
         }
       } catch (err) {
@@ -257,6 +310,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
                   callId: event.callId || '',
                   toolName: event.toolName || '',
                   status: 'running',
+                  summary: getToolArgsSummary(event.toolName, event.args),
                 });
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId ? { ...m, toolCalls: [...toolCalls] } : m
