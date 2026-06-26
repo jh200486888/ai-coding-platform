@@ -459,7 +459,6 @@ export async function POST(request: NextRequest) {
 
     // Build messages with image support for vision models
     const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string } }> }> = [
-      { role: 'system', content: dynamicPrompt },
       ...messages.map(m => {
         const imageMatch = m.content.match(/\[image:(data:[^\]]+)\]/);
         if (imageMatch && m.role === 'user') {
@@ -490,6 +489,7 @@ export async function POST(request: NextRequest) {
 
     // 使用 AI SDK streamText
     const result = streamText({
+      system: dynamicPrompt,
       model,
       messages: chatMessages as any,
       tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
