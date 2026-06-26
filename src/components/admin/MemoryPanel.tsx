@@ -1,337 +1,117 @@
 "use client";
+import { useState, useEffect } from 'react';
+import { Trash2, Search, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 
-import { useState, useEffect, useCallback } from 'react';
-import { Search, Trash2, ChevronLeft, ChevronRight, Star, Brain, X, Eye } from 'lucide-react';
-
-interface UserMemory {
+interface MemoryItem {
   id: string;
   category: string;
   content: string;
-  createdAt: string;
-  updatedAt: string;
   tags: string;
   importance: number;
   keywords: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export function MemoryPanel() {
-  const [memories, setMemories] = useState<UserMemory[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
+  const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedMemory, setSelectedMemory] = useState<UserMemory | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<MemoryItem | null>(null);
+  const [loading, setLoading] = useState(false);
   const pageSize = 20;
 
-  const fetchMemories = useCallback(async () => {
+  useEffect(() => { fetchMemories(); }, [page, search]);
+
+  const fetchMemories = async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        size: pageSize.toString(),
-        ...(searchQuery && { q: searchQuery }),
-      });
+      const params = new URLSearchParams({ page: String(page), size: String(pageSize) });
+      if (search) params.set('q', search);
       const res = await fetch(`/api/admin/memories?${params}`);
-      if (res.ok) {
-        const data = await res.json();
+      const data = await res.json();
+      if (data.success) {
         setMemories(data.data || []);
         setTotal(data.total || 0);
       }
-    } catch (err) {
-      console.error('Failed to fetch memories:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [page, searchQuery]);
-
-  useEffect(() => {
-    fetchMemories();
-  }, [fetchMemories]);
-
-  const handleSearch = () => {
-    setPage(1);
-    fetchMemories();
+    } catch (err) { console.error(err); }
+    setLoading(false);
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('确定要删除这条记忆吗？')) return;
-    try {
-      const res = await fetch('/api/admin/memories', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
-      if (res.ok) {
-        fetchMemories();
-      }
-    } catch (err) {
-      console.error('Failed to delete:', err);
-    }
-  };
-
-  const handleBatchDelete = async () => {
-    if (selectedIds.size === 0) return;
-    if (!confirm(`确定要删除选中的 ${selectedIds.size} 条记忆吗？`)) return;
-    try {
-      const res = await fetch('/api/admin/memories', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: Array.from(selectedIds) }),
-      });
-      if (res.ok) {
-        setSelectedIds(new Set());
-        fetchMemories();
-      }
-    } catch (err) {
-      console.error('Failed to batch delete:', err);
-    }
-  };
-
-  const toggleSelect = (id: string) => {
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) {
-      newSet.delete(id);
-    } else {
-      newSet.add(id);
-    }
-    setSelectedIds(newSet);
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedIds.size === memories.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(memories.map(m => m.id)));
-    }
+    if (!confirm('确定删除此记忆？')) return;
+    await fetch('/api/admin/memories', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    fetchMemories();
   };
 
   const totalPages = Math.ceil(total / pageSize);
 
-  const renderStars = (count: number) => {
-    return (
-      <div className="flex gap-0.5">
-        {[1, 2, 3, 4, 5].map(i => (
-          <Star
-            key={i}
-            className={`w-3 h-3 ${i <= count ? 'text-yellow-500 fill-yellow-500' : 'text-muted'}`}
-          />
-        ))}
-      </div>
-    );
-  };
-
-  const truncateContent = (content: string, maxLength: number = 100) => {
-    if (content.length <= maxLength) return content;
-    return content.slice(0, maxLength) + '...';
-  };
-
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold flex items-center gap-2">
-          <Brain className="w-5 h-5" />
-          记忆管理
-        </h2>
-        {selectedIds.size > 0 && (
-          <button
-            onClick={handleBatchDelete}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700"
-          >
-            <Trash2 className="w-4 h-4" />
-            删除选中 ({selectedIds.size})
-          </button>
-        )}
-      </div>
-
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            placeholder="搜索内容、分类、标签、关键词..."
-            className="w-full pl-10 pr-4 py-2 bg-card border border-border rounded-lg text-sm outline-none focus:border-primary"
-          />
-        </div>
-        <button
-          onClick={handleSearch}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm hover:bg-primary/90"
-        >
-          搜索
-        </button>
-      </div>
-
-      <div className="text-sm text-muted-foreground">
-        共 {total} 条记忆
-        {selectedIds.size > 0 && `，已选中 ${selectedIds.size} 条`}
-      </div>
-
-      {loading ? (
-        <div className="text-center py-8 text-muted-foreground">加载中...</div>
-      ) : memories.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <Brain className="w-12 h-12 mx-auto mb-4 opacity-50" />
-          <p>{searchQuery ? '未找到匹配的记录' : '暂无记忆数据'}</p>
-        </div>
-      ) : (
-        <>
-          <div className="space-y-2">
-            <div className="bg-card border border-border rounded-lg p-3 flex items-center gap-2 text-sm text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={selectedIds.size === memories.length && memories.length > 0}
-                onChange={toggleSelectAll}
-                className="w-4 h-4 rounded"
-              />
-              <span className="flex-1">全选</span>
-              <span className="w-20">分类</span>
-              <span className="w-24">重要性</span>
-              <span className="w-40">时间</span>
-              <span className="w-24">操作</span>
-            </div>
-            {memories.map((memory) => (
-              <div
-                key={memory.id}
-                className="bg-card border border-border rounded-lg p-3 flex items-center gap-2"
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedIds.has(memory.id)}
-                  onChange={() => toggleSelect(memory.id)}
-                  className="w-4 h-4 rounded"
-                />
-                <div className="flex-1 min-w-0">
-                  <div
-                    className="text-sm cursor-pointer hover:text-primary"
-                    onClick={() => setSelectedMemory(memory)}
-                  >
-                    {truncateContent(memory.content)}
-                  </div>
-                  {memory.tags && (
-                    <div className="flex gap-1 mt-1 flex-wrap">
-                      {memory.tags.split(',').filter(Boolean).map((tag, i) => (
-                        <span key={i} className="px-2 py-0.5 bg-muted rounded text-xs text-muted-foreground">
-                          {tag.trim()}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="w-20 text-sm text-muted-foreground truncate">
-                  {memory.category}
-                </div>
-                <div className="w-24">
-                  {renderStars(memory.importance || 3)}
-                </div>
-                <div className="w-40 text-xs text-muted-foreground">
-                  {new Date(memory.createdAt).toLocaleString('zh-CN')}
-                </div>
-                <div className="w-24 flex items-center gap-1">
-                  <button
-                    onClick={() => setSelectedMemory(memory)}
-                    className="p-1.5 text-muted-foreground hover:bg-accent rounded transition-colors"
-                    title="查看"
-                  >
-                    <Eye className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDelete(memory.id)}
-                    className="p-1.5 text-red-500 hover:bg-red-500/10 rounded transition-colors"
-                    title="删除"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold">记忆管理 <span className="text-sm text-muted-foreground">({total} 条)</span></h2>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+              className="pl-8 pr-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary w-64"
+              placeholder="搜索记忆..." />
           </div>
+        </div>
+      </div>
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2 mt-4">
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="p-2 rounded-lg bg-card border border-border text-sm disabled:opacity-50 hover:bg-accent"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <span className="px-3 py-1 text-sm">
-                第 {page} / {totalPages} 页
-              </span>
-              <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="p-2 rounded-lg bg-card border border-border text-sm disabled:opacity-50 hover:bg-accent"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-        </>
+      {selected && (
+        <div className="bg-card border border-border rounded-xl p-4 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-medium">记忆详情</h3>
+            <button onClick={() => setSelected(null)} className="text-sm text-muted-foreground hover:text-foreground">关闭</button>
+          </div>
+          <div className="space-y-2 text-sm">
+            <div><span className="text-muted-foreground">ID:</span> {selected.id}</div>
+            <div><span className="text-muted-foreground">分类:</span> {selected.category}</div>
+            <div><span className="text-muted-foreground">重要度:</span> {selected.importance}/5</div>
+            <div><span className="text-muted-foreground">标签:</span> {selected.tags || '无'}</div>
+            <div><span className="text-muted-foreground">关键词:</span> {selected.keywords || '无'}</div>
+            <div><span className="text-muted-foreground">内容:</span></div>
+            <div className="bg-background p-3 rounded-lg">{selected.content}</div>
+            <div className="text-xs text-muted-foreground">创建: {selected.createdAt} | 更新: {selected.updatedAt}</div>
+          </div>
+        </div>
       )}
 
-      {selectedMemory && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-          onClick={() => setSelectedMemory(null)}
-        >
-          <div
-            className="bg-card border border-border rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">记忆详情</h3>
-              <button
-                onClick={() => setSelectedMemory(null)}
-                className="p-1 hover:bg-accent rounded"
-              >
-                <X className="w-5 h-5" />
-              </button>
+      <div className="space-y-2">
+        {memories.map(m => (
+          <div key={m.id} className="bg-card border border-border rounded-xl p-4 flex items-center justify-between">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs px-2 py-0.5 rounded bg-primary/20 text-primary">{m.category}</span>
+                <span className="text-xs text-muted-foreground">重要度: {m.importance}/5</span>
+              </div>
+              <p className="text-sm truncate">{m.content}</p>
             </div>
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <div>
-                  <div className="text-sm text-muted-foreground">分类</div>
-                  <div className="font-medium">{selectedMemory.category}</div>
-                </div>
-                <div>
-                  <div className="text-sm text-muted-foreground">重要性</div>
-                  <div>{renderStars(selectedMemory.importance || 3)}</div>
-                </div>
-                <div>
-                  <div className="text-sm text-muted-foreground">创建时间</div>
-                  <div className="text-sm">{new Date(selectedMemory.createdAt).toLocaleString('zh-CN')}</div>
-                </div>
-              </div>
-              {selectedMemory.tags && (
-                <div>
-                  <div className="text-sm text-muted-foreground mb-1">标签</div>
-                  <div className="flex gap-1 flex-wrap">
-                    {selectedMemory.tags.split(',').filter(Boolean).map((tag, i) => (
-                      <span key={i} className="px-2 py-1 bg-muted rounded text-sm">
-                        {tag.trim()}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {selectedMemory.keywords && (
-                <div>
-                  <div className="text-sm text-muted-foreground mb-1">关键词</div>
-                  <div className="text-sm">{selectedMemory.keywords}</div>
-                </div>
-              )}
-              <div>
-                <div className="text-sm text-muted-foreground mb-1">内容</div>
-                <div className="p-4 bg-muted rounded-lg text-sm whitespace-pre-wrap">
-                  {selectedMemory.content}
-                </div>
-              </div>
+            <div className="flex items-center gap-2 ml-4">
+              <button onClick={() => setSelected(m)} className="p-2 rounded-lg hover:bg-accent"><Eye size={16} /></button>
+              <button onClick={() => handleDelete(m.id)} className="p-2 rounded-lg hover:bg-accent text-red-400"><Trash2 size={16} /></button>
             </div>
           </div>
+        ))}
+        {memories.length === 0 && !loading && <p className="text-center text-muted-foreground py-8">暂无记忆</p>}
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-4">
+          <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1} className="p-2 rounded-lg hover:bg-accent disabled:opacity-30">
+            <ChevronLeft size={16} />
+          </button>
+          <span className="text-sm text-muted-foreground">{page} / {totalPages}</span>
+          <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page === totalPages} className="p-2 rounded-lg hover:bg-accent disabled:opacity-30">
+            <ChevronRight size={16} />
+          </button>
         </div>
       )}
     </div>

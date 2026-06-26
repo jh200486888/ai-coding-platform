@@ -676,6 +676,25 @@ function SettingsPanel() {
   const [loading, setLoading] = useState(false);
   const [models, setModels] = useState<{id: string; name: string}[]>([]);
 
+  const [modeTemps, setModeTemps] = useState({ coding: 0, writing: 0.7, analysis: 0.1, design: 0.3, chat: 0.5 });
+  const [modePrompts, setModePrompts] = useState({
+    writing: '\u4f60\u662f\u4e00\u4e2a\u4e13\u4e1a\u6587\u6848\u5199\u4f5c\u52a9\u624b\u3002\n\u3010\u89c4\u5219\u3011\u76f4\u63a5\u7ed9\u5185\u5bb9\uff0c\u4e0d\u7528Markdown\u3002\u6839\u636e\u573a\u666f\u8c03\u6574\u8bed\u6c14\u3002\u6ca1\u6307\u5b9a\u98ce\u683c\u7ed92-3\u4e2a\u7248\u672c\u3002\u5b8c\u6210\u540e1-2\u53e5\u603b\u7ed3\u3002',
+    analysis: '\u4f60\u662f\u6570\u636e\u5206\u6790\u4e0e\u7b56\u7565\u987e\u95ee\u3002\n\u3010\u89c4\u5219\u3011\u5148\u7ed3\u8bba\u540e\u5c55\u5f00\u3002\u4e0d\u7528Markdown\u3002\u6ce8\u660e\u6765\u6e90\u3002\u4e0d\u786e\u5b9a\u5c31\u8bf4\u660e\u3002\u5b8c\u6210\u540e\u603b\u7ed3\u6838\u5fc3\u7ed3\u8bba\u3002',
+    design: '\u4f60\u662fUI/UX\u8bbe\u8ba1\u987e\u95ee\u3002\n\u3010\u89c4\u5219\u3011\u7ed9\u5177\u4f53\u6570\u503c\u3002\u4e0d\u7528Markdown\u3002\u7ed9\u5b8c\u6574\u65b9\u6848\u4e0d\u9010\u6b65\u8ffd\u95ee\u3002\u5b8c\u6210\u540e\u603b\u7ed3\u8981\u70b9\u3002',
+    chat: '\u4f60\u662f\u667a\u80fd\u52a9\u624b\u3002\n\u3010\u89c4\u5219\u3011\u7b80\u6d01\u81ea\u7136\u3002\u4e0d\u7528Markdown\u3002\u4e0d\u7f16\u9020\u3002\u957f\u56de\u7b54\u6700\u540e1\u53e5\u603b\u7ed3\u3002',
+  });
+  const [advConfig, setAdvConfig] = useState({
+    max_steps: 15,
+    max_retries: 3,
+    tool_timeout_seconds: 120,
+    memory_context_limit: 30,
+    auto_memory_extract: true,
+    sub_agent_models: 'deepseek-v4-flash,glm-5-turbo,qwen-3.7-flash',
+  });
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showModeTemps, setShowModeTemps] = useState(false);
+  const [showModePrompts, setShowModePrompts] = useState(false);
+
   useEffect(() => {
     fetchSettings();
     fetchModels();
@@ -693,125 +712,191 @@ function SettingsPanel() {
           site_description: data.data.site_description || '',
           default_model: data.data.default_model || '',
         });
+        try { if (data.data.mode_temperatures) setModeTemps(JSON.parse(data.data.mode_temperatures)); } catch {}
+        try { if (data.data.mode_prompts) setModePrompts(JSON.parse(data.data.mode_prompts)); } catch {}
+        try { if (data.data.advanced_config) { const adv = JSON.parse(data.data.advanced_config); setAdvConfig(prev => ({ ...prev, ...adv })); } } catch {}
       }
-    } catch (err) {
-      console.error('Failed to fetch settings:', err);
-    }
+    } catch (err) { console.error('Failed to fetch settings:', err); }
   };
 
   const fetchModels = async () => {
     try {
       const res = await fetch('/api/models');
       const data = await res.json();
-      if (data.data) {
-        setModels(data.data.map((m: any) => ({ id: m.model_id, name: m.display_name })));
-      }
-    } catch (err) {
-      console.error('Failed to fetch models:', err);
-    }
+      if (data.data) setModels(data.data.map((m: any) => ({ id: m.model_id, name: m.display_name })));
+    } catch (err) { console.error('Failed to fetch models:', err); }
   };
 
   const handleSave = async () => {
     setLoading(true);
     try {
-      await fetch('/api/admin/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      });
-      alert('设置已保存！');
+      await Promise.all([
+        fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'system_prompt', value: form.system_prompt }) }),
+        fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'site_title', value: form.site_title }) }),
+        fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'site_description', value: form.site_description }) }),
+        fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'default_model', value: form.default_model }) }),
+        fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'mode_temperatures', value: JSON.stringify(modeTemps) }) }),
+        fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'mode_prompts', value: JSON.stringify(modePrompts) }) }),
+        fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'advanced_config', value: JSON.stringify(advConfig) }) }),
+      ]);
+      alert('\u8bbe\u7f6e\u5df2\u4fdd\u5b58\uff01');
       fetchSettings();
-    } catch (err) {
-      console.error('Failed to save settings:', err);
-      alert('保存失败');
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { console.error('Failed to save settings:', err); alert('\u4fdd\u5b58\u5931\u8d25'); }
+    finally { setLoading(false); }
   };
+
+  const modeLabels: Record<string, string> = { coding: '\u7f16\u7a0b', writing: '\u5199\u4f5c', analysis: '\u5206\u6790', design: '\u8bbe\u8ba1', chat: '\u804a\u5929' };
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">系统设置</h2>
-        <button
-          onClick={handleSave}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
-        >
-          <Save size={14} /> {loading ? '保存中...' : '保存设置'}
+        <h2 className="text-lg font-semibold">{'\u7cfb\u7edf\u8bbe\u7f6e'}</h2>
+        <button onClick={handleSave} disabled={loading} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50">
+          <Save size={14} /> {loading ? '\u4fdd\u5b58\u4e2d...' : '\u4fdd\u5b58\u8bbe\u7f6e'}
         </button>
       </div>
 
       <div className="space-y-6">
-        {/* System Prompt */}
         <div className="bg-card border border-border rounded-xl p-4">
-          <h3 className="font-medium mb-3">系统提示词 (System Prompt)</h3>
-          <p className="text-xs text-muted-foreground mb-3">
-            设置 AI 的系统提示词，影响所有对话。也可以直接编辑项目根目录的 system-prompt.md 文件。
-          </p>
-          <textarea
-            value={form.system_prompt}
-            onChange={(e) => setForm({ ...form, system_prompt: e.target.value })}
-            rows={12}
-            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
-            placeholder="输入系统提示词..."
-          />
+          <h3 className="font-medium mb-3">{'\u7cfb\u7edf\u63d0\u793a\u8bcd (System Prompt)'}</h3>
+          <p className="text-xs text-muted-foreground mb-3">{'\u8bbe\u7f6e AI \u7684\u7cfb\u7edf\u63d0\u793a\u8bcd\uff0c\u5f71\u54cd\u7f16\u7a0b\u6a21\u5f0f\u7684\u5bf9\u8bdd\u3002'}</p>
+          <textarea value={form.system_prompt} onChange={(e) => setForm({ ...form, system_prompt: e.target.value })} rows={8}
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono" placeholder={''} />
         </div>
 
-        {/* Site Info */}
         <div className="bg-card border border-border rounded-xl p-4">
-          <h3 className="font-medium mb-3">网站信息</h3>
+          <h3 className="font-medium mb-3">{'\u7f51\u7ad9\u4fe1\u606f'}</h3>
           <div className="space-y-3">
             <div>
-              <label className="text-sm text-muted-foreground block mb-1">网站标题</label>
-              <input
-                value={form.site_title}
-                onChange={(e) => setForm({ ...form, site_title: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
-                placeholder="AI 编程平台"
-              />
+              <label className="text-sm text-muted-foreground block mb-1">{'\u7f51\u7ad9\u6807\u9898'}</label>
+              <input value={form.site_title} onChange={(e) => setForm({ ...form, site_title: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" />
             </div>
             <div>
-              <label className="text-sm text-muted-foreground block mb-1">网站描述</label>
-              <input
-                value={form.site_description}
-                onChange={(e) => setForm({ ...form, site_description: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
-                placeholder="您的 AI 编程搭档"
-              />
+              <label className="text-sm text-muted-foreground block mb-1">{'\u7f51\u7ad9\u63cf\u8ff0'}</label>
+              <input value={form.site_description} onChange={(e) => setForm({ ...form, site_description: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" />
             </div>
           </div>
         </div>
 
-        {/* Default Model */}
         <div className="bg-card border border-border rounded-xl p-4">
-          <h3 className="font-medium mb-3">默认模型</h3>
-          <select
-            value={form.default_model}
-            onChange={(e) => setForm({ ...form, default_model: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
-          >
-            <option value="">-- 选择默认模型 --</option>
-            {models.map(m => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
+          <h3 className="font-medium mb-3">{'\u9ed8\u8ba4\u6a21\u578b'}</h3>
+          <select value={form.default_model} onChange={(e) => setForm({ ...form, default_model: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary">
+            <option value="">-- {'\u9009\u62e9\u9ed8\u8ba4\u6a21\u578b'} --</option>
+            {models.map(m => (<option key={m.id} value={m.id}>{m.name}</option>))}
           </select>
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-medium">{'\u5404\u6a21\u5f0f\u6e29\u5ea6\u914d\u7f6e'}</h3>
+            <button onClick={() => setShowModeTemps(!showModeTemps)} className="text-sm text-primary hover:underline">
+              {showModeTemps ? '\u6536\u8d77' : '\u5c55\u5f00'}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">{'\u6e29\u5ea6\u8d8a\u4f4e\u8f93\u51fa\u8d8a\u7cbe\u786e\u7a33\u5b9a\uff0c\u8d8a\u9ad8\u8d8a\u6709\u521b\u610f\u3002\u7f16\u7a0b\u5efa\u8bae 0\uff0c\u5199\u4f5c/\u804a\u5929\u5efa\u8bae 0.5-0.8\u3002'}</p>
+          {showModeTemps && (
+            <div className="space-y-4">
+              {Object.entries(modeLabels).map(([key, label]) => (
+                <div key={key} className="flex items-center gap-4">
+                  <span className="text-sm w-16">{label}</span>
+                  <input type="range" min="0" max="1" step="0.1" value={(modeTemps as any)[key]}
+                    onChange={(e) => setModeTemps({ ...modeTemps, [key]: parseFloat(e.target.value) })}
+                    className="flex-1 h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary" />
+                  <span className="text-sm font-mono w-8">{(modeTemps as any)[key].toFixed(1)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-medium">{'\u5404\u6a21\u5f0f\u63d0\u793a\u8bcd\u914d\u7f6e'}</h3>
+            <button onClick={() => setShowModePrompts(!showModePrompts)} className="text-sm text-primary hover:underline">
+              {showModePrompts ? '\u6536\u8d77' : '\u5c55\u5f00'}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">{'\u81ea\u5b9a\u4e49\u5404\u6a21\u5f0f\u7684\u7cfb\u7edf\u63d0\u793a\u8bcd\uff08\u7f16\u7a0b\u6a21\u5f0f\u5df2\u5728\u4e0a\u65b9\u5355\u72ec\u914d\u7f6e\uff09\u3002'}</p>
+          {showModePrompts && (
+            <div className="space-y-4">
+              {Object.entries(modeLabels).filter(([k]) => k !== 'coding').map(([key, label]) => (
+                <div key={key}>
+                  <label className="text-sm text-muted-foreground block mb-1">{label}{'\u6a21\u5f0f\u63d0\u793a\u8bcd'}</label>
+                  <textarea value={(modePrompts as any)[key]}
+                    onChange={(e) => setModePrompts({ ...modePrompts, [key]: e.target.value })}
+                    rows={3}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-card border border-border rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-medium">{'\u9ad8\u7ea7\u53c2\u6570\u914d\u7f6e'}</h3>
+            <button onClick={() => setShowAdvanced(!showAdvanced)} className="text-sm text-primary hover:underline">
+              {showAdvanced ? '\u6536\u8d77' : '\u5c55\u5f00'}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">{'\u8c03\u6574\u5de5\u5177\u6267\u884c\u3001\u8bb0\u5fc6\u7cfb\u7edf\u7b49\u9ad8\u7ea7\u53c2\u6570\u3002\u4e00\u822c\u4f7f\u7528\u9ed8\u8ba4\u503c\u5373\u53ef\u3002'}</p>
+          {showAdvanced && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'\u5de5\u5177\u6267\u884c\u8d85\u65f6\uff08\u79d2\uff09'}</label>
+                  <input type="number" value={advConfig.tool_timeout_seconds}
+                    onChange={(e) => setAdvConfig({ ...advConfig, tool_timeout_seconds: parseInt(e.target.value) || 120 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" min={30} max={600} />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'\u6700\u5927\u6b65\u9aa4\u6570'}</label>
+                  <input type="number" value={advConfig.max_steps}
+                    onChange={(e) => setAdvConfig({ ...advConfig, max_steps: parseInt(e.target.value) || 15 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" min={3} max={50} />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'\u6700\u5927\u91cd\u8bd5\u6b21\u6570'}</label>
+                  <input type="number" value={advConfig.max_retries}
+                    onChange={(e) => setAdvConfig({ ...advConfig, max_retries: parseInt(e.target.value) || 3 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" min={0} max={10} />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'\u8bb0\u5fc6\u4e0a\u4e0b\u6587\u6761\u6570'}</label>
+                  <input type="number" value={advConfig.memory_context_limit}
+                    onChange={(e) => setAdvConfig({ ...advConfig, memory_context_limit: parseInt(e.target.value) || 30 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" min={5} max={100} />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'\u81ea\u52a8\u8bb0\u5fc6\u63d0\u53d6'}</label>
+                  <label className="flex items-center gap-2 mt-1 cursor-pointer">
+                    <input type="checkbox" checked={advConfig.auto_memory_extract}
+                      onChange={(e) => setAdvConfig({ ...advConfig, auto_memory_extract: e.target.checked })}
+                      className="w-4 h-4 accent-primary" />
+                    <span className="text-sm">{'\u81ea\u52a8\u4ece\u5bf9\u8bdd\u4e2d\u63d0\u53d6\u5e76\u4fdd\u5b58\u8bb0\u5fc6'}</span>
+                  </label>
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'\u5b50\u667a\u80fd\u4f53\u6a21\u578b\u4f18\u5148\u7ea7\uff08\u9017\u53f7\u5206\u9694\uff09'}</label>
+                  <input type="text" value={advConfig.sub_agent_models}
+                    onChange={(e) => setAdvConfig({ ...advConfig, sub_agent_models: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                    placeholder="deepseek-v4-flash,glm-5-turbo" />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-// ============ Projects Panel ============
-interface Project {
-  id: string;
-  name: string;
-  description: string;
-  tech_stack: string;
-  createdAt: string;
-  updatedAt: string;
-  _count?: { files: number; conversations: number };
-}
+
+interface Project { id: string; name: string; description?: string; created_at?: string; createdAt: string; updated_at?: string; updatedAt: string; _count?: { files: number; conversations: number }; }
 
 function ProjectsPanel() {
   const [projects, setProjects] = useState<Project[]>([]);

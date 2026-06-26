@@ -337,3 +337,64 @@ export async function deleteWorkspaceFile(id: string): Promise<void> {
 export async function deleteWorkspaceFileByPath(projectId: string, path: string): Promise<void> {
   await run('DELETE FROM workspace_files WHERE "projectId" = $1 AND path = $2', [projectId, path]);
 }
+
+// ====== Telemetry functions (added by fix script) ======
+
+export async function saveTelemetry(data: {
+  provider: string;
+  model: string;
+  operation: string;
+  duration_ms?: number;
+  success?: boolean;
+  error_code?: string;
+  error_message?: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  user_id?: string;
+}): Promise<void> {
+  await run(
+    `INSERT INTO ai_telemetry (provider, model, operation, duration_ms, success, error_code, error_message, prompt_tokens, completion_tokens, total_tokens, user_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [
+      data.provider, data.model, data.operation,
+      data.duration_ms || null,
+      data.success !== undefined ? data.success : true,
+      data.error_code || null,
+      data.error_message || null,
+      data.prompt_tokens || 0,
+      data.completion_tokens || 0,
+      data.total_tokens || 0,
+      data.user_id || null,
+    ]
+  );
+}
+
+export async function cleanupTelemetry(daysOld: number): Promise<void> {
+  await run(
+    `DELETE FROM ai_telemetry WHERE created_at < NOW() - INTERVAL '${daysOld} days'`
+  );
+}
+
+export async function getTelemetryStats(hours: number): Promise<any> {
+  const rows = await query(
+    `SELECT provider, model, operation,
+            COUNT(*) as call_count,
+            AVG(duration_ms) as avg_duration_ms,
+            SUM(total_tokens) as total_tokens,
+            SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count,
+            SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as error_count
+     FROM ai_telemetry
+     WHERE created_at >= NOW() - INTERVAL '${hours} hours'
+     GROUP BY provider, model, operation
+     ORDER BY call_count DESC`
+  );
+  return rows;
+}
+
+export async function getRecentTelemetry(limit: number): Promise<any[]> {
+  return await query(
+    `SELECT * FROM ai_telemetry ORDER BY created_at DESC LIMIT $1`,
+    [limit]
+  );
+}

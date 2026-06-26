@@ -1,41 +1,58 @@
 import { getSetting } from '@/lib/db';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 
-const MODEL_IDENTITY: Record<string, string> = {
-  deepseek: 'DeepSeek 深度求索', zhipu: '智谱AI (GLM)', qwen: '通义千问 (Qwen)', openai: 'OpenAI (GPT)',
-  anthropic: 'Anthropic (Claude)', google: 'Google (Gemini)', moonshot: 'Kimi 月之暗面', doubao: '豆包',
-  groq: 'Groq (Llama)', mistral: 'Mistral', cohere: 'Cohere', meta: 'Meta (Llama)',
-  banana: 'Banana', spark: '讯飞星火', yi: '零一万物', baidu: '文心一言', minimax: 'MiniMax',
+const MODE_PROMPTS: Record<string, string> = {
+  coding: '你是一个专业的编程助手...',
+  writing: '你是一个专业的写作助手...',
+  analysis: '你是一个专业的数据分析师...',
+  design: '你是一个专业的UI/UX设计师...',
+  chat: '你是一个友好的对话助手...',
 };
 
-const BASE_MODE_PROMPTS: Record<string, string> = {
-  coding: '__SYSTEM_PROMPT__',
-  writing: '你是一个专业文案写作助手。\n【规则】直接给内容，不用Markdown。根据场景调整语气。没指定风格给2-3个版本。完成后1-2句总结。',
-  analysis: '你是数据分析与策略顾问。\n【规则】先结论后展开。不用Markdown。注明来源。不确定就说明。完成后总结核心结论。',
-  design: '你是UI/UX设计顾问。\n【规则】给具体数值。不用Markdown。给完整方案不逐步追问。完成后总结要点。',
-  chat: '你是智能助手。\n【规则】简洁自然。不用Markdown。不编造。长回答最后1句总结。',
+const DEFAULT_TEMPS: Record<string, number> = {
+  coding: 0, writing: 0.7, analysis: 0.1, design: 0.3, chat: 0.5,
 };
 
-export async function buildEnhancedSystemPrompt(mode: string, provider: string, modelId: string, memoryContext?: string): Promise<string> {
-  let base: string;
+export function detectMode(message: string): string {
+  const lower = message.toLowerCase();
+  if (/代码|函数|bug|error|报错|程序|编程|debug|开发|api|数据库/.test(lower)) return 'coding';
+  if (/写|文章|文案|总结|翻译|润色|邮件|报告/.test(lower)) return 'writing';
+  if (/分析|数据|统计|趋势|对比|图表/.test(lower)) return 'analysis';
+  if (/设计|界面|ui|ux|配色|布局|样式/.test(lower)) return 'design';
+  return 'chat';
+}
+
+export async function suggestTemperature(mode?: string): Promise<number> {
   try {
-    const dp = await getSetting('system_prompt');
-    base = dp?.trim() || readFileSync(join(process.cwd(), 'system-prompt.md'), 'utf-8').trim();
-  } catch { base = '你是AI编程搭档，能直接操作服务器。收到任务后立即执行，做完总结结果。'; }
-  const MP: Record<string,string> = { ...BASE_MODE_PROMPTS, coding: base };
-  let p = (MP[mode]||base) + `\n\n【身份】你是 ${MODEL_IDENTITY[provider]||provider} 的 ${modelId} 模型。`;
-  if (memoryContext) p += memoryContext;
-  p += `\n\n【工具指南】工具调用保持精确。先readFile再修改。复杂任务分步执行。可用子智能体工具处理研究任务。用saveMemory保存重要信息。`;
-  return p;
+    const str = await getSetting('mode_temperatures');
+    if (str) {
+      const temps = JSON.parse(str);
+      if (mode && temps[mode] !== undefined) return temps[mode];
+    }
+  } catch {}
+  return mode ? (DEFAULT_TEMPS[mode] ?? 0.7) : 0.7;
 }
 
-export function suggestTemperature(mode: string, hasTools: boolean): number {
-  if (hasTools && mode === 'coding') return 0;
-  if (mode === 'analysis') return 0.1;
-  if (mode === 'writing') return 0.7;
-  if (mode === 'chat') return 0.5;
-  return 0.3;
+export async function getSystemPrompt(): Promise<string> {
+  try {
+    const custom = await getSetting('system_prompt');
+    if (custom) return custom;
+  } catch {}
+  return '你是一个智能编程助手...';
 }
 
-export { MODEL_IDENTITY, BASE_MODE_PROMPTS };
+export async function buildEnhancedSystemPrompt(memoryContext?: string): Promise<string> {
+  let prompt = await getSystemPrompt();
+  if (memoryContext) prompt += `\n\n## 相关记忆\n${memoryContext}`;
+  return prompt;
+}
+
+export async function getModePrompt(mode: string): Promise<string> {
+  try {
+    const str = await getSetting('mode_prompts');
+    if (str) {
+      const prompts = JSON.parse(str);
+      if (prompts[mode]) return prompts[mode];
+    }
+  } catch {}
+  return MODE_PROMPTS[mode] || '';
+}
