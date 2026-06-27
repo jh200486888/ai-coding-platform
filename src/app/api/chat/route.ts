@@ -3,7 +3,8 @@ import { streamText, stepCountIs } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig, getSetting } from '@/lib/db';
 import { z } from 'zod';
-import { tool } from 'ai';
+import { tool, ToolLoopAgent } from 'ai';
+import { createSubAgentTool } from '@/lib/sub-agents';
 
 // ============ 工具执行函数 ============
 const PROJECT_DIR = '/www/wwwroot/agent.piyiguo.com';
@@ -77,31 +78,29 @@ async function execDeploy(): Promise<string> {
 // ============ 联网搜索 ============
 async function execSearchWeb(query: string): Promise<string> {
   try {
-    const url = 'https://www.bing.com/search?q=' + encodeURIComponent(query) + '&count=5';
+    const url = 'https://www.bing.com/search?q=' + encodeURIComponent(query) + '&count=8&cc=cn';
     const res = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml',
       },
     });
     const html = await res.text();
     const results: string[] = [];
-    const matches = html.matchAll(/<li class="b_algo">([\s\S]*?)<\/li>/g);
+    // Bing搜索结果解析 - 匹配 h2 标签中的链接标题
+    const titleMatches = html.matchAll(/<h2[^>]*><a[^>]*>([\s\S]*?)<\/a><\/h2>/g);
     let count = 0;
-    for (const m of matches) {
-      if (count >= 5) break;
-      const block = m[1];
-      const titleMatch = block.match(/<h2[^>]*><a[^>]*>([\s\S]*?)<\/a>/);
-      const snippetMatch = block.match(/<p[^>]*>([\s\S]*?)<\/p>/);
-      const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-      const snippet = snippetMatch ? snippetMatch[1].replace(/<[^>]+>/g, '').trim() : '';
-      if (title) {
+    for (const m of titleMatches) {
+      if (count >= 8) break;
+      const title = m[1].replace(/<[^>]+>/g, '').trim();
+      if (title && title.length > 2 && !title.includes('Microsoft') && !title.includes('Bing')) {
         count++;
-        results.push(count + '. ' + title + (snippet ? ' - ' + snippet : ''));
+        results.push(count + '. ' + title);
       }
     }
-    if (results.length === 0) return '未找到搜索结果，请尝试换个关键词';
-    return '搜索结果（' + query + '）：\n' + results.join('\n');
+    if (results.length > 0) return '搜索结果（' + query + '）：\n' + results.join('\n');
+    return '未找到搜索结果，请尝试换个关键词';
   } catch (e: any) {
     return '搜索失败: ' + (e.message || '未知错误');
   }
@@ -315,11 +314,11 @@ const MODE_PROMPTS: Record<string, string> = {
 };
 
 const MODE_TOOLS: Record<string, string[]> = {
-  coding: ['createFile', 'editFile', 'deleteFile', 'readFile', 'runCommand', 'deploy', 'searchWeb', 'saveMemory'],
-  writing: ['searchWeb', 'saveMemory'],
-  analysis: ['searchWeb', 'saveMemory'],
+  coding: ['createFile', 'editFile', 'deleteFile', 'readFile', 'runCommand', 'deploy', 'searchWeb', 'saveMemory', 'delegate_task'],
+  writing: ['searchWeb', 'saveMemory', 'delegate_task'],
+  analysis: ['searchWeb', 'saveMemory', 'delegate_task'],
   design: ['saveMemory'],
-  chat: ['searchWeb', 'saveMemory'],
+  chat: ['searchWeb', 'saveMemory', 'delegate_task'],
 };
 
 const TOOL_NAME_ZH_CHAT: Record<string, string> = {
@@ -362,14 +361,27 @@ const MODEL_IDENTITY: Record<string, string> = {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { conversation_id, model_id: rawModelId, modelId: rawModelId2, mode: rawMode, messages } = body as {
+    const { conversation_id, model_id: rawModelId, modelId: rawModelId2, mode: rawMode, enable_search, messages: rawMessages } = body as {
       conversation_id?: string;
       model_id?: string;
       modelId?: string;
       mode?: string;
-      messages: { role: string; content: string }[];
+      enable_search?: boolean;
+      messages: any[];
     };
     const mode = rawMode || 'coding';
+
+    // Normalize UIMessage format (from useChat) to { role, content } format
+    const messages = (rawMessages || []).map((m: any) => {
+      if (m.parts && !m.content) {
+        const text = (m.parts as any[])
+          .filter((p: any) => p.type === 'text')
+          .map((p: any) => p.text || '')
+          .join('');
+        return { role: m.role, content: text };
+      }
+      return m;
+    });
     let model_id = rawModelId || rawModelId2 || 'deepseek-v4-flash';
 
     // Auto model selection: pick first available model with active API key
@@ -436,7 +448,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ====== 从 settings 读取可配置参数 ======
-    let maxSteps = 15;
+    let maxSteps = 5;
     let temperature: number | undefined = undefined;
 
     try {
@@ -501,8 +513,14 @@ export async function POST(request: NextRequest) {
     const memorySection = memories ? '\n\n【用户记忆】\n' + memories + '\n\n当用户提到与记忆相关的内容时，参考这些信息。用户说"记住"时，用 saveMemory 工具保存。' : '';
     const dynamicPrompt = modePrompt + memorySection + `\n\n【身份】你是 ${identityName} 的 ${model_id} 模型。当用户问你是谁时，如实回答。`;
 
-    // Filter out system messages (AI SDK v7 requires system via 'system' option only)
-    const userAssistantMessages = messages.filter((m: any) => m.role !== 'system');
+    // Filter out system messages (AI SDK v7 requires system via system option only)
+    const userAssistantMessages = messages.filter((m: any) => {
+      const role = String(m.role || "").toLowerCase().trim();
+      return role !== "system" && role !== "developer" && role !== "tool";
+    }).map((m: any) => ({
+      ...m,
+      role: String(m.role || "").toLowerCase().trim() === "assistant" ? "assistant" : "user",
+    }));
 
     // Build messages with multi-modal support (images, PDFs, files)
     const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string }; image?: any }> }> = [
@@ -549,10 +567,24 @@ export async function POST(request: NextRequest) {
     for (const name of baseToolNames) {
       if (tools[name as keyof typeof tools]) activeTools[name] = tools[name as keyof typeof tools];
     }
-    // 添加增强工具
-    Object.assign(activeTools, enhancedTools);
-    // 添加 MCP 工具
-    Object.assign(activeTools, mcpToolsMap);
+    // 添加增强工具（仅限当前模式允许的工具）
+    for (const name of Object.keys(enhancedTools)) {
+      if (baseToolNames.includes(name)) activeTools[name] = enhancedTools[name];
+    }
+    // 添加 MCP 工具（仅限当前模式允许的工具）
+    for (const name of Object.keys(mcpToolsMap)) {
+      if (baseToolNames.includes(name)) activeTools[name] = mcpToolsMap[name];
+    }
+
+    // 联网搜索开关：关闭时移除 searchWeb 工具
+    if (enable_search === false) {
+      delete activeTools.searchWeb;
+    }
+
+    // 子智能体工具（AI SDK 原生 ToolLoopAgent）- 委派任务给专门的子智能体
+    if (baseToolNames.includes('delegate_task')) {
+      activeTools.delegate_task = createSubAgentTool(model, activeTools);
+    }
 
     // ====== AI SDK v7 原生流式响应 ======
     const streamStartTime = Date.now();
@@ -573,6 +605,7 @@ export async function POST(request: NextRequest) {
     });
 
     return result.toUIMessageStreamResponse({
+      sendReasoning: true,
       // 通过 messageMetadata 将 conversation_id 传给前端
       messageMetadata: ({ part }) => {
         if (part.type === 'start' || part.type === 'finish') {

@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import {
   MessageSquare, Plus, Download, Square, ImageIcon, Trash2,
   Loader2
-} from 'lucide-react';
+, Terminal, PenLine, ChartBar, Palette, MessageCircle } from 'lucide-react';
 import type { Message, Attachment } from '@/types';
 import type { UIMessage } from 'ai';
 
@@ -31,11 +31,11 @@ interface ChatMode {
 
 // Constants
 const CHAT_MODES: ChatMode[] = [
-  { id: 'coding', name: '编程', icon: null, color: 'text-violet-400', placeholder: '告诉我你想做什么...' },
-  { id: 'writing', name: '文案', icon: null, color: 'text-amber-400', placeholder: '输入你的写作需求...' },
-  { id: 'analysis', name: '分析', icon: null, color: 'text-emerald-400', placeholder: '描述你要分析的问题...' },
-  { id: 'design', name: '设计', icon: null, color: 'text-pink-400', placeholder: '描述你的设计需求...' },
-  { id: 'chat', name: '聊天', icon: null, color: 'text-sky-400', placeholder: '随便聊聊...' },
+  { id: 'coding', name: '编程', icon: Terminal, color: 'text-violet-400', placeholder: '告诉我你想做什么...' },
+  { id: 'writing', name: '文案', icon: PenLine, color: 'text-amber-400', placeholder: '输入你的写作需求...' },
+  { id: 'analysis', name: '分析', icon: ChartBar, color: 'text-emerald-400', placeholder: '描述你要分析的问题...' },
+  { id: 'design', name: '设计', icon: Palette, color: 'text-pink-400', placeholder: '描述你的设计需求...' },
+  { id: 'chat', name: '聊天', icon: MessageCircle, color: 'text-sky-400', placeholder: '随便聊聊...' },
 ];
 
 export function ChatInterface() {
@@ -56,6 +56,7 @@ export function ChatInterface() {
     loadDefaultModel();
   }, []);
   const [selectedMode, setSelectedMode] = useState('coding');
+  const [enableSearch, setEnableSearch] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
   const [input, setInput] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -129,21 +130,51 @@ export function ChatInterface() {
     },
   });
 
-  // 从当前助手消息的 parts 中提取工具调用（AI SDK 原生方式）
+  // 从所有助手消息的 parts 中提取工具调用（AI SDK v7 原生方式）
   const toolCalls = (() => {
-    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
-    if (!lastAssistant) return [];
-    return (lastAssistant as any).parts
-      ?.filter((p: any) => p.type?.startsWith('tool-') && p.toolInvocation)
-      .map((p: any) => ({
-        callId: p.toolInvocation.toolCallId || p.type,
-        toolName: p.toolInvocation.toolName || p.type.replace('tool-', ''),
-        status: p.toolInvocation.state === 'output-error' ? 'error'
-              : p.toolInvocation.output !== undefined ? 'done' : 'running',
-        summary: typeof p.toolInvocation.output === 'string'
-          ? p.toolInvocation.output.slice(0, 100)
-          : (p.toolInvocation.errorText || '').slice(0, 100),
-      })) || [];
+    const allToolCalls: any[] = [];
+    for (const msg of messages) {
+      if (msg.role !== "assistant") continue;
+      const parts = (msg as any).parts || [];
+      const msgToolCalls = parts
+        .filter((p: any) => {
+          // AI SDK v7: tool-invocation 类型 或 tool-${name} 类型
+          return p.type === "tool-invocation" || p.type?.startsWith("tool-") || p.type === "dynamic-tool";
+        })
+        .map((p: any) => {
+          // AI SDK v7 state: input-streaming, call, input-available, output-available, output-error
+          const state = String(p.state || "").toLowerCase();
+          const isPreliminary = p.preliminary === true;
+          const isStreaming = state === "output-available" && isPreliminary;
+          const isError = state === "output-error" || (state === "output-available" && !isPreliminary && p.errorText);
+          const isDone = (state === "output-available" && !isPreliminary) || (p.output !== undefined && !isPreliminary && !isError);
+          const toolName = p.toolName || (p.type === "dynamic-tool" ? p.toolName : (p.type || "").replace("tool-", ""));
+          
+          let summary: string | undefined;
+          const output = typeof p.output === "string" ? p.output : "";
+          if (isStreaming) {
+            const toolMatch = output.match(/工具:\s*(.+)/);
+            summary = toolMatch ? toolMatch[1] : "执行中...";
+          } else if (isDone) {
+            summary = output.slice(0, 100) || "完成";
+          } else if (isError) {
+            summary = (p.errorText || output).slice(0, 100);
+          } else if (state === "call" || state === "input-streaming" || state === "input-available") {
+            summary = "执行中...";
+          }
+          
+          return {
+            callId: p.toolCallId || p.type,
+            toolName,
+            status: isError ? "error" : isDone ? "done" : "running",
+            summary,
+            isSubAgent: toolName === "delegate_task",
+            subAgentOutput: toolName === "delegate_task" && isStreaming ? output : undefined,
+          };
+        });
+      allToolCalls.push(...msgToolCalls);
+    }
+    return allToolCalls;
   })();
 
   // Load conversations on mount
@@ -465,6 +496,8 @@ export function ChatInterface() {
           selectedMode={selectedMode}
           CHAT_MODES={CHAT_MODES}
           isGeneratingImage={isGeneratingImage}
+          enableSearch={enableSearch}
+          onToggleSearch={() => setEnableSearch(!enableSearch)}
           onGenerateImage={handleGenerateImage}
         />
       </div>
@@ -491,7 +524,7 @@ function ModeSelector({
         onClick={() => setShowMenu(!showMenu)}
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-input hover:bg-muted transition-colors text-sm"
       >
-        <span className={`w-4 h-4 ${currentMode?.color || ''}`} />
+        {currentMode?.icon ? <currentMode.icon className={`w-4 h-4 ${currentMode?.color || ''}`} /> : <span className={`w-4 h-4 ${currentMode?.color || ''}`} />}
         <span className="hidden sm:inline">
           {CHAT_MODES.find(m => m.id === selectedMode)?.name}
         </span>
@@ -508,7 +541,7 @@ function ModeSelector({
                   selectedMode === m.id ? 'bg-primary/10 text-primary' : 'hover:bg-muted'
                 }`}
               >
-                <span className={`w-4 h-4 ${m.color}`} />
+                {m.icon ? <m.icon className={`w-4 h-4 ${m.color}`} /> : <span className={`w-4 h-4 ${m.color}`} />}
                 <span>{m.name}</span>
               </button>
             ))}

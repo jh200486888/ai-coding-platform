@@ -685,7 +685,7 @@ function SettingsPanel() {
     chat: '\u4f60\u662f\u667a\u80fd\u52a9\u624b\u3002\n\u3010\u89c4\u5219\u3011\u7b80\u6d01\u81ea\u7136\u3002\u4e0d\u7528Markdown\u3002\u4e0d\u7f16\u9020\u3002\u957f\u56de\u7b54\u6700\u540e1\u53e5\u603b\u7ed3\u3002',
   });
   const [advConfig, setAdvConfig] = useState({
-    max_steps: 15,
+    max_steps: 5,
     max_retries: 3,
     tool_timeout_seconds: 120,
     timeout_step: 30,
@@ -862,7 +862,7 @@ function SettingsPanel() {
                 <div>
                   <label className="text-sm text-muted-foreground block mb-1">{'\u6700\u5927\u6b65\u9aa4\u6570'}</label>
                   <input type="number" value={advConfig.max_steps}
-                    onChange={(e) => setAdvConfig({ ...advConfig, max_steps: parseInt(e.target.value) || 15 })}
+                    onChange={(e) => setAdvConfig({ ...advConfig, max_steps: parseInt(e.target.value) || 5 })}
                     className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" min={3} max={50} />
                 </div>
                 <div>

@@ -1,37 +1,158 @@
-import { getSetting } from '@/lib/db';
-import { tool } from 'ai';
+import { ToolLoopAgent, tool, readUIMessageStream, toUIMessageStream } from 'ai';
 import { z } from 'zod';
 
-interface SubAgentConfig { model: string; description: string }
+// ============ 子智能体配置 ============
+const SUBAGENT_CONFIGS: Record<string, {
+  instructions: string;
+  toolNames: string[];
+}> = {
+  researcher: {
+    instructions: `你是一个专业的研究分析助手。你的任务是深入搜索和分析信息。
 
-const DEFAULT_CONFIG: Record<string, SubAgentConfig> = {
-  'code-reviewer': { model: 'deepseek-chat', description: '专注代码审查' },
-  'debugger': { model: 'deepseek-chat', description: '专注调试问题' },
-  'architect': { model: 'deepseek-chat', description: '专注架构设计' },
+工作方式：
+1. 使用搜索工具查找相关信息
+2. 读取文件获取详细内容
+3. 整理和分析发现
+4. 给出清晰的结构化总结
+
+【规则】
+- 不要使用 Markdown 格式化
+- 完成后必须给出完整的总结，包括关键发现和来源
+- 总结控制在500字以内，只保留最核心的信息`,
+    toolNames: ['searchWeb', 'readFile', 'runCommand'],
+  },
+  coder: {
+    instructions: `你是一个专业的编程助手。你的任务是根据需求编写、修改或调试代码。
+
+工作方式：
+1. 先读取相关文件了解现状
+2. 编写或修改代码
+3. 执行命令验证结果
+4. 修复发现的问题
+
+【规则】
+- 直接用工具操作，不要展示代码
+- 不要使用 Markdown 格式化
+- 完成后总结做了什么修改、结果如何`,
+    toolNames: ['createFile', 'editFile', 'deleteFile', 'readFile', 'runCommand'],
+  },
+  reviewer: {
+    instructions: `你是一个代码审查专家。你的任务是审查代码质量、发现问题和给出改进建议。
+
+工作方式：
+1. 读取相关代码文件
+2. 分析代码质量、安全性、性能
+3. 给出具体的问题列表和改进建议
+
+【规则】
+- 不要使用 Markdown 格式化
+- 完成后给出完整的审查报告
+- 按严重程度分级：严重/警告/建议`,
+    toolNames: ['readFile', 'runCommand', 'searchWeb'],
+  },
+  writer: {
+    instructions: `你是一个专业文案写作助手。你的任务是撰写各类文案内容。
+
+工作方式：
+1. 搜索获取参考资料
+2. 根据需求撰写文案
+3. 保存文件
+
+【规则】
+- 不要使用 Markdown 格式化
+- 直接输出文案内容
+- 完成后总结写了什么`,
+    toolNames: ['searchWeb', 'createFile', 'readFile'],
+  },
 };
 
-async function getConfigs(): Promise<Record<string, SubAgentConfig>> {
-  try {
-    const str = await getSetting('sub_agent_models');
-    if (str) return JSON.parse(str);
-  } catch {}
-  return DEFAULT_CONFIG;
+// ============ 创建委派任务工具（AI SDK 原生流式子智能体） ============
+export function createSubAgentTool(model: any, baseTools: Record<string, any>) {
+  return tool({
+    description: '委派任务给子智能体。可用类型：researcher（研究搜索）、coder（编码实现）、reviewer（代码审查）、writer（文案写作）。适合处理复杂、多步骤的任务。子智能体会实时反馈执行进度。',
+    inputSchema: z.object({
+      agent_type: z.enum(['researcher', 'coder', 'reviewer', 'writer']).describe('子智能体类型'),
+      task: z.string().describe('要委派的任务描述'),
+      context: z.string().optional().describe('额外上下文信息'),
+    }),
+    // 流式执行：用 async function* 逐步 yield 子智能体的进度
+    execute: async function* ({ agent_type, task, context }, { abortSignal }) {
+      const config = SUBAGENT_CONFIGS[agent_type];
+      if (!config) {
+        yield `未知子智能体类型: ${agent_type}，可用: researcher, coder, reviewer, writer`;
+        return;
+      }
+
+      // 为子智能体构建工具集
+      const subTools: Record<string, any> = {};
+      for (const name of config.toolNames) {
+        if (baseTools[name]) subTools[name] = baseTools[name];
+      }
+
+      if (Object.keys(subTools).length === 0) {
+        yield `子智能体 ${agent_type} 无可用工具（需要: ${config.toolNames.join(', ')}）`;
+        return;
+      }
+
+      // 使用 AI SDK 原生 ToolLoopAgent 创建子智能体
+      const subagent = new ToolLoopAgent({
+        model,
+        instructions: config.instructions,
+        tools: subTools,
+      });
+
+      const prompt = context ? `${task}\n\n上下文：${context}` : task;
+
+      try {
+        // 流式执行子智能体 - 实时输出进度到前端
+        const result = await subagent.stream({
+          prompt,
+          abortSignal,
+        });
+
+        // 用 readUIMessageStream 逐步构建完整的 UIMessage 并 yield
+        let lastText = '';
+        for await (const message of readUIMessageStream({
+          stream: toUIMessageStream({ stream: result.stream }),
+        })) {
+          // 从 UIMessage 中提取最新的文本内容
+          const textParts = (message?.parts || []).filter((p: any) => p.type === 'text');
+          const currentText = textParts.map((p: any) => p.text || '').join('');
+          
+          // 提取工具调用信息
+          const toolParts = (message?.parts || []).filter((p: any) => 
+            p.type?.startsWith('tool-') || p.type === 'dynamic-tool'
+          );
+          const toolSummary = toolParts.map((p: any) => {
+            const name = p.toolName || (p.type || '').replace('tool-', '');
+            const state = p.state || '';
+            return `${name}(${state})`;
+          }).join(', ');
+
+          // 构建进度信息
+          let progress = '';
+          if (toolSummary) progress += `[子智能体 ${agent_type} 执行中] 工具: ${toolSummary}`;
+          if (currentText && currentText !== lastText) {
+            if (progress) progress += '\n';
+            progress += currentText;
+            lastText = currentText;
+          }
+          if (progress) yield progress;
+        }
+
+        // 最终结果：返回子智能体的完整文本输出
+        if (!lastText) yield `子智能体 ${agent_type} 已完成任务（无文本输出）`;
+
+      } catch (e: any) {
+        if (e.name === 'AbortError') {
+          yield '子智能体任务已取消';
+        } else {
+          yield `子智能体执行失败: ${e.message || '未知错误'}`;
+        }
+      }
+    },
+  });
 }
 
-export const subAgentTools = {
-  delegate_task: tool({
-    description: '委派任务给子智能体',
-    inputSchema: z.object({
-      agent_type: z.string(),
-      task: z.string(),
-      context: z.string().optional(),
-    }),
-    execute: async ({ agent_type, task, context }) => {
-      const configs = await getConfigs();
-      const config = configs[agent_type];
-      return `子智能体 [${agent_type}] 已接收任务: ${task}${context ? `\n上下文: ${context}` : ''}${config ? `\n使用模型: ${config.model}` : ''}`;
-    },
-  }),
-};
-
-export function getSubAgentModels() { return getConfigs(); }
+// 兼容旧版导出
+export const subAgentTools = {};

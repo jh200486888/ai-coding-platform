@@ -55,14 +55,11 @@ function convertDBMessages(dbMsgs: any[]): UIMessage[] {
       for (const tc of toolCalls) {
         parts.push({
           type: `tool-${tc.toolName}`,
-          toolInvocation: {
-            toolName: tc.toolName,
-            toolCallId: `hist-${tc.toolName}-${Math.random().toString(36).slice(2, 8)}`,
-            state: tc.status === 'error' ? 'output-error' : 'output-available',
-            input: {},
-            ...(tc.status !== 'error' && { output: tc.summary }),
-            ...(tc.status === 'error' && { errorText: tc.summary }),
-          },
+          toolCallId: `hist-${tc.toolName}-${Math.random().toString(36).slice(2, 8)}`,
+          state: tc.status === 'error' ? 'output-error' : 'output-available',
+          input: {},
+          ...(tc.status !== 'error' && { output: tc.summary }),
+          ...(tc.status === 'error' && { errorText: tc.summary }),
         });
       }
 
@@ -80,10 +77,11 @@ export function useChatLogic(options: {
   currentConvId: string | null;
   selectedModel: string;
   selectedMode: string;
+  enableSearch?: boolean;
   attachments: any[];
   onConversationCreated: (convId: string) => void;
 }) {
-  const { currentConvId, selectedModel, selectedMode, onConversationCreated } = options;
+  const { currentConvId, selectedModel, selectedMode, enableSearch = true, onConversationCreated } = options;
   const currentConvIdRef = useRef(currentConvId);
   currentConvIdRef.current = currentConvId;
 
@@ -98,7 +96,7 @@ export function useChatLogic(options: {
       // 保存助手消息到数据库
       const text = extractTextContent(message);
       const toolParts = (message as any).parts?.filter(
-        (p: any) => p.type?.startsWith('tool-') && p.toolInvocation?.state === 'output-available'
+        (p: any) => p.type?.startsWith('tool-') && p.state === 'output-available'
       ) || [];
 
       try {
@@ -107,10 +105,10 @@ export function useChatLogic(options: {
           let savedContent = text;
           if (toolParts.length > 0) {
             const execLog = toolParts.map((tp: any, i: number) => {
-              const name = tp.toolName || tp.type?.replace('tool-', '') || 'unknown';
-              const out = typeof tp.toolInvocation.output === 'string'
-                ? tp.toolInvocation.output
-                : JSON.stringify(tp.toolInvocation.output);
+              const name = tp.type?.replace('tool-', '') || tp.toolName || 'unknown';
+              const out = typeof tp.output === 'string'
+                ? tp.output
+                : JSON.stringify(tp.output);
               return `${i + 1}. ${name}: ${out.startsWith('❌') ? '❌' : '✅'} ${out.slice(0, 100)}`;
             }).join('\n');
             savedContent = text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
@@ -138,10 +136,11 @@ export function useChatLogic(options: {
           conversation_id: currentConvIdRef.current || undefined,
           mode: selectedMode,
           model_id: selectedModel,
+          enable_search: enableSearch,
         },
       }
     );
-  }, [chat, selectedMode, selectedModel]);
+  }, [chat, selectedMode, selectedModel, enableSearch]);
 
   // 加载历史对话
   const loadConversation = useCallback(async (convId: string) => {
@@ -169,8 +168,22 @@ export function useChatLogic(options: {
     chat.stop();
   }, [chat.stop]);
 
+  // Convert UIMessage[] to legacy Message[] format for existing components
+  const adaptedMessages = chat.messages.map((msg: any) => {
+    const textContent = extractTextContent(msg);
+    return {
+      id: msg.id,
+      role: msg.role,
+      content: textContent,
+      createdAt: msg.createdAt || new Date(),
+      attachments: [],
+      // 保留 parts 用于工具调用显示
+      parts: msg.parts,
+    } as any;
+  });
+
   return {
-    messages: chat.messages,
+    messages: adaptedMessages,
     setMessages: chat.setMessages,
     isLoading: chat.status === 'submitted' || chat.status === 'streaming',
     isThinking: chat.status === 'submitted',

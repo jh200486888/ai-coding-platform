@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { LoaderCircle, CircleCheck, CircleX, ChevronDown, ChevronRight, Wrench } from 'lucide-react';
+import { LoaderCircle, CircleCheck, CircleX, ChevronDown, ChevronRight, Wrench, Users } from 'lucide-react';
 
 const toolNameMap: Record<string, string> = {
   createFile: '创建文件',
@@ -12,6 +12,7 @@ const toolNameMap: Record<string, string> = {
   deploy: '部署项目',
   searchWeb: '联网搜索',
   saveMemory: '保存记忆',
+  delegate_task: '委派子智能体',
 };
 
 interface ToolCall {
@@ -20,6 +21,8 @@ interface ToolCall {
   args?: Record<string, unknown>;
   status: 'running' | 'done' | 'error';
   summary?: string;
+  isSubAgent?: boolean;
+  subAgentOutput?: string;
 }
 
 export function ToolCallDisplay({ toolCalls }: { toolCalls: ToolCall[] }) {
@@ -29,19 +32,40 @@ export function ToolCallDisplay({ toolCalls }: { toolCalls: ToolCall[] }) {
   const errors = toolCalls.filter(tc => tc.status === 'error');
   const completed = done.length + errors.length;
 
-  // 还有运行中的 -> 紧凑提示
+  // 还有运行中的 -> 显示实时进度
   if (running.length > 0) {
+    const subAgentRunning = running.filter(tc => tc.isSubAgent);
+    const normalRunning = running.filter(tc => !tc.isSubAgent);
+    
     return (
-      <div
-        className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg border bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 cursor-pointer select-none"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <LoaderCircle className="w-3.5 h-3.5 animate-spin shrink-0" />
-        <span className="font-medium">正在运行 {running.length} 个操作...</span>
-        <span className="text-muted-foreground ml-auto flex items-center gap-1">
-          {completed > 0 && <span>已完成 {completed} 个</span>}
-          {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-        </span>
+      <div className="space-y-1">
+        {normalRunning.length > 0 && (
+          <div
+            className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg border bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 cursor-pointer select-none"
+            onClick={() => setExpanded(!expanded)}
+          >
+            <LoaderCircle className="w-3.5 h-3.5 animate-spin shrink-0" />
+            <span className="font-medium">正在运行 {normalRunning.length} 个操作...</span>
+            <span className="text-muted-foreground ml-auto flex items-center gap-1">
+              {completed > 0 && <span>已完成 {completed} 个</span>}
+              {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            </span>
+          </div>
+        )}
+        {subAgentRunning.map(tc => (
+          <div
+            key={tc.callId}
+            className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg border bg-purple-50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300 select-none"
+          >
+            <Users className="w-3.5 h-3.5 shrink-0" />
+            <span className="font-medium truncate">
+              {tc.subAgentOutput 
+                ? tc.subAgentOutput.replace(/\[子智能体[^\]]*\]\s*/, '').slice(0, 60) || '子智能体执行中...' 
+                : '子智能体执行中...'}
+            </span>
+            <LoaderCircle className="w-3 h-3 animate-spin ml-auto shrink-0" />
+          </div>
+        ))}
       </div>
     );
   }
@@ -63,10 +87,17 @@ export function ToolCallDisplay({ toolCalls }: { toolCalls: ToolCall[] }) {
       {expanded && (
         <div className="absolute left-0 right-0 top-full mt-1 z-10 bg-popover border border-border rounded-lg shadow-lg p-2 space-y-1">
           {toolCalls.map(tc => (
-            <div key={tc.callId} className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs">
-              {tc.status === 'done' ? <CircleCheck className="w-3 h-3 text-green-500 shrink-0" /> : <CircleX className="w-3 h-3 text-red-500 shrink-0" />}
-              <span className="font-medium text-foreground">{toolNameMap[tc.toolName] || tc.toolName}</span>
-              {tc.summary && <span className="text-muted-foreground truncate">— {tc.summary}</span>}
+            <div key={tc.callId} className="flex items-start gap-2 px-2 py-1.5 rounded-md text-xs">
+              {tc.status === 'done' ? <CircleCheck className="w-3 h-3 text-green-500 shrink-0 mt-0.5" /> 
+               : tc.status === 'error' ? <CircleX className="w-3 h-3 text-red-500 shrink-0 mt-0.5" />
+               : <LoaderCircle className="w-3 h-3 text-blue-400 animate-spin shrink-0 mt-0.5" />}
+              <div className="flex-1 min-w-0">
+                <span className={"font-medium " + (tc.status === 'error' ? "text-red-400" : "text-foreground")}>
+                  {tc.isSubAgent && <Users className="w-3 h-3 inline mr-1" />}
+                  {toolNameMap[tc.toolName] || tc.toolName}
+                </span>
+                {tc.summary && <span className="text-muted-foreground ml-1 truncate">— {tc.summary}</span>}
+              </div>
             </div>
           ))}
         </div>

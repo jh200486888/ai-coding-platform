@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { User, Bot, Image, FileText, Code, Copy, Check, Pencil } from 'lucide-react';
+import { useState, useCallback, useRef } from 'react';
+import { User, Bot, Image, FileText, Code, Copy, Check, Pencil, Volume2, Square } from 'lucide-react';
 import type { Message, Attachment } from '@/types';
 
 interface MessageBubbleProps {
@@ -130,6 +130,38 @@ function RenderedContent({ content }: { content: string }) {
 export function MessageBubble({ message, isEditing, editContent, onEdit, onEditChange, onEditSave, onEditCancel }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const hasAttachments = message.attachments && message.attachments.length > 0;
+  const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const handleTTS = useCallback(async () => {
+    if (isPlaying && audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+      setIsPlaying(false);
+      return;
+    }
+    try {
+      setIsPlaying(true);
+      const text = message.content || '';
+      if (!text) { setIsPlaying(false); return; }
+      const res = await fetch('/api/text-to-speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: text.slice(0, 2000) }),
+      });
+      if (!res.ok) { setIsPlaying(false); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => { setIsPlaying(false); audioRef.current = null; URL.revokeObjectURL(url); };
+      audio.onerror = () => { setIsPlaying(false); audioRef.current = null; URL.revokeObjectURL(url); };
+      audio.play();
+    } catch {
+      setIsPlaying(false);
+    }
+  }, [isPlaying, message.content]);
 
   return (
     <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
@@ -177,6 +209,16 @@ export function MessageBubble({ message, isEditing, editContent, onEdit, onEditC
               >
                 <Pencil className="w-2.5 h-2.5" />
                 编辑
+              </button>
+            )}
+            {/* AI消息显示朗读按钮 */}
+            {!isUser && message.content && (
+              <button
+                onClick={handleTTS}
+                className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {isPlaying ? <Square className="w-2.5 h-2.5" /> : <Volume2 className="w-2.5 h-2.5" />}
+                {isPlaying ? '停止' : '朗读'}
               </button>
             )}
           </>

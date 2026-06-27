@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from 'react';
-import { Send, Paperclip, X, Square, ImageIcon, FileText, Code, Mic } from 'lucide-react';
+import { Send, Paperclip, X, Square, ImageIcon, FileText, Code, Mic, Globe } from 'lucide-react';
 import type { Attachment } from '@/types';
 import { SpeechInput } from '@/components/chat/SpeechInput';
 
@@ -34,6 +34,8 @@ interface ChatInputProps {
   CHAT_MODES: Array<{ id: string; name: string; placeholder: string }>;
   isGeneratingImage: boolean;
   onGenerateImage: () => void;
+  enableSearch?: boolean;
+  onToggleSearch?: () => void;
 }
 
 export function ChatInput({
@@ -50,6 +52,8 @@ export function ChatInput({
   CHAT_MODES,
   isGeneratingImage,
   onGenerateImage,
+  enableSearch = true,
+  onToggleSearch,
 }: ChatInputProps) {
   const currentMode = CHAT_MODES.find(m => m.id === selectedMode);
   const canSubmit = input.trim() || attachments.length > 0;
@@ -134,6 +138,17 @@ export function ChatInput({
             aria-label="上传附件"
           >
             <Paperclip className="w-5 h-5" />
+          </button>
+
+          {/* Web Search Toggle */}
+          <button
+            type="button"
+            onClick={onToggleSearch}
+            className={`p-2 rounded-lg transition-colors shrink-0 ${enableSearch ? 'text-blue-400 hover:text-blue-300 bg-blue-400/10' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+            title={enableSearch ? '联网搜索已开启（点击关闭）' : '联网搜索已关闭（点击开启）'}
+            aria-label="切换联网搜索"
+          >
+            <Globe className="w-5 h-5" />
           </button>
 
           {/* Text input */}
