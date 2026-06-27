@@ -155,7 +155,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
       <div className="flex-1 min-h-0 overflow-hidden">
         <ResizablePanelGroup orientation="horizontal">
           {/* File tree panel */}
-          <ResizablePanel defaultSize={20} minSize={15} maxSize={30}>
+          <ResizablePanel defaultSize={22} minSize={15} maxSize={30}>
             <FileTree
               files={files}
               activeFile={activeFile}
@@ -168,7 +168,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
           <ResizableHandle withHandle />
 
           {/* Code editor panel */}
-          <ResizablePanel defaultSize={45} minSize={25}>
+          <ResizablePanel defaultSize={40} minSize={25}>
             <CodeEditor
               file={activeFile}
               onChange={content => {
@@ -180,7 +180,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
           <ResizableHandle withHandle />
 
           {/* AI chat panel */}
-          <ResizablePanel defaultSize={35} minSize={25} maxSize={55}>
+          <ResizablePanel defaultSize={38} minSize={22} maxSize={55}>
             <AiChat
               projectId={projectId}
               modelId={selectedModelId}
