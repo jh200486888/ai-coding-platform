@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { Search, Plus, Trash2, ChevronLeft, Clock, Pencil, X, Check } from 'lucide-react';
+import { Search, Plus, Trash2, ChevronLeft, Clock, Pencil, X, Check, LogOut, User } from 'lucide-react';
+import { useAuth } from '@/lib/auth-provider';
 
 interface ConversationItem {
   id: string;
@@ -43,6 +44,11 @@ export function ConversationSidebar({
   onRenameChange,
 }: ConversationSidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
+  const { user: authUser, logout: authLogout } = useAuth();
+
+  const handleLogout = async () => {
+    await authLogout();
+  };
 
   const filteredConversations = searchQuery.trim()
     ? conversations.filter(c =>
@@ -173,6 +179,26 @@ export function ConversationSidebar({
               </div>
             ))
           )}
+        </div>
+
+        {/* User info & logout */}
+        <div className="border-t border-border/50 p-3">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-violet-500/20 flex items-center justify-center shrink-0">
+              <User className="w-4 h-4 text-violet-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium truncate">{authUser?.name || authUser?.email || '用户'}</div>
+              <div className="text-xs text-muted-foreground truncate">{authUser?.email || ''}</div>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+              title="退出登录"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
     </>

@@ -1,61 +1,79 @@
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server';
+import { jwtVerify } from 'jose';
 
-// 简单的 session 验证（不使用 crypto 模块，兼容 Edge Runtime）
-// Session 格式：admin_timestamp，验证时检查时间戳是否在24小时内
-const SESSION_SECRET = 'ai-coding-platform-admin-secret-2024'
-const SESSION_MAX_AGE = 24 * 60 * 60 * 1000 // 24小时
+const JWT_SECRET = new TextEncoder().encode(
+  process.env.JWT_SECRET || 'ai-coding-platform-jwt-secret-2026-secure'
+);
 
-// 简单的 session 生成函数（使用 Web Crypto API 的替代方案）
-function generateSession(): string {
-  const timestamp = Date.now().toString()
-  // 简单的混淆：将 secret 和 timestamp 混合
-  const mixed = SESSION_SECRET.split('').map((c, i) => 
-    String.fromCharCode(c.charCodeAt(0) ^ timestamp.charCodeAt(i % timestamp.length))
-  ).join('')
-  // 使用 base64 编码
-  const session = btoa(`admin:${timestamp}:${mixed.slice(0, 16)}`)
-  return session
-}
+const COOKIE_NAME = 'user_session';
 
-function validateSession(session: string): boolean {
-  try {
-    const decoded = atob(session)
-    const parts = decoded.split(':')
-    if (parts.length < 2 || parts[0] !== 'admin') return false
-    
-    const timestamp = parseInt(parts[1], 10)
-    if (isNaN(timestamp)) return false
-    
-    // 检查是否在24小时内
-    const now = Date.now()
-    return (now - timestamp) < SESSION_MAX_AGE
-  } catch {
-    return false
-  }
-}
+// Routes that require user authentication
+const PROTECTED_ROUTES = ['/', '/workspace'];
+// Routes that should redirect to home if already logged in
+const AUTH_ROUTES = ['/login'];
+// API routes that require user authentication
+const PROTECTED_API_ROUTES = ['/api/chat', '/api/conversations', '/api/workspace', '/api/speech-to-text', '/api/image-generate', '/api/image-gen'];
+// Admin routes - keep existing admin auth separate
+const ADMIN_ROUTES = ['/api/admin'];
 
 export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl
+  const { pathname } = request.nextUrl;
+  
+  // Skip static files and Next.js internals
+  if (
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/favicon') ||
+    pathname.includes('.') // static files
+  ) {
+    return NextResponse.next();
+  }
 
-  // 只保护 /admin 路径（排除 /admin/login 和 /api/admin/login）
-  if (pathname.startsWith('/admin') && 
-      pathname !== '/admin/login' && 
-      !pathname.startsWith('/api/admin/login')) {
-    
-    const session = request.cookies.get('admin_session')?.value
-    
-    if (!session || !validateSession(session)) {
-      // 未登录，重定向到登录页
-      const loginUrl = new URL('/admin/login', request.url)
-      loginUrl.searchParams.set('redirect', pathname)
-      return NextResponse.redirect(loginUrl)
+  // Admin routes - use separate admin_session cookie (existing logic)
+  if (pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) {
+    return NextResponse.next(); // Admin auth handled by its own API
+  }
+
+  const token = request.cookies.get(COOKIE_NAME)?.value;
+  let isAuthenticated = false;
+
+  if (token) {
+    try {
+      await jwtVerify(token, JWT_SECRET);
+      isAuthenticated = true;
+    } catch {
+      isAuthenticated = false;
     }
   }
 
-  return NextResponse.next()
+  // Redirect logged-in users away from login page
+  if (AUTH_ROUTES.some(route => pathname === route)) {
+    if (isAuthenticated) {
+      return NextResponse.redirect(new URL('/', request.url));
+    }
+    return NextResponse.next();
+  }
+
+  // Check protected API routes
+  if (PROTECTED_API_ROUTES.some(route => pathname.startsWith(route))) {
+    if (!isAuthenticated) {
+      return NextResponse.json({ error: '请先登录' }, { status: 401 });
+    }
+    return NextResponse.next();
+  }
+
+  // Check protected page routes
+  if (PROTECTED_ROUTES.some(route => pathname === route || pathname.startsWith(route + '/'))) {
+    if (!isAuthenticated) {
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+  }
+
+  return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/admin', '/admin/:path*'],
-}
+  matcher: [
+    '/((?!_next/static|_next/image|favicon.ico).*)',
+  ],
+};
+

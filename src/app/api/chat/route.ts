@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { streamText, stepCountIs, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig, getSetting } from '@/lib/db';
+import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig, getSetting, setConversationUserId } from '@/lib/db';
+import { getCurrentUser } from '@/lib/auth';
 import { z } from 'zod';
 import { tool } from 'ai';
 import { createSubAgentTool } from '@/lib/sub-agents';
@@ -455,6 +456,9 @@ export async function POST(request: NextRequest) {
       const title = userText ? userText.slice(0, 50) + (userText.length > 50 ? '...' : '') : 'New Chat';
       const conv = await createConversation(title, model_id);
       convId = conv.id;
+      // Associate conversation with logged-in user
+      const currentUser = await getCurrentUser();
+      if (currentUser) await setConversationUserId(convId, currentUser.id);
     } else {
       await updateConversation(convId, { model_id });
     }

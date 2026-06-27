@@ -1,24 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { listConversations, createConversation } from '@/lib/db';
+import { listConversationsByUser, createConversationWithUser } from '@/lib/db';
+import { getCurrentUser } from '@/lib/auth';
 
 export async function GET() {
   try {
-    const conversations = await listConversations();
-    return NextResponse.json({ data: conversations });
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: '请先登录' }, { status: 401 });
+    }
+    
+    const conversations = await listConversationsByUser(user.id);
+    return NextResponse.json(conversations);
   } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error('List conversations error:', error);
+    return NextResponse.json({ error: '获取对话列表失败' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { title, model_id } = body as { title?: string; model_id?: string };
-    const conv = await createConversation(title || 'New Chat', model_id || 'doubao-seed-1-8-251228');
-    return NextResponse.json({ data: conv });
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: '请先登录' }, { status: 401 });
+    }
+
+    const { id, title, modelId } = await request.json();
+    await createConversationWithUser(id, title || '新对话', modelId || null, user.id);
+    return NextResponse.json({ success: true });
   } catch (error) {
-    const msg = error instanceof Error ? error.message : 'Internal server error';
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error('Create conversation error:', error);
+    return NextResponse.json({ error: '创建对话失败' }, { status: 500 });
   }
 }

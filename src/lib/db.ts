@@ -39,7 +39,7 @@ export async function run(sql: string, params?: any[]): Promise<void> {
 
 export async function listConversations(): Promise<Conversation[]> {
   return query<Conversation>(
-    'SELECT id, title, "modelId" as model_id, "createdAt" as created_at, "updatedAt" as updated_at FROM conversations ORDER BY "updatedAt" DESC LIMIT 100'
+    'SELECT id, title, "modelId" as model_id, "userId", "createdAt" as created_at, "updatedAt" as updated_at FROM conversations ORDER BY "updatedAt" DESC LIMIT 100'
   );
 }
 
@@ -472,5 +472,30 @@ export async function getRecentTelemetry(limit: number): Promise<any[]> {
   return await query(
     `SELECT * FROM ai_telemetry ORDER BY created_at DESC LIMIT $1`,
     [limit]
+  );
+}
+
+
+// ============ User-scoped Conversations ============
+
+export async function listConversationsByUser(userId: string): Promise<Conversation[]> {
+  return query<Conversation>(
+    'SELECT id, title, "modelId" as model_id, "userId", "createdAt" as created_at, "updatedAt" as updated_at FROM conversations WHERE "userId" = $1 ORDER BY "updatedAt" DESC LIMIT 100',
+    [userId]
+  );
+}
+
+export async function createConversationWithUser(id: string, title: string, modelId: string | null, userId: string): Promise<void> {
+  const now = new Date().toISOString();
+  await run(
+    'INSERT INTO conversations (id, title, "modelId", "userId", "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, $5, $6)',
+    [id, title, modelId, userId, now, now]
+  );
+}
+
+export async function setConversationUserId(conversationId: string, userId: string): Promise<void> {
+  await run(
+    'UPDATE conversations SET "userId" = $1, "updatedAt" = $2 WHERE id = $3',
+    [userId, new Date().toISOString(), conversationId]
   );
 }

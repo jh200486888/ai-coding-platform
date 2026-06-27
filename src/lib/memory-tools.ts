@@ -39,16 +39,26 @@ export async function extractMemoriesFromConversation(messages: {role:string;con
   if (userMsgs.length === 0) return [];
   const text = userMsgs.map(m => m.content.slice(0,500)).join('\n');
   try {
-    const { generateText } = await import('ai');
-    const { text: result } = await generateText({ model, prompt: `分析用户消息，提取值得长期记忆的信息（偏好/个人信息/项目）。无则返回[]。格式：[{"category":"preference","content":"..."}]\n\n消息：\n${text}`, temperature: 0, maxOutputTokens: 500 });
-    const m = result.match(/\[[\s\S]*\]/);
-    if (!m) return [];
-    const items = JSON.parse(m[0]);
+    const { generateObject } = await import('ai');
+    const { object } = await generateObject({
+      model,
+      schema: z.object({
+        memories: z.array(z.object({
+          category: z.enum(['preference', 'personal', 'project', 'fact', 'habit', 'general']).describe('记忆分类'),
+          content: z.string().max(200).describe('记忆内容，简洁'),
+          importance: z.number().min(1).max(5).optional().describe('重要度1-5'),
+        })).describe('提取的记忆列表，没有值得记住的信息时为空数组'),
+      }),
+      prompt: `分析用户消息，提取值得长期记忆的信息（偏好/个人信息/项目/习惯/事实）。只提取明确、稳定的信息，不要提取临时性内容。\n\n消息：\n${text}`,
+      temperature: 0,
+      maxOutputTokens: 500,
+    });
+    
     const saved: string[] = [];
-    for (const it of items) {
-      if (it.content && it.content.length < 200) {
+    for (const it of object.memories) {
+      if (it.content && it.content.length > 0 && it.content.length < 200) {
         const id = 'mem_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
-        await run('INSERT INTO user_memory (id,category,content,tags,importance,"createdAt","updatedAt") VALUES ($1,$2,$3,$4,$5,NOW(),NOW())', [id, it.category||'general', it.content, '', 3]);
+        await run('INSERT INTO user_memory (id,category,content,tags,importance,"createdAt","updatedAt") VALUES ($1,$2,$3,$4,$5,NOW(),NOW())', [id, it.category, it.content, '', it.importance || 3]);
         saved.push(it.content);
       }
     }
