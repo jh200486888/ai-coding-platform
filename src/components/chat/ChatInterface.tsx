@@ -183,7 +183,7 @@ export function ChatInterface() {
     }
   }, [messages, setMessages]);
 
-  const handleSaveEdit = useCallback(() => {
+  const handleSaveEdit = useCallback(async () => {
     if (!editContent.trim()) {
       setEditingMessageId(null);
       setEditContent('');
@@ -192,8 +192,9 @@ export function ChatInterface() {
     const content = editContent;
     setEditingMessageId(null);
     setEditContent('');
-    setInput(content);
-  }, [editContent]);
+    setInput('');
+    await sendMessage(content, []);
+  }, [editContent, sendMessage]);
 
   const handleEditCancel = useCallback(() => {
     setEditingMessageId(null);
