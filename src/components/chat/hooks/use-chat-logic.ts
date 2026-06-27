@@ -34,9 +34,6 @@ export function useChatLogic(options: UseChatLogicOptions) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
 
   // Save conversation
   const saveConversation = useCallback(async (msgs: Message[], modelId?: string) => {

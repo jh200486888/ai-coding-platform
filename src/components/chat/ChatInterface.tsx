@@ -123,7 +123,7 @@ export function ChatInterface() {
     if (currentConvId) {
       loadConversation(currentConvId, setMessages, setToolCalls);
     }
-  }, [currentConvId, loadConversation, setMessages, setToolCalls]);
+  }, [currentConvId]);
 
   // Handlers
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
@@ -323,7 +323,7 @@ export function ChatInterface() {
         conversations={conversations}
         currentConvId={currentConvId}
         onSelectConversation={(convId) => {
-          loadConversation(convId, setMessages, setToolCalls);
+          setCurrentConvId(convId);
         }}
         onNewChat={handleNewChat}
         onDeleteConversation={handleDeleteConversation}
