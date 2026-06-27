@@ -1,371 +1,184 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import type { Message } from '@/types';
+import { useCallback, useEffect, useRef } from 'react';
+import { useChat } from '@ai-sdk/react';
+import { z } from 'zod';
+import type { UIMessage } from 'ai';
+import { toast } from 'sonner';
 
-interface ToolCall {
-  callId: string;
-  toolName: string;
-  args?: Record<string, unknown>;
-  status: 'running' | 'done' | 'error';
-  summary?: string;
+// ============ Helper: 从 UIMessage 提取纯文本 ============
+function extractTextContent(msg: any): string {
+  if (typeof msg.content === 'string') return msg.content;
+  if (Array.isArray(msg.parts)) {
+    return msg.parts
+      .filter((p: any) => p.type === 'text')
+      .map((p: any) => p.text || '')
+      .join('');
+  }
+  return '';
 }
 
-interface UseChatLogicOptions {
+// ============ DB 消息 → UIMessage 格式转换 ============
+function convertDBMessages(dbMsgs: any[]): UIMessage[] {
+  return dbMsgs
+    .filter((m: any) => m.role !== 'system')
+    .map((m: any) => {
+      const content: string = m.content || '';
+      const parts: any[] = [];
+
+      let toolCalls: any[] = [];
+      let displayContent = content;
+
+      // 解析 EXEC_LOG 中的工具调用记录
+      if (m.role === 'assistant' && content.includes('<!--EXEC_LOG')) {
+        const logMatch = content.match(/<!--EXEC_LOG\n([\s\S]*?)\n-->/);
+        if (logMatch) {
+          const lines = logMatch[1].split('\n').filter(Boolean);
+          toolCalls = lines.map((line: string) => {
+            const match = line.match(/^\d+\.\s+(.+?):\s+(✅|❌)\s*(.*)/);
+            if (match) {
+              return {
+                toolName: match[1],
+                status: match[2] === '✅' ? 'done' : 'error',
+                summary: match[3],
+              };
+            }
+            return null;
+          }).filter(Boolean);
+          displayContent = content.replace(/\n\n<!--EXEC_LOG\n[\s\S]*?\n-->/, '');
+        }
+      }
+
+      // 构建 UIMessage parts
+      if (displayContent) {
+        parts.push({ type: 'text', text: displayContent });
+      }
+      for (const tc of toolCalls) {
+        parts.push({
+          type: `tool-${tc.toolName}`,
+          toolInvocation: {
+            toolName: tc.toolName,
+            toolCallId: `hist-${tc.toolName}-${Math.random().toString(36).slice(2, 8)}`,
+            state: tc.status === 'error' ? 'output-error' : 'output-available',
+            input: {},
+            ...(tc.status !== 'error' && { output: tc.summary }),
+            ...(tc.status === 'error' && { errorText: tc.summary }),
+          },
+        });
+      }
+
+      return {
+        id: m.id || `msg-${Math.random().toString(36).slice(2)}`,
+        role: m.role as 'user' | 'assistant',
+        parts: parts.length > 0 ? parts : [{ type: 'text' as const, text: '' }],
+        createdAt: new Date(m.created_at || m.createdAt || Date.now()),
+      } as UIMessage;
+    });
+}
+
+// ============ 主 Hook：基于 AI SDK useChat ============
+export function useChatLogic(options: {
   currentConvId: string | null;
   selectedModel: string;
   selectedMode: string;
   attachments: any[];
-  onConversationCreated?: (convId: string) => void;
-}
+  onConversationCreated: (convId: string) => void;
+}) {
+  const { currentConvId, selectedModel, selectedMode, onConversationCreated } = options;
+  const currentConvIdRef = useRef(currentConvId);
+  currentConvIdRef.current = currentConvId;
 
-export function useChatLogic(options: UseChatLogicOptions) {
-  const { currentConvId, selectedModel, selectedMode, attachments, onConversationCreated } = options;
-  
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isThinking, setIsThinking] = useState(false);
-  const [toolCalls, setToolCalls] = useState<ToolCall[]>([]);
-  
-  const streamingRef = useRef<{ content: string; assistantId: string } | null>(null);
-  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chat = useChat({
+    transport: { api: '/api/chat' },
+    messageMetadataSchema: z.object({ conversationId: z.string().optional() }).optional(),
+    async onFinish({ message }) {
+      // 从 message metadata 提取 conversation_id
+      const convId = (message.metadata as any)?.conversationId;
+      if (convId) onConversationCreated(convId);
 
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, []);
+      // 保存助手消息到数据库
+      const text = extractTextContent(message);
+      const toolParts = (message as any).parts?.filter(
+        (p: any) => p.type?.startsWith('tool-') && p.toolInvocation?.state === 'output-available'
+      ) || [];
 
-
-  // Save conversation
-  const saveConversation = useCallback(async (msgs: Message[], modelId?: string) => {
-    if (msgs.length === 0) return;
-    const convId = currentConvId;
-    const title = msgs[0].content.slice(0, 50) + (msgs[0].content.length > 50 ? '...' : '');
-    
-    if (convId) {
-      // Update existing
       try {
-        await fetch(`/api/conversations/${convId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: msgs, model_id: modelId }),
-        });
-      } catch {
-        // Silently fail
-      }
-    } else {
-      // Create new
-      try {
-        const res = await fetch('/api/conversations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, messages: msgs, model_id: modelId }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          onConversationCreated?.(data.data?.id);
-        }
-      } catch {
-        // Silently fail
-      }
-    }
-  }, [currentConvId, onConversationCreated]);
-
-  const sendMessage = useCallback(async (content: string, currentAttachments: any[]) => {
-    if (!content.trim() && currentAttachments.length === 0) return;
-    
-    const userMessage: Message = {
-      id: `user-${Date.now()}`,
-      role: 'user',
-      content: content.trim(),
-      attachments: currentAttachments.length > 0 ? currentAttachments : undefined,
-      createdAt: new Date(),
-    };
-    
-    setMessages(prev => [...prev, userMessage]);
-    setIsLoading(true);
-    setIsThinking(true);
-    setToolCalls([]);
-    
-    // Flush streaming content to state every 50ms
-    const flushInterval = setInterval(() => {
-      if (streamingRef.current) {
-        setMessages(prev => {
-          const updated = [...prev];
-          const lastIdx = updated.findIndex((m, i) => i === updated.length - 1 && m.role === 'assistant' && m.id === streamingRef.current!.assistantId);
-          if (lastIdx >= 0) {
-            updated[lastIdx] = { ...updated[lastIdx], content: streamingRef.current!.content };
+        const targetConvId = convId || currentConvIdRef.current;
+        if (targetConvId && text) {
+          let savedContent = text;
+          if (toolParts.length > 0) {
+            const execLog = toolParts.map((tp: any, i: number) => {
+              const name = tp.toolName || tp.type?.replace('tool-', '') || 'unknown';
+              const out = typeof tp.toolInvocation.output === 'string'
+                ? tp.toolInvocation.output
+                : JSON.stringify(tp.toolInvocation.output);
+              return `${i + 1}. ${name}: ${out.startsWith('❌') ? '❌' : '✅'} ${out.slice(0, 100)}`;
+            }).join('\n');
+            savedContent = text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
           }
-          return updated;
-        });
-      }
-    }, 50);
-    flushTimerRef.current = flushInterval;
-    
-    let timeoutChecker: any = null;
-    try {
-      abortControllerRef.current = new AbortController();
-      
-      // Build messages for API
-      const apiMessages = [...messages, userMessage].map(m => ({
-        role: m.role,
-        content: m.content,
-        attachments: m.attachments,
-      }));
-      
-      // Add system prompt based on mode
-      const modePrompts: Record<string, string> = {
-        coding: '你是一个专业的编程助手，擅长代码编写、调试和解释。',
-        writing: '你是一个专业的文案写手，擅长各种类型的写作任务。',
-        analysis: '你是一个专业的数据分析师，擅长分析问题和提供见解。',
-        design: '你是一个专业的设计师，擅长创意设计和视觉表达。',
-        chat: '',
-      };
-      
-      const systemPrompt = modePrompts[selectedMode] || modePrompts.chat;
-      const requestMessages = systemPrompt 
-        ? [{ role: 'system' as const, content: systemPrompt }, ...apiMessages]
-        : apiMessages;
-      
-      const res = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: requestMessages,
+          await fetch('/api/conversations/' + targetConvId + '/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: 'assistant', content: savedContent }),
+          });
+        }
+      } catch {}
+    },
+    onError(error) {
+      toast.error('AI 响应出错，请重试');
+      console.error('[useChatLogic] error:', error);
+    },
+  });
+
+  // 发送消息
+  const sendMessage = useCallback(async (content: string, _attachments: any[] = []) => {
+    chat.sendMessage(
+      { text: content },
+      {
+        body: {
+          conversation_id: currentConvIdRef.current || undefined,
+          mode: selectedMode,
           model_id: selectedModel,
-          conversation_id: currentConvId || undefined,
-        }),
-        signal: abortControllerRef.current.signal,
-      });
-      
-      setIsThinking(false);
-      
-      if (!res.ok) throw new Error('Request failed');
-      
-      // Create assistant message placeholder
-      const assistantId = `assistant-${Date.now()}`;
-      const assistantMsg: Message = {
-        id: assistantId,
-        role: 'assistant',
-        content: '',
-        createdAt: new Date(),
-      };
-      setMessages(prev => [...prev, assistantMsg]);
-      
-      // Handle streaming response
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No response body');
-      
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let execLogContent = '';
-      let lastDataTime = Date.now();
-      const STREAM_TIMEOUT = 60000; // 60秒无数据超时
-      
-      // 超时检查定时器
-      timeoutChecker = setInterval(() => {
-        if (Date.now() - lastDataTime > STREAM_TIMEOUT) {
-          clearInterval(timeoutChecker);
-          abortControllerRef.current?.abort();
-        }
-      }, 5000);
-      
-      while (true) {
-        const { done, value } = await reader.read();
-        lastDataTime = Date.now();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            
-            if (data === '[DONE]') {
-              // Append EXEC_LOG to last assistant message
-              if (execLogContent) {
-                setMessages(prev => {
-                  const updated = [...prev];
-                  const lastIdx = updated.length - 1;
-                  if (lastIdx >= 0 && updated[lastIdx].role === 'assistant') {
-                    updated[lastIdx] = {
-                      ...updated[lastIdx],
-                      content: updated[lastIdx].content + '\n\n<!--EXEC_LOG\n' + execLogContent + '\n-->',
-                    };
-                  }
-                  return updated;
-                });
-              }
-              continue;
-            }
-            
-            try {
-              const event = JSON.parse(data);
-              
-              if (event.type === 'tool_call') {
-                setToolCalls(prev => [
-                  ...prev,
-                  {
-                    callId: event.callId || `call-${Date.now()}`,
-                    toolName: event.toolName,
-                    status: 'running',
-                  },
-                ]);
-              } else if (event.type === 'tool_result') {
-                const summary = typeof event.result === 'string' 
-                  ? event.result.slice(0, 100)
-                  : JSON.stringify(event.result).slice(0, 100);
-                  
-                setToolCalls(prev => {
-                  const updated = [...prev];
-                  const lastIdx = updated.length - 1;
-                  if (lastIdx >= 0 && updated[lastIdx].status === 'running') {
-                    updated[lastIdx] = {
-                      ...updated[lastIdx],
-                      status: event.error ? 'error' : 'done',
-                      summary,
-                    };
-                    // Build exec log
-                    execLogContent += `${updated.length}. ${updated[lastIdx].toolName}: ${event.error ? '❌' : '✅'} ${summary}\n`;
-                  }
-                  return updated;
-                });
-              } else if (event.type === 'content') {
-                // Update streaming buffer
-                if (!streamingRef.current || streamingRef.current.assistantId !== assistantId) {
-                  streamingRef.current = { content: '', assistantId };
-                }
-                streamingRef.current.content += event.content || '';
-              } else if (event.type === 'tool-start' || event.type === 'tool_call') {
-                setToolCalls(prev => [
-                  ...prev,
-                  {
-                    callId: event.callId || `call-${Date.now()}`,
-                    toolName: event.toolName,
-                    status: 'running',
-                  },
-                ]);
-              } else if (event.type === 'tool-result') {
-                const summary = typeof event.result === 'string' 
-                  ? event.result.slice(0, 100)
-                  : (event.summary || JSON.stringify(event.result || '').slice(0, 100));
-                  
-                setToolCalls(prev => {
-                  const updated = [...prev];
-                  const lastIdx = updated.length - 1;
-                  if (lastIdx >= 0 && updated[lastIdx].status === 'running') {
-                    updated[lastIdx] = {
-                      ...updated[lastIdx],
-                      status: event.success === false || event.error ? 'error' : 'done',
-                      summary,
-                    };
-                    execLogContent += `${updated.length}. ${updated[lastIdx].toolName}: ${updated[lastIdx].status === 'done' ? '✅' : '❌'} ${summary}\n`;
-                  }
-                  return updated;
-                });
-              } else if (event.type === 'error') {
-                // Backend error event
-                setMessages(prev => [...prev, {
-                  id: `error-${Date.now()}`,
-                  role: 'assistant',
-                  content: `⚠️ ${event.error || '发生错误'}`,
-                  createdAt: new Date(),
-                }]);
-                break; // Exit the line loop
-              } else if (event.type === 'done') {
-                // Stream done signal from backend
-                break; // Exit the line loop
-              }
-            } catch {
-              // Skip invalid JSON
-            }
-          }
-        }
+        },
       }
-      
-      // Clear streaming
-      if (flushTimerRef.current) {
-        clearInterval(flushTimerRef.current);
-        flushTimerRef.current = null;
-      }
-      streamingRef.current = null;
-      
-      // Final update
-      setMessages(prev => {
-        const updated = [...prev];
-        const lastIdx = updated.length - 1;
-        if (lastIdx >= 0 && updated[lastIdx].role === 'assistant' && !updated[lastIdx].content) {
-          updated[lastIdx] = { ...updated[lastIdx], content: '(无内容回复)' };
-        }
-        return updated;
-      });
-      
-      // Save conversation after completion
-      setTimeout(() => {
-        saveConversation([...messages, userMessage]);
-      }, 100);
-      
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
-        // Stopped by user
-      } else {
-        setMessages(prev => [...prev, {
-          id: `error-${Date.now()}`,
-          role: 'assistant',
-          content: '抱歉，发生了错误。请稍后重试。',
-          createdAt: new Date(),
-        }]);
-      }
-    } finally {
-      clearInterval(timeoutChecker);
-      setIsLoading(false);
-      setIsThinking(false);
-      if (flushTimerRef.current) {
-        clearInterval(flushTimerRef.current);
-        flushTimerRef.current = null;
-      }
-      streamingRef.current = null;
-    }
-  }, [messages, selectedModel, selectedMode, saveConversation]);
+    );
+  }, [chat, selectedMode, selectedModel]);
 
+  // 加载历史对话
+  const loadConversation = useCallback(async (convId: string) => {
+    try {
+      const res = await fetch(`/api/conversations/${convId}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.data?.messages) {
+          const uiMessages = convertDBMessages(data.data.messages);
+          chat.setMessages(uiMessages);
+        } else {
+          chat.setMessages([]);
+        }
+      }
+    } catch {}
+  }, [chat.setMessages]);
+
+  // 新建对话
+  const startNewChat = useCallback(() => {
+    chat.setMessages([]);
+  }, [chat.setMessages]);
+
+  // 停止生成
   const handleStop = useCallback(() => {
-    abortControllerRef.current?.abort();
-    if (flushTimerRef.current) {
-      clearInterval(flushTimerRef.current);
-      flushTimerRef.current = null;
-    }
-    streamingRef.current = null;
-    setIsLoading(false);
-    setIsThinking(false);
-  }, []);
-
-  const handleRegenerate = useCallback(async () => {
-    // Remove last assistant message and resend
-    if (messages.length < 2) return;
-    const lastUserIdx = [...messages].reverse().findIndex(m => m.role === 'user');
-    if (lastUserIdx < 0) return;
-    
-    const lastUserMessage = messages[messages.length - 1 - lastUserIdx];
-    const newMessages = messages.slice(0, messages.length - 1 - lastUserIdx);
-    
-    setMessages(newMessages);
-    setTimeout(() => {
-      sendMessage(lastUserMessage.content, lastUserMessage.attachments || []);
-    }, 50);
-  }, [messages, sendMessage]);
+    chat.stop();
+  }, [chat.stop]);
 
   return {
-    messages,
-    setMessages,
-    isLoading,
-    setIsLoading,
-    isThinking,
-    toolCalls,
-    setToolCalls,
-    messagesEndRef,
+    messages: chat.messages,
+    setMessages: chat.setMessages,
+    isLoading: chat.status === 'submitted' || chat.status === 'streaming',
+    isThinking: chat.status === 'submitted',
+    messagesEndRef: { current: null } as React.RefObject<HTMLDivElement | null>,
     sendMessage,
     handleStop,
-    handleRegenerate,
+    loadConversation,
+    startNewChat,
+    chat,
   };
 }
+

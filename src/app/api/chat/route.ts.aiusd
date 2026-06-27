@@ -419,20 +419,17 @@ export async function POST(request: NextRequest) {
     let convId = conversation_id;
     if (!convId) {
       const userMsg = messages.find(m => m.role === 'user');
-      const userText = userMsg ? ((userMsg as any).content || ((userMsg as any).parts || []).filter((p: any) => p.type === 'text').map((p: any) => p.text).join('')) : '';
-      const title = userText ? userText.slice(0, 50) + (userText.length > 50 ? '...' : '') : 'New Chat';
+      const title = userMsg ? userMsg.content.slice(0, 50) + (userMsg.content.length > 50 ? '...' : '') : 'New Chat';
       const conv = await createConversation(title, model_id);
       convId = conv.id;
     } else {
       await updateConversation(convId, { model_id });
     }
 
-    // 保存用户消息（兼容 useChat UIMessage 的 parts 格式）
-    const userMessage = messages[messages.length - 1] as any;
+    // 保存用户消息
+    const userMessage = messages[messages.length - 1];
     if (userMessage && userMessage.role === 'user') {
-      const userContent = userMessage.content ||
-        (userMessage.parts || []).filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
-      if (userContent) await createMessage(convId, 'user', userContent, model_id);
+      await createMessage(convId, 'user', userMessage.content, model_id);
     }
 
     // ====== 从 settings 读取可配置参数 ======
@@ -554,8 +551,10 @@ export async function POST(request: NextRequest) {
     // 添加 MCP 工具
     Object.assign(activeTools, mcpToolsMap);
 
-    // ====== AI SDK v7 原生流式响应 ======
-    const result = streamText({
+    const streamStartTime = Date.now();
+
+    // 构建 streamText 参数（含超时保护和模型生成参数）
+    const streamOptions: any = {
       system: dynamicPrompt,
       model,
       messages: chatMessages as any,
@@ -564,54 +563,128 @@ export async function POST(request: NextRequest) {
       temperature,
       maxOutputTokens,
       maxRetries,
-      timeout: { totalMs: timeoutTotalMs, stepMs: timeoutStepMs },
-      ...(topP !== undefined && { topP }),
-      ...(presencePenalty !== undefined && { presencePenalty }),
-      ...(frequencyPenalty !== undefined && { frequencyPenalty }),
-      ...(seed !== undefined && { seed }),
+      timeout: {
+        totalMs: timeoutTotalMs,
+        stepMs: timeoutStepMs,
+      },
+    };
+    // 只在非默认值时传入，避免对不支持的模型产生副作用
+    if (topP !== undefined) streamOptions.topP = topP;
+    if (presencePenalty !== undefined) streamOptions.presencePenalty = presencePenalty;
+    if (frequencyPenalty !== undefined) streamOptions.frequencyPenalty = frequencyPenalty;
+    if (seed !== undefined) streamOptions.seed = seed;
+
+    const result = streamText(streamOptions);
+
+    // 构建流式响应
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const safeEnqueue = (data: Uint8Array) => {
+          try { controller.enqueue(data); } catch {}
+        };
+        const safeClose = () => {
+          try { controller.close(); } catch {}
+        };
+
+        try {
+          let fullContent = '';
+          const toolCallRecords: any[] = [];
+
+          for await (const event of result.fullStream) {
+            switch (event.type) {
+              case 'text-delta': {
+                const text = (event as any).text || '';
+                if (text) {
+                  fullContent += text;
+                  safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content: text, conversation_id: convId })}\n\n`));
+                }
+                break;
+              }
+              case 'tool-call': {
+                const toolName = (event as any).toolName || 'unknown';
+                const callId = (event as any).toolCallId || '';
+                const args = (event as any).input || {};
+                safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'tool-start', toolName: TOOL_NAME_ZH_CHAT[toolName] || toolName, callId, args })}\n\n`));
+                break;
+              }
+              case 'tool-result': {
+                const toolName = (event as any).toolName || 'unknown';
+                const callId = (event as any).toolCallId || '';
+                const output = typeof (event as any).output === 'string' ? (event as any).output : JSON.stringify((event as any).output);
+                const success = !output.startsWith('❌');
+                toolCallRecords.push({ name: toolName, status: success ? 'done' : 'error', summary: output.slice(0, 100) });
+                safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'tool-result', toolName, callId, success, summary: output.slice(0, 200) })}\n\n`));
+                break;
+              }
+              case 'error': {
+                const error = (event as any).error;
+                safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error?.message || 'Unknown error' })}\n\n`));
+                break;
+              }
+            }
+          }
+
+          // 保存助手消息
+          if (fullContent) {
+            try {
+              let savedContent = fullContent;
+              if (toolCallRecords.length > 0) {
+                const execLog = toolCallRecords.map((tc, i) => `${i + 1}. ${tc.name}: ${tc.status === 'done' ? '✅' : '❌'} ${tc.summary}`).join('\n');
+                savedContent = fullContent + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
+              }
+              await createMessage(convId!, 'assistant', savedContent, model_id);
+            } catch {}
+          }
+
+          // 遥测记录
+          try {
+            const { telemetry } = await import('@/lib/ai-telemetry');
+            const usage = await result.usage;
+            telemetry.recordAICall({
+              provider: modelConfig.provider,
+              model: model_id,
+              operation: 'chat_stream',
+              durationMs: Date.now() - streamStartTime,
+              tokensUsed: usage ? { prompt: usage.inputTokens || 0, completion: usage.outputTokens || 0, total: usage.totalTokens || 0 } : undefined,
+              success: true,
+            });
+          } catch {}
+
+          safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'done', conversation_id: convId })}\n\n`));
+          safeClose();
+          try { const { mcpManager } = await import('@/lib/mcp-client'); await mcpManager.closeAll(); } catch {}
+        } catch (error: any) {
+          // Detect timeout errors
+          const isTimeout = error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('aborted');
+          const errorMsg = isTimeout 
+            ? '请求超时，请稍后重试或缩短输入内容' 
+            : (error.message || 'Stream error');
+          const errorCode = isTimeout ? 'TIMEOUT' : 'STREAM_ERROR';
+          
+          try {
+            const { telemetry } = await import('@/lib/ai-telemetry');
+            telemetry.recordAICall({
+              provider: modelConfig.provider,
+              model: model_id,
+              operation: 'chat_stream',
+              durationMs: Date.now() - streamStartTime,
+              success: false,
+              errorCode,
+              errorMessage: errorMsg,
+            });
+          } catch {}
+          safeEnqueue(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: errorMsg })}\n\n`));
+          safeClose();
+        }
+      },
     });
 
-    return result.toUIMessageStreamResponse({
-      // 通过 messageMetadata 将 conversation_id 传给前端
-      messageMetadata: ({ part }) => {
-        if (part.type === 'start' || part.type === 'finish') {
-          return { conversationId: convId } as any;
-        }
-        return undefined;
-      },
-      // 流结束后保存助手消息 + 遥测
-      async onFinish({ message }) {
-        try {
-          const text = (message as any).text
-            || (message.parts || []).filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
-
-          // 从 message parts 提取工具执行记录
-          const toolParts = (message.parts || []).filter(
-            (p: any) => p.type?.startsWith('tool-') && p.toolInvocation?.state === 'output-available'
-          );
-          let savedContent = text;
-          if (toolParts.length > 0) {
-            const execLog = toolParts.map((tp: any, i: number) => {
-              const name = tp.toolName || 'unknown';
-              const out = typeof tp.toolInvocation.output === 'string' ? tp.toolInvocation.output : JSON.stringify(tp.toolInvocation.output);
-              return `${i + 1}. ${name}: ${out.startsWith('❌') ? '❌' : '✅'} ${out.slice(0, 100)}`;
-            }).join('\n');
-            savedContent = text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
-          }
-          if (text) await createMessage(convId!, 'assistant', savedContent, model_id);
-        } catch {}
-
-        try {
-          const { telemetry } = await import('@/lib/ai-telemetry');
-          const usage = (message as any).usage;
-          telemetry.recordAICall({
-            provider: modelConfig.provider, model: model_id,
-            operation: 'chat_stream', success: true,
-            tokensUsed: usage ? { prompt: usage.promptTokens || 0, completion: usage.completionTokens || 0, total: (usage.promptTokens || 0) + (usage.completionTokens || 0) } : undefined,
-          });
-        } catch {}
-
-        try { const { mcpManager } = await import('@/lib/mcp-client'); await mcpManager.closeAll(); } catch {}
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
       },
     });
   } catch (error: any) {
@@ -621,4 +694,3 @@ export async function POST(request: NextRequest) {
     });
   }
 }
-

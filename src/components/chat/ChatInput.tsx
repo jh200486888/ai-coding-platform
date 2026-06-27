@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useRef, useCallback } from 'react';
-import { Send, Paperclip, X, Square, ImageIcon, FileText, Code } from 'lucide-react';
+import { Send, Paperclip, X, Square, ImageIcon, FileText, Code, Mic } from 'lucide-react';
 import type { Attachment } from '@/types';
+import { SpeechInput } from '@/components/chat/SpeechInput';
 
 interface AttachmentIconProps {
   type: Attachment['type'];
@@ -116,6 +117,14 @@ export function ChatInput({
             </button>
           )}
           
+          {/* Voice input */}
+          <SpeechInput
+            onTranscriptionChange={onInputChange}
+            disabled={isLoading}
+            size="icon"
+            variant="ghost"
+          />
+
           {/* Attachment button */}
           <button
             type="button"

@@ -7,7 +7,6 @@ import {
   Loader2
 } from 'lucide-react';
 import type { Message, Attachment } from '@/types';
-import type { UIMessage } from 'ai';
 
 // Hooks
 import { useChatLogic } from './hooks/use-chat-logic';
@@ -84,6 +83,8 @@ export function ChatInterface() {
     renameTitle,
     setRenameTitle,
     fetchConversations,
+    loadConversation,
+    startNewChat,
     deleteConversation,
     startRename,
     confirmRename,
@@ -106,18 +107,18 @@ export function ChatInterface() {
     onError: (msg) => toast.error(msg),
   });
 
-  // Chat logic hook (AI SDK useChat)
+  // Chat logic hook
   const {
     messages,
     setMessages,
     isLoading,
     isThinking,
+    toolCalls,
+    setToolCalls,
     messagesEndRef,
     sendMessage,
     handleStop,
-    loadConversation,
-    startNewChat,
-    chat,
+    handleRegenerate,
   } = useChatLogic({
     currentConvId,
     selectedModel,
@@ -129,23 +130,6 @@ export function ChatInterface() {
     },
   });
 
-  // 从当前助手消息的 parts 中提取工具调用（AI SDK 原生方式）
-  const toolCalls = (() => {
-    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant');
-    if (!lastAssistant) return [];
-    return (lastAssistant as any).parts
-      ?.filter((p: any) => p.type?.startsWith('tool-') && p.toolInvocation)
-      .map((p: any) => ({
-        callId: p.toolInvocation.toolCallId || p.type,
-        toolName: p.toolInvocation.toolName || p.type.replace('tool-', ''),
-        status: p.toolInvocation.state === 'output-error' ? 'error'
-              : p.toolInvocation.output !== undefined ? 'done' : 'running',
-        summary: typeof p.toolInvocation.output === 'string'
-          ? p.toolInvocation.output.slice(0, 100)
-          : (p.toolInvocation.errorText || '').slice(0, 100),
-      })) || [];
-  })();
-
   // Load conversations on mount
   useEffect(() => {
     fetchConversations();
@@ -154,7 +138,7 @@ export function ChatInterface() {
   // Load conversation when currentConvId changes
   useEffect(() => {
     if (currentConvId) {
-      loadConversation(currentConvId);
+      loadConversation(currentConvId, setMessages, setToolCalls);
     }
   }, [currentConvId]);
 
@@ -172,17 +156,13 @@ export function ChatInterface() {
     await sendMessage(content, currentAttachments);
   }, [input, attachments, sendMessage, clearAttachments]);
 
-  const handleRegenerate = useCallback(() => {
-    chat.regenerate();
-  }, [chat.regenerate]);
-
   const handleNewChat = useCallback(() => {
-    startNewChat();
+    startNewChat(setMessages, setToolCalls);
     setInput('');
     clearAttachments();
     setEditingMessageId(null);
     setEditContent('');
-  }, [startNewChat, setCurrentConvId, clearAttachments]);
+  }, [startNewChat, setMessages, setToolCalls, clearAttachments]);
 
   const handleDeleteConversation = useCallback((convId: string, e: React.MouseEvent) => {
     deleteConversation(convId, handleNewChat);
@@ -235,7 +215,7 @@ export function ChatInterface() {
     setEditContent('');
     setInput('');
     await sendMessage(content, []);
-  }, [editContent, editingMessageId, messages, chat.setMessages, sendMessage]);
+  }, [editContent, editingMessageId, messages, setMessages, sendMessage]);
 
   const handleEditCancel = useCallback(() => {
     setEditingMessageId(null);
