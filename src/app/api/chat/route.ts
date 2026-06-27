@@ -374,10 +374,17 @@ export async function POST(request: NextRequest) {
     };
     const mode = rawMode || 'coding';
 
-    // Normalize UIMessage format (from useChat) to { role, content } format
+    // Normalize UIMessage format (from useChat) - preserve image/file parts
     const messages = (rawMessages || []).map((m: any) => {
-      if (m.parts && !m.content) {
-        const text = (m.parts as any[])
+      if (m.parts && Array.isArray(m.parts)) {
+        // Check if there are image/file parts (AI SDK native multimodal)
+        const hasImageParts = m.parts.some((p: any) => p.type === 'file' && p.data);
+        if (hasImageParts) {
+          // Keep parts array for multimodal processing
+          return { role: m.role, content: '', parts: m.parts };
+        }
+        // Text-only: extract to simple string
+        const text = m.parts
           .filter((p: any) => p.type === 'text')
           .map((p: any) => p.text || '')
           .join('');
@@ -571,32 +578,57 @@ export async function POST(request: NextRequest) {
       for (let msgIdx = 0; msgIdx < userAssistantMessages.length; msgIdx++) {
         const m = userAssistantMessages[msgIdx];
         const idx = msgIdx;
-        // Match image markers: [image:data:image/png;base64,...]
-        const imageMatches = [...m.content.matchAll(/\[image:([\s\S]*?)\]/g)];
-        // Match file content markers: [file:filename]:\ncontent
-        const fileContentMatches = [...m.content.matchAll(/\[file:([^\]]*?)\]:\n([\s\S]*?)(?=\n\[|$)/g)];
-        // Match file URL markers: [file:data:...]
-        const fileUrlMatches = [...m.content.matchAll(/\[file:(data:[^\]]+)\]/g)];
+        // Check for native image/file parts (AI SDK multimodal)
+        const nativeParts = (m as any).parts || [];
+        const nativeImageParts = nativeParts.filter((p: any) => p.type === 'file' && p.data);
+        const nativeFileParts = nativeParts.filter((p: any) => p.type === 'text' && p.text?.startsWith('[文件:'));
         
-        const hasAttachments = imageMatches.length > 0 || fileContentMatches.length > 0 || fileUrlMatches.length > 0;
+        // Legacy: Match image markers: [image:data:image/png;base64,...]
+        const imageMatches = [...(m.content || '').matchAll(/\[image:([\s\S]*?)\]/g)];
+        // Legacy: Match file content markers: [file:filename]:\ncontent
+        const fileContentMatches = [...(m.content || '').matchAll(/\[file:([^\]]*?)\]:\n([\s\S]*?)(?=\n\[|$)/g)];
+        // Legacy: Match file URL markers: [file:data:...]
+        const fileUrlMatches = [...(m.content || '').matchAll(/\[file:(data:[^\]]+)\]/g)];
+        
+        const hasAttachments = nativeImageParts.length > 0 || nativeFileParts.length > 0 || imageMatches.length > 0 || fileContentMatches.length > 0 || fileUrlMatches.length > 0;
         const isLastUserMsg = m.role === 'user' && idx === userAssistantMessages.length - 1;
         const hasBodyAttachments = isLastUserMsg && bodyAttachments && bodyAttachments.length > 0;
         
         if (m.role === 'user' && (hasAttachments || hasBodyAttachments)) {
           const parts: Array<{ type: string; text?: string; data?: string; mediaType?: string; image_url?: { url: string }; image?: any }> = [];
-          // Clean text: remove all attachment markers
-          let textContent = m.content
-            .replace(/\[image:[\s\S]*?\]/g, '')
-            .replace(/\[file:[^\]]*?\]:[\s\S]*?(?=\n\[|$)/g, '')
-            .replace(/\[file:data:[^\]]+\]/g, '')
-            .trim();
+          // Extract text: from native parts or from content with markers removed
+          let textContent = '';
+          if (nativeParts.length > 0) {
+            textContent = nativeParts
+              .filter((p: any) => p.type === 'text' && !p.text?.startsWith('[文件:'))
+              .map((p: any) => p.text || '')
+              .join('');
+          } else {
+            textContent = (m.content || '')
+              .replace(/\[image:[\s\S]*?\]/g, '')
+              .replace(/\[file:[^\]]*?\]:[\s\S]*?(?=\n\[|$)/g, '')
+              .replace(/\[file:data:[^\]]+\]/g, '')
+              .trim();
+          }
           
           if (textContent) {
             parts.push({ type: 'text', text: textContent });
           }
           
-          // Add image parts
+          // Add native image parts (AI SDK multimodal)
           const collectedImages: Array<{ base64Data: string; mediaType: string }> = [];
+          for (const np of nativeImageParts) {
+            if (supportsMultimodal) {
+              parts.push({ type: 'file', data: np.data, mediaType: np.mediaType || 'image/png' });
+            } else {
+              collectedImages.push({ base64Data: np.data, mediaType: np.mediaType || 'image/png' });
+            }
+          }
+          // Add native file text parts
+          for (const nfp of nativeFileParts) {
+            parts.push({ type: 'text', text: nfp.text.slice(0, 6000) });
+          }
+          // Legacy: Add image parts from text markers
           for (const imgMatch of imageMatches) {
             const imgUrl = imgMatch[1].trim();
             if (imgUrl.startsWith('data:image/') || imgUrl.startsWith('data:')) {

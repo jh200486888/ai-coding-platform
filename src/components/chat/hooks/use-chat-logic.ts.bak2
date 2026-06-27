@@ -89,8 +89,11 @@ export function useChatLogic(options: {
     transport: new DefaultChatTransport({ api: '/api/chat' }),
     messageMetadataSchema: z.object({ conversationId: z.string().optional() }).optional(),
     async onFinish({ message }) {
+      // 从 message metadata 提取 conversation_id
       const convId = (message.metadata as any)?.conversationId;
       if (convId) onConversationCreated(convId);
+      // Note: Assistant messages are already saved by server-side onEnd callback
+      // No need to save again from client side
     },
     onError(error) {
       toast.error('AI 响应出错，请重试');
@@ -98,53 +101,43 @@ export function useChatLogic(options: {
     },
   });
 
-  // 发送消息 - AI SDK 原生多模态 files
+  // 发送消息
   const sendMessage = useCallback(async (content: string, attachments: any[] = []) => {
-    // Build AI SDK native FileUIPart[] for images
-    const imageFiles: Array<{ type: 'file'; mediaType: string; url: string }> = [];
-    const fileTextParts: string[] = [];
-
+    // Build attachment markers in message text for server-side processing
+    let messageText = content;
+    const attachmentData: any[] = [];
     for (const att of attachments) {
-      if (att.type === 'image' && att.url) {
-        // AI SDK native: FileUIPart with data URL
-        const dataUrl = att.url;
-        const mediaTypeMatch = dataUrl.match(/^data:(image\/[^;]+);/);
-        const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : 'image/png';
-        imageFiles.push({ type: 'file', mediaType, url: dataUrl });
+      if (att.type === 'image') {
+        messageText += `
+[image:${att.url}]`;
+        attachmentData.push({ name: att.name, type: 'image', url: att.url });
       } else if (att.content) {
-        fileTextParts.push(`[文件: ${att.name}]\n${att.content.slice(0, 8000)}`);
-      } else if (att.url) {
-        fileTextParts.push(`[文件: ${att.name}]`);
+        // Code/document files with text content
+        messageText += `
+[file:${att.name}]:
+${att.content.slice(0, 8000)}`;
+        attachmentData.push({ name: att.name, type: att.type, content: att.content?.slice(0, 8000) });
+      } else {
+        messageText += `
+[file:${att.url}]`;
+        attachmentData.push({ name: att.name, type: att.type, url: att.url });
       }
     }
 
-    // Append file text to message content
-    let messageText = content;
-    if (fileTextParts.length > 0) {
-      messageText += '\n' + fileTextParts.join('\n');
-    }
-
     chat.sendMessage(
-      {
-        text: messageText,
-        files: imageFiles.length > 0 ? imageFiles : undefined,
-      },
+      { text: messageText },
       {
         body: {
           conversation_id: currentConvIdRef.current || undefined,
           mode: selectedMode,
           model_id: selectedModel,
           enable_search: enableSearch,
-          attachments: attachments.map(att => ({
-            name: att.name,
-            type: att.type,
-            ...(att.url ? { url: att.url } : {}),
-            ...(att.content ? { content: att.content?.slice(0, 8000) } : {}),
-          })),
+          attachments: attachmentData,
         },
       }
     );
   }, [chat, selectedMode, selectedModel, enableSearch]);
+
 
   // 加载历史对话
   const loadConversation = useCallback(async (convId: string) => {
@@ -181,6 +174,7 @@ export function useChatLogic(options: {
       content: textContent,
       createdAt: msg.createdAt || new Date(),
       attachments: [],
+      // 保留 parts 用于工具调用显示
       parts: msg.parts,
     } as any;
   });
@@ -198,3 +192,4 @@ export function useChatLogic(options: {
     chat,
   };
 }
+

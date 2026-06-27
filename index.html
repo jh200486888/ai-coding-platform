@@ -1,227 +1,323 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>交互式个人主页</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            min-height: 100vh;
-            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            color: #fff;
-        }
-        .card {
-            width: 420px;
-            padding: 40px;
-            background: rgba(255,255,255,0.06);
-            border-radius: 24px;
-            backdrop-filter: blur(20px);
-            border: 1px solid rgba(255,255,255,0.12);
-            box-shadow: 0 25px 50px rgba(0,0,0,0.4);
-            transition: transform 0.3s, box-shadow 0.3s;
-        }
-        .card:hover {
-            transform: translateY(-6px);
-            box-shadow: 0 35px 60px rgba(0,0,0,0.5);
-        }
-        .avatar {
-            width: 100px;
-            height: 100px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            margin: 0 auto 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 48px;
-            font-weight: 700;
-            border: 3px solid rgba(255,255,255,0.2);
-        }
-        h1 { text-align: center; font-size: 28px; font-weight: 600; }
-        .title {
-            text-align: center;
-            color: rgba(255,255,255,0.65);
-            margin: 6px 0 24px;
-            font-size: 14px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-        }
-        .skills {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            justify-content: center;
-            margin: 20px 0 28px;
-        }
-        .skills span {
-            padding: 6px 18px;
-            border-radius: 20px;
-            background: rgba(255,255,255,0.08);
-            font-size: 13px;
-            border: 1px solid rgba(255,255,255,0.06);
-            transition: 0.2s;
-        }
-        .skills span:hover { background: rgba(102,126,234,0.3); transform: scale(1.05); }
-        .counter-box {
-            display: flex;
-            justify-content: space-around;
-            margin: 18px 0 24px;
-            padding: 16px 0;
-            border-top: 1px solid rgba(255,255,255,0.08);
-            border-bottom: 1px solid rgba(255,255,255,0.08);
-        }
-        .stat { text-align: center; }
-        .stat .num { font-size: 24px; font-weight: 700; }
-        .stat .label { font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 4px; }
-        .btn-group {
-            display: flex;
-            gap: 12px;
-            margin-top: 10px;
-        }
-        .btn {
-            flex: 1;
-            padding: 12px;
-            border: none;
-            border-radius: 12px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: 0.25s;
-            background: rgba(255,255,255,0.08);
-            color: #fff;
-            border: 1px solid rgba(255,255,255,0.06);
-        }
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            border: none;
-        }
-        .btn:hover { transform: scale(1.02); filter: brightness(1.15); }
-        .btn:active { transform: scale(0.97); }
-        .greeting {
-            text-align: center;
-            margin-top: 20px;
-            font-size: 15px;
-            color: rgba(255,255,255,0.7);
-            min-height: 28px;
-            transition: 0.3s;
-        }
-        .clock {
-            text-align: center;
-            font-size: 13px;
-            color: rgba(255,255,255,0.35);
-            margin-top: 8px;
-            font-variant-numeric: tabular-nums;
-        }
-        @media (max-width: 480px) {
-            .card { width: 92%; padding: 28px; }
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>林一 · 前端开发者</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      line-height: 1.6;
+      color: #2d3436;
+    }
+
+    .card {
+      max-width: 720px;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-radius: 32px;
+      padding: 48px 40px;
+      box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.08),
+        0 8px 24px rgba(0, 0, 0, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-4px);
+      box-shadow:
+        0 32px 80px rgba(0, 0, 0, 0.10),
+        0 12px 32px rgba(0, 0, 0, 0.05);
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      margin-bottom: 32px;
+      flex-wrap: wrap;
+    }
+
+    .avatar {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 40px;
+      font-weight: 600;
+      flex-shrink: 0;
+      box-shadow: 0 8px 24px rgba(102, 126, 234, 0.30);
+    }
+
+    .header-info h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: #1a1a2e;
+    }
+
+    .header-info .title {
+      font-size: 16px;
+      color: #636e72;
+      margin-top: 4px;
+      font-weight: 400;
+    }
+
+    .header-info .tagline {
+      display: inline-block;
+      margin-top: 8px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 4px 14px;
+      border-radius: 20px;
+    }
+
+    .bio {
+      font-size: 16px;
+      color: #555;
+      margin-bottom: 28px;
+      padding-bottom: 28px;
+      border-bottom: 1px solid #eee;
+    }
+
+    .section-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #1a1a2e;
+      margin-bottom: 14px;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .skills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 28px;
+    }
+
+    .skill-tag {
+      background: #f0f0f5;
+      color: #2d3436;
+      padding: 6px 18px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.2s ease;
+    }
+
+    .skill-tag:hover {
+      background: #667eea;
+      color: #fff;
+      transform: scale(1.05);
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .stat-item {
+      background: #f8f9fd;
+      border-radius: 16px;
+      padding: 18px 12px;
+      text-align: center;
+      transition: background 0.2s ease;
+    }
+
+    .stat-item:hover {
+      background: #eef0f8;
+    }
+
+    .stat-number {
+      font-size: 24px;
+      font-weight: 700;
+      color: #667eea;
+    }
+
+    .stat-label {
+      font-size: 13px;
+      color: #777;
+      margin-top: 2px;
+    }
+
+    .contact {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .contact-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 20px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #2d3436;
+      background: #f0f0f5;
+      text-decoration: none;
+      transition: all 0.25s ease;
+    }
+
+    .contact-link:hover {
+      background: #667eea;
+      color: #fff;
+      transform: translateY(-2px);
+    }
+
+    .contact-link .icon {
+      font-size: 18px;
+    }
+
+    .footer-note {
+      margin-top: 28px;
+      padding-top: 20px;
+      border-top: 1px solid #eee;
+      text-align: center;
+      font-size: 13px;
+      color: #999;
+    }
+
+    @media (max-width: 600px) {
+      body {
+        padding: 16px;
+      }
+
+      .card {
+        padding: 32px 24px;
+        border-radius: 24px;
+      }
+
+      .header {
+        flex-direction: column;
+        text-align: center;
+        gap: 16px;
+      }
+
+      .avatar {
+        width: 80px;
+        height: 80px;
+        font-size: 32px;
+      }
+
+      .header-info h1 {
+        font-size: 24px;
+      }
+
+      .stats {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+      }
+
+      .stat-item {
+        padding: 14px 8px;
+      }
+
+      .stat-number {
+        font-size: 20px;
+      }
+
+      .contact {
+        justify-content: center;
+      }
+    }
+
+    @media (max-width: 400px) {
+      .stats {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .stats .stat-item:last-child {
+        grid-column: span 2;
+      }
+    }
+  </style>
 </head>
 <body>
-    <div class="card" id="app">
-        <div class="avatar">D</div>
-        <h1>DeepSeek</h1>
-        <div class="title">AI 编程助手</div>
-
-        <div class="skills">
-            <span>HTML5</span>
-            <span>CSS3</span>
-            <span>JavaScript</span>
-            <span>React</span>
-            <span>Node.js</span>
-            <span>Python</span>
-        </div>
-
-        <div class="counter-box">
-            <div class="stat">
-                <div class="num" id="projects">0</div>
-                <div class="label">项目</div>
-            </div>
-            <div class="stat">
-                <div class="num" id="stars">0</div>
-                <div class="label">Star</div>
-            </div>
-            <div class="stat">
-                <div class="num" id="followers">0</div>
-                <div class="label">关注者</div>
-            </div>
-        </div>
-
-        <div class="btn-group">
-            <button class="btn btn-primary" id="followBtn">+ 关注</button>
-            <button class="btn" id="resetBtn">重置</button>
-        </div>
-
-        <div class="greeting" id="greeting">点击关注开始计数</div>
-        <div class="clock" id="clock">--:--:--</div>
+  <div class="card">
+    <div class="header">
+      <div class="avatar">林</div>
+      <div class="header-info">
+        <h1>林一</h1>
+        <p class="title">前端开发工程师 · 热爱简洁与优雅</p>
+        <span class="tagline">✨ 可用 · 寻找新机会</span>
+      </div>
     </div>
 
-    <script>
-        // 数字递增动画
-        function animateNum(el, target) {
-            let cur = 0;
-            const step = Math.ceil(target / 40);
-            const timer = setInterval(() => {
-                cur += step;
-                if (cur >= target) { cur = target; clearInterval(timer); }
-                el.textContent = cur;
-            }, 20);
-        }
+    <p class="bio">
+      拥有 4 年前端开发经验，专注于构建高性能、可访问的 Web 应用。
+      信奉"少即是多"，追求代码的简洁与美感。目前主要使用
+      React、TypeScript 和 Tailwind CSS 进行开发。
+    </p>
 
-        // 初始化随机数据
-        const projEl = document.getElementById('projects');
-        const starEl = document.getElementById('stars');
-        const folEl = document.getElementById('followers');
-        const greeting = document.getElementById('greeting');
-        const followBtn = document.getElementById('followBtn');
-        const resetBtn = document.getElementById('resetBtn');
+    <div class="section-title">技术栈</div>
+    <div class="skills">
+      <span class="skill-tag">TypeScript</span>
+      <span class="skill-tag">React</span>
+      <span class="skill-tag">Vue</span>
+      <span class="skill-tag">Node.js</span>
+      <span class="skill-tag">Tailwind CSS</span>
+      <span class="skill-tag">Next.js</span>
+      <span class="skill-tag">Git</span>
+      <span class="skill-tag">Docker</span>
+    </div>
 
-        let followed = false;
-        const base = { projects: 42, stars: 128, followers: 36 };
+    <div class="stats">
+      <div class="stat-item">
+        <div class="stat-number">4+</div>
+        <div class="stat-label">年经验</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-number">30+</div>
+        <div class="stat-label">项目</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-number">100%</div>
+        <div class="stat-label">热情</div>
+      </div>
+    </div>
 
-        function initStats() {
-            animateNum(projEl, base.projects);
-            animateNum(starEl, base.stars);
-            animateNum(folEl, base.followers);
-        }
-        initStats();
+    <div class="section-title">联系我</div>
+    <div class="contact">
+      <a href="mailto:linyi@example.com" class="contact-link">
+        <span class="icon">✉</span> Email
+      </a>
+      <a href="#" class="contact-link">
+        <span class="icon">💻</span> GitHub
+      </a>
+      <a href="#" class="contact-link">
+        <span class="icon">📱</span> 微信
+      </a>
+    </div>
 
-        // 关注逻辑
-        followBtn.addEventListener('click', () => {
-            if (followed) {
-                greeting.textContent = '已关注，感谢支持！';
-                return;
-            }
-            followed = true;
-            base.followers += 1;
-            animateNum(folEl, base.followers);
-            followBtn.textContent = '已关注';
-            followBtn.style.background = 'rgba(255,255,255,0.12)';
-            greeting.textContent = '感谢关注！一起加油 🚀';
-        });
-
-        resetBtn.addEventListener('click', () => {
-            followed = false;
-            base.followers = 36;
-            animateNum(folEl, base.followers);
-            followBtn.textContent = '+ 关注';
-            followBtn.style.background = '';
-            greeting.textContent = '已重置，点击关注开始计数';
-        });
-
-        // 实时时钟
-        function updateClock() {
-            const now = new Date();
-            document.getElementById('clock').textContent =
-                now.toLocaleTimeString('zh-CN', { hour12: false });
-        }
-        updateClock();
-        setInterval(updateClock, 1000);
-    </script>
+    <div class="footer-note">
+      保持好奇，保持简洁。© 2025 林一
+    </div>
+  </div>
 </body>
 </html>
