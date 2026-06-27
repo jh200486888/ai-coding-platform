@@ -147,7 +147,7 @@ export function ConversationSidebar({
                         </div>
                         <div className="flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
                           <Clock className="w-3 h-3" />
-                          <span>{new Date(conv.updated_at).toLocaleDateString('zh-CN')}</span>
+                          <span>{(() => { const d = new Date(conv.updated_at); return `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; })()}</span>
                         </div>
                       </div>
                       {/* Action buttons */}
