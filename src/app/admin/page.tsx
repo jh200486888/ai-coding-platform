@@ -893,6 +893,46 @@ function SettingsPanel() {
                     className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
                     placeholder="deepseek-v4-flash,glm-5-turbo" />
                 </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'单步超时（秒）'}</label>
+                  <input type="number" value={advConfig.timeout_step}
+                    onChange={(e) => setAdvConfig({ ...advConfig, timeout_step: parseInt(e.target.value) || 30 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" min={10} max={120} />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'最大输出 Token 数'}</label>
+                  <input type="number" value={advConfig.max_output_tokens}
+                    onChange={(e) => setAdvConfig({ ...advConfig, max_output_tokens: parseInt(e.target.value) || 16384 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" min={1024} max={128000} />
+                </div>
+              </div>
+              <h4 className="text-sm font-medium mt-4 mb-2">{'模型生成参数（高级）'}</h4>
+              <p className="text-xs text-muted-foreground mb-3">{'控制输出多样性、重复惩罚等。一般使用默认值即可。'}</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'Top P（核采样 0.1-1.0）'}</label>
+                  <input type="number" value={advConfig.topP}
+                    onChange={(e) => setAdvConfig({ ...advConfig, topP: parseFloat(e.target.value) || 0.9 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" min={0.1} max={1.0} step={0.05} />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'存在惩罚（-2.0~2.0）'}</label>
+                  <input type="number" value={advConfig.presencePenalty}
+                    onChange={(e) => setAdvConfig({ ...advConfig, presencePenalty: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" min={-2.0} max={2.0} step={0.1} />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'频率惩罚（-2.0~2.0）'}</label>
+                  <input type="number" value={advConfig.frequencyPenalty}
+                    onChange={(e) => setAdvConfig({ ...advConfig, frequencyPenalty: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" min={-2.0} max={2.0} step={0.1} />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'随机种子（-1为随机）'}</label>
+                  <input type="number" value={advConfig.seed}
+                    onChange={(e) => setAdvConfig({ ...advConfig, seed: parseInt(e.target.value) ?? -1 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" min={-1} max={999999} />
+                </div>
               </div>
             </div>
           )}
