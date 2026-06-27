@@ -101,6 +101,7 @@ export function useChatLogic(options: UseChatLogicOptions) {
     }, 50);
     flushTimerRef.current = flushInterval;
     
+    let timeoutChecker: any = null;
     try {
       abortControllerRef.current = new AbortController();
       
@@ -157,9 +158,20 @@ export function useChatLogic(options: UseChatLogicOptions) {
       const decoder = new TextDecoder();
       let buffer = '';
       let execLogContent = '';
+      let lastDataTime = Date.now();
+      const STREAM_TIMEOUT = 60000; // 60秒无数据超时
+      
+      // 超时检查定时器
+      timeoutChecker = setInterval(() => {
+        if (Date.now() - lastDataTime > STREAM_TIMEOUT) {
+          clearInterval(timeoutChecker);
+          abortControllerRef.current?.abort();
+        }
+      }, 5000);
       
       while (true) {
         const { done, value } = await reader.read();
+        lastDataTime = Date.now();
         if (done) break;
         
         buffer += decoder.decode(value, { stream: true });
@@ -225,6 +237,45 @@ export function useChatLogic(options: UseChatLogicOptions) {
                   streamingRef.current = { content: '', assistantId };
                 }
                 streamingRef.current.content += event.content || '';
+              } else if (event.type === 'tool-start' || event.type === 'tool_call') {
+                setToolCalls(prev => [
+                  ...prev,
+                  {
+                    callId: event.callId || `call-${Date.now()}`,
+                    toolName: event.toolName,
+                    status: 'running',
+                  },
+                ]);
+              } else if (event.type === 'tool-result') {
+                const summary = typeof event.result === 'string' 
+                  ? event.result.slice(0, 100)
+                  : (event.summary || JSON.stringify(event.result || '').slice(0, 100));
+                  
+                setToolCalls(prev => {
+                  const updated = [...prev];
+                  const lastIdx = updated.length - 1;
+                  if (lastIdx >= 0 && updated[lastIdx].status === 'running') {
+                    updated[lastIdx] = {
+                      ...updated[lastIdx],
+                      status: event.success === false || event.error ? 'error' : 'done',
+                      summary,
+                    };
+                    execLogContent += `${updated.length}. ${updated[lastIdx].toolName}: ${updated[lastIdx].status === 'done' ? '✅' : '❌'} ${summary}\n`;
+                  }
+                  return updated;
+                });
+              } else if (event.type === 'error') {
+                // Backend error event
+                setMessages(prev => [...prev, {
+                  id: `error-${Date.now()}`,
+                  role: 'assistant',
+                  content: `⚠️ ${event.error || '发生错误'}`,
+                  createdAt: new Date(),
+                }]);
+                break; // Exit the line loop
+              } else if (event.type === 'done') {
+                // Stream done signal from backend
+                break; // Exit the line loop
               }
             } catch {
               // Skip invalid JSON
@@ -267,6 +318,7 @@ export function useChatLogic(options: UseChatLogicOptions) {
         }]);
       }
     } finally {
+      clearInterval(timeoutChecker);
       setIsLoading(false);
       setIsThinking(false);
       if (flushTimerRef.current) {
