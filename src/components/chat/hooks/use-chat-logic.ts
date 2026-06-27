@@ -92,34 +92,8 @@ export function useChatLogic(options: {
       // 从 message metadata 提取 conversation_id
       const convId = (message.metadata as any)?.conversationId;
       if (convId) onConversationCreated(convId);
-
-      // 保存助手消息到数据库
-      const text = extractTextContent(message);
-      const toolParts = (message as any).parts?.filter(
-        (p: any) => p.type?.startsWith('tool-') && p.state === 'output-available'
-      ) || [];
-
-      try {
-        const targetConvId = convId || currentConvIdRef.current;
-        if (targetConvId && text) {
-          let savedContent = text;
-          if (toolParts.length > 0) {
-            const execLog = toolParts.map((tp: any, i: number) => {
-              const name = tp.type?.replace('tool-', '') || tp.toolName || 'unknown';
-              const out = typeof tp.output === 'string'
-                ? tp.output
-                : JSON.stringify(tp.output);
-              return `${i + 1}. ${name}: ${out.startsWith('❌') ? '❌' : '✅'} ${out.slice(0, 100)}`;
-            }).join('\n');
-            savedContent = text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
-          }
-          await fetch('/api/conversations/' + targetConvId + '/messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ role: 'assistant', content: savedContent }),
-          });
-        }
-      } catch {}
+      // Note: Assistant messages are already saved by server-side onEnd callback
+      // No need to save again from client side
     },
     onError(error) {
       toast.error('AI 响应出错，请重试');
@@ -128,19 +102,42 @@ export function useChatLogic(options: {
   });
 
   // 发送消息
-  const sendMessage = useCallback(async (content: string, _attachments: any[] = []) => {
+  const sendMessage = useCallback(async (content: string, attachments: any[] = []) => {
+    // Build attachment markers in message text for server-side processing
+    let messageText = content;
+    const attachmentData: any[] = [];
+    for (const att of attachments) {
+      if (att.type === 'image') {
+        messageText += `
+[image:${att.url}]`;
+        attachmentData.push({ name: att.name, type: 'image', url: att.url });
+      } else if (att.content) {
+        // Code/document files with text content
+        messageText += `
+[file:${att.name}]:
+${att.content.slice(0, 8000)}`;
+        attachmentData.push({ name: att.name, type: att.type, content: att.content?.slice(0, 8000) });
+      } else {
+        messageText += `
+[file:${att.url}]`;
+        attachmentData.push({ name: att.name, type: att.type, url: att.url });
+      }
+    }
+
     chat.sendMessage(
-      { text: content },
+      { text: messageText },
       {
         body: {
           conversation_id: currentConvIdRef.current || undefined,
           mode: selectedMode,
           model_id: selectedModel,
           enable_search: enableSearch,
+          attachments: attachmentData,
         },
       }
     );
   }, [chat, selectedMode, selectedModel, enableSearch]);
+
 
   // 加载历史对话
   const loadConversation = useCallback(async (convId: string) => {

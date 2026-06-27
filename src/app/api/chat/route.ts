@@ -382,12 +382,13 @@ const MODEL_IDENTITY: Record<string, string> = {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { conversation_id, model_id: rawModelId, modelId: rawModelId2, mode: rawMode, enable_search, messages: rawMessages } = body as {
+    const { conversation_id, model_id: rawModelId, modelId: rawModelId2, mode: rawMode, enable_search, attachments: bodyAttachments, messages: rawMessages } = body as {
       conversation_id?: string;
       model_id?: string;
       modelId?: string;
       mode?: string;
       enable_search?: boolean;
+      attachments?: any[];
       messages: any[];
     };
     const mode = rawMode || 'coding';
@@ -546,37 +547,59 @@ export async function POST(request: NextRequest) {
       role: String(m.role || "").toLowerCase().trim() === "assistant" ? "assistant" : "user",
     }));
 
-    // Build messages with multi-modal support (images, PDFs, files)
-    const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string }; image?: any }> }> = [
-      ...userAssistantMessages.map(m => {
-        const imageMatch = m.content.match(/\[image:(data:[^\]]+)\]/);
-        const pdfMatch = m.content.match(/\[pdf:(data:[^\]]+)\]/);
-        const fileMatch = m.content.match(/\[file:(data:([^;]+);base64,[^\]]+)\]/);
+    // Build messages with multi-modal support (images, PDFs, files, body attachments)
+    const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string }; image?: any }> }>= [
+      ...userAssistantMessages.map((m, idx) => {
+        // Match image markers: [image:data:image/png;base64,...]
+        const imageMatches = [...m.content.matchAll(/\[image:([\s\S]*?)\]/g)];
+        // Match file content markers: [file:filename]:\ncontent
+        const fileContentMatches = [...m.content.matchAll(/\[file:([^\]]*?)\]:\n([\s\S]*?)(?=\n\[|$)/g)];
+        // Match file URL markers: [file:data:...]
+        const fileUrlMatches = [...m.content.matchAll(/\[file:(data:[^\]]+)\]/g)];
         
-        if (m.role === 'user' && (imageMatch || pdfMatch || fileMatch)) {
+        const hasAttachments = imageMatches.length > 0 || fileContentMatches.length > 0 || fileUrlMatches.length > 0;
+        const isLastUserMsg = m.role === 'user' && idx === userAssistantMessages.length - 1;
+        const hasBodyAttachments = isLastUserMsg && bodyAttachments && bodyAttachments.length > 0;
+        
+        if (m.role === 'user' && (hasAttachments || hasBodyAttachments)) {
           const parts: Array<{ type: string; text?: string; image_url?: { url: string }; image?: any }> = [];
-          const textContent = m.content
-            .replace(/\[image:data:[^\]]+\]/g, '')
-            .replace(/\[pdf:data:[^\]]+\]/g, '')
-            .replace(/\[file:data:[^;]+;base64,[^\]]+\]/g, '')
+          // Clean text: remove all attachment markers
+          let textContent = m.content
+            .replace(/\[image:[\s\S]*?\]/g, '')
+            .replace(/\[file:[^\]]*?\]:[\s\S]*?(?=\n\[|$)/g, '')
+            .replace(/\[file:data:[^\]]+\]/g, '')
             .trim();
           
           if (textContent) {
             parts.push({ type: 'text', text: textContent });
           }
           
-          if (imageMatch) {
-            parts.push({ type: 'image', image: imageMatch[1] });
+          // Add image parts
+          for (const imgMatch of imageMatches) {
+            const imgUrl = imgMatch[1].trim();
+            if (imgUrl.startsWith('data:image/') || imgUrl.startsWith('data:')) {
+              parts.push({ type: 'image', image: imgUrl });
+            }
           }
           
-          if (pdfMatch) {
-            // PDF support: send as file part for models that support it
-            parts.push({ type: 'text', text: '[用户已上传PDF文件，请分析其内容]' });
+          // Add file content parts
+          for (const fcMatch of fileContentMatches) {
+            const fileName = fcMatch[1].trim();
+            const fileContent = fcMatch[2].trim();
+            if (fileContent) {
+              parts.push({ type: 'text', text: `[文件: ${fileName}]\n${fileContent.slice(0, 6000)}` });
+            }
           }
           
-          if (fileMatch && !imageMatch) {
-            // Generic file as base64 - convert to appropriate format
-            parts.push({ type: 'text', text: '[用户已上传文件，请分析其内容]' });
+          // Add body attachments (for the last user message)
+          if (hasBodyAttachments) {
+            for (const att of bodyAttachments!) {
+              if (att.type === 'image' && att.url) {
+                parts.push({ type: 'image', image: att.url });
+              } else if (att.content) {
+                parts.push({ type: 'text', text: `[文件: ${att.name}]\n${att.content.slice(0, 6000)}` });
+              }
+            }
           }
           
           return { role: m.role, content: parts.length > 0 ? parts : m.content };

@@ -90,6 +90,7 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
     items: [
       { id: 'settings', label: '基本设置' },
       { id: 'settings-advanced', label: '高级参数' },
+      { id: 'oauth', label: '第三方登录' },
     ],
   },
   {

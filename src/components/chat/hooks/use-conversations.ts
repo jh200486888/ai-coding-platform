@@ -23,7 +23,7 @@ export function useConversations(options: UseConversationsOptions = {}) {
       const res = await fetch('/api/conversations');
       if (res.ok) {
         const data = await res.json();
-        setConversations(data.data || []);
+        setConversations(Array.isArray(data) ? data : (data.data || []));
       }
     } catch {
       // Silently fail

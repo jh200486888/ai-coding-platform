@@ -4,6 +4,15 @@ import { useState, useCallback, useRef } from 'react';
 import { User, Bot, Image, FileText, Code, Copy, Check, Pencil, Volume2, Square } from 'lucide-react';
 import type { Message, Attachment } from '@/types';
 
+// Clean attachment markers from message content for display
+function cleanAttachmentMarkers(text: string): string {
+  return text
+    .replace(/\[image:[\s\S]*?\]/g, '[图片]')
+    .replace(/\[file:[^\]]*?\]:\n[\s\S]*?(?=\n\[|$)/g, '[文件]')
+    .replace(/\[file:data:[^\]]+\]/g, '[文件]')
+    .trim();
+}
+
 interface MessageBubbleProps {
   message: Message;
   isEditing?: boolean;
@@ -195,7 +204,7 @@ export function MessageBubble({ message, isEditing, editContent, onEdit, onEditC
             {message.content && (
               <div className="text-sm break-words">
                 {isUser ? (
-                  <span className="whitespace-pre-wrap break-words">{message.content}</span>
+                  <span className="whitespace-pre-wrap break-words">{cleanAttachmentMarkers(message.content)}</span>
                 ) : (
                   <RenderedContent content={message.content} />
                 )}
