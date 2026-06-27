@@ -480,7 +480,7 @@ export async function getRecentTelemetry(limit: number): Promise<any[]> {
 
 export async function listConversationsByUser(userId: string): Promise<Conversation[]> {
   return query<Conversation>(
-    'SELECT id, title, "modelId" as model_id, "userId", "createdAt" as created_at, "updatedAt" as updated_at FROM conversations WHERE "userId" = $1 ORDER BY "updatedAt" DESC LIMIT 100',
+    'SELECT id, title, "modelId" as model_id, "userId", "createdAt" as created_at, "updatedAt" as updated_at FROM conversations WHERE "userId" = $1 OR "userId" IS NULL ORDER BY "updatedAt" DESC LIMIT 100',
     [userId]
   );
 }

@@ -8,7 +8,7 @@ const JWT_SECRET = new TextEncoder().encode(
 const COOKIE_NAME = 'user_session';
 
 // Routes that require user authentication
-const PROTECTED_ROUTES = ['/', '/workspace'];
+const PROTECTED_ROUTES = ['/', '/workspace', '/image-gen'];
 // Routes that should redirect to home if already logged in
 const AUTH_ROUTES = ['/login'];
 // API routes that require user authentication
