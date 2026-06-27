@@ -63,6 +63,7 @@ export function ChatInterface() {
   const {
     conversations,
     currentConvId,
+    setCurrentConvId,
     renamingConvId,
     renameTitle,
     setRenameTitle,
