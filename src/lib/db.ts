@@ -468,14 +468,22 @@ export async function getRecentTelemetry(limit: number): Promise<any[]> {
 
 // ============ User-scoped Conversations ============
 
-export async function listConversationsByUser(userId: string, role?: string): Promise<Conversation[]> {
-  // Admin users can see all conversations; regular users only see their own
+export async function listConversationsByUser(userId: string | null, role?: string): Promise<Conversation[]> {
+  // Admin users can see all conversations
   if (role === 'admin') {
     return query<Conversation>(
       'SELECT id, title, "modelId" as model_id, "userId", "createdAt" as created_at, "updatedAt" as updated_at FROM conversations ORDER BY "updatedAt" DESC LIMIT 100',
       []
     );
   }
+  // Anonymous users see conversations with NULL userId (their own anonymous conversations)
+  if (!userId) {
+    return query<Conversation>(
+      'SELECT id, title, "modelId" as model_id, "userId", "createdAt" as created_at, "updatedAt" as updated_at FROM conversations WHERE "userId" IS NULL ORDER BY "updatedAt" DESC LIMIT 100',
+      []
+    );
+  }
+  // Regular users see their own conversations
   return query<Conversation>(
     'SELECT id, title, "modelId" as model_id, "userId", "createdAt" as created_at, "updatedAt" as updated_at FROM conversations WHERE "userId" = $1 ORDER BY "updatedAt" DESC LIMIT 100',
     [userId]

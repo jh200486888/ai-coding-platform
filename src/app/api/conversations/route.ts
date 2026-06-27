@@ -5,12 +5,8 @@ import { getCurrentUser } from '@/lib/auth';
 export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser();
-    if (!user) {
-      // Anonymous users get empty list
-      return NextResponse.json([]);
-    }
-    
-    const conversations = await listConversationsByUser(user.id, user.role);
+    // Pass userId (null for anonymous) so they can see their anonymous conversations
+    const conversations = await listConversationsByUser(user?.id || null, user?.role);
     return NextResponse.json(conversations);
   } catch (error) {
     console.error('List conversations error:', error);

@@ -75,12 +75,12 @@ export function createSubAgentTool(model: any, baseTools: Record<string, any>) {
       task: z.string().describe('要委派的任务描述'),
       context: z.string().optional().describe('额外上下文信息'),
     }),
-    // 流式执行：用 async function* 逐步 yield 子智能体的进度
-    execute: async function* ({ agent_type, task, context }, { abortSignal }) {
+    // 使用普通 async 函数而非 async function*
+    // AI SDK streamText 不支持 generator 作为 tool execute 返回值
+    execute: async function ({ agent_type, task, context }, { abortSignal }) {
       const config = SUBAGENT_CONFIGS[agent_type];
       if (!config) {
-        yield `未知子智能体类型: ${agent_type}，可用: researcher, coder, reviewer, writer`;
-        return;
+        return `未知子智能体类型: ${agent_type}，可用: researcher, coder, reviewer, writer`;
       }
 
       // 为子智能体构建工具集
@@ -90,8 +90,7 @@ export function createSubAgentTool(model: any, baseTools: Record<string, any>) {
       }
 
       if (Object.keys(subTools).length === 0) {
-        yield `子智能体 ${agent_type} 无可用工具（需要: ${config.toolNames.join(', ')}）`;
-        return;
+        return `子智能体 ${agent_type} 无可用工具（需要: ${config.toolNames.join(', ')}）`;
       }
 
       // 使用 AI SDK 原生 ToolLoopAgent 创建子智能体
@@ -104,50 +103,53 @@ export function createSubAgentTool(model: any, baseTools: Record<string, any>) {
       const prompt = context ? `${task}\n\n上下文：${context}` : task;
 
       try {
-        // 流式执行子智能体 - 实时输出进度到前端
+        // 使用 stream + 累积文本的方式获取完整结果
         const result = await subagent.stream({
           prompt,
           abortSignal,
         });
 
-        // 用 readUIMessageStream 逐步构建完整的 UIMessage 并 yield
-        let lastText = '';
+        // 读取完整流式输出
+        let fullText = '';
+        const toolCallsLog: string[] = [];
+        
         for await (const message of readUIMessageStream({
           stream: toUIMessageStream({ stream: result.stream }),
         })) {
-          // 从 UIMessage 中提取最新的文本内容
+          // 从 UIMessage 中提取文本
           const textParts = (message?.parts || []).filter((p: any) => p.type === 'text');
           const currentText = textParts.map((p: any) => p.text || '').join('');
+          if (currentText) fullText = currentText;
           
           // 提取工具调用信息
           const toolParts = (message?.parts || []).filter((p: any) => 
             p.type?.startsWith('tool-') || p.type === 'dynamic-tool'
           );
-          const toolSummary = toolParts.map((p: any) => {
-            const name = p.toolName || (p.type || '').replace('tool-', '');
-            const state = p.state || '';
-            return `${name}(${state})`;
-          }).join(', ');
-
-          // 构建进度信息
-          let progress = '';
-          if (toolSummary) progress += `[子智能体 ${agent_type} 执行中] 工具: ${toolSummary}`;
-          if (currentText && currentText !== lastText) {
-            if (progress) progress += '\n';
-            progress += currentText;
-            lastText = currentText;
+          for (const tp of toolParts as any[]) {
+            const name = tp.toolName || 'unknown';
+            const state = tp.state || '';
+            if (state === 'output-available' && !toolCallsLog.some(l => l.includes(name))) {
+              const output = typeof (tp as any).output === 'string' ? (tp as any).output.slice(0, 80) : '完成';
+              toolCallsLog.push(`${name}: ${output}`);
+            }
           }
-          if (progress) yield progress;
         }
 
-        // 最终结果：返回子智能体的完整文本输出
-        if (!lastText) yield `子智能体 ${agent_type} 已完成任务（无文本输出）`;
+        // 构建最终结果
+        let resultText = `[子智能体 ${agent_type} 已完成]`;
+        if (toolCallsLog.length > 0) {
+          resultText += `\n执行了 ${toolCallsLog.length} 个工具调用`;
+        }
+        if (fullText) {
+          resultText += `\n\n${fullText}`;
+        }
+        return resultText;
 
       } catch (e: any) {
         if (e.name === 'AbortError') {
-          yield '子智能体任务已取消';
+          return '子智能体任务已取消';
         } else {
-          yield `子智能体执行失败: ${e.message || '未知错误'}`;
+          return `子智能体执行失败: ${e.message || '未知错误'}`;
         }
       }
     },

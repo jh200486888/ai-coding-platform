@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>天上飘雪花 ❄️</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    overflow: hidden;
+    background: radial-gradient(ellipse at bottom, #0a1628 0%, #020a18 100%);
+    height: 100vh;
+    font-family: 'Segoe UI', sans-serif;
+    user-select: none;
+  }
+  #snow-container {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* ---- 雪花基础样式 ---- */
+  .snowflake {
+    position: absolute;
+    top: -30px;
+    pointer-events: none;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, rgba(255,255,255,0.95), rgba(200,230,255,0.5));
+    box-shadow: 0 0 12px rgba(255,255,255,0.6), 0 0 30px rgba(180,220,255,0.3);
+    opacity: 0.85;
+  }
+  .snowflake::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    border-radius: 50%;
+    background: radial-gradient(circle at 65% 65%, rgba(255,255,255,0.5), transparent 70%);
+  }
+
+  /* ---- 迸散粒子 ---- */
+  .burst-particle {
+    position: absolute;
+    border-radius: 50%;
+    pointer-events: none;
+    background: radial-gradient(circle at 30% 30%, #fff, #b0d4ff);
+    box-shadow: 0 0 10px rgba(180,220,255,0.8), 0 0 25px rgba(255,255,255,0.4);
+  }
+
+  /* ---- 底部统计 ---- */
+  #counter {
+    position: fixed;
+    bottom: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    color: rgba(255,255,255,0.7);
+    font-size: 15px;
+    letter-spacing: 2px;
+    background: rgba(10, 22, 50, 0.55);
+    backdrop-filter: blur(6px);
+    padding: 10px 28px;
+    border-radius: 30px;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+  }
+  #counter .num {
+    color: #fff;
+    font-weight: 700;
+    font-size: 18px;
+    min-width: 40px;
+    text-align: center;
+  }
+  #counter .label { font-weight: 300; }
+
+  /* ---- 夜空星星点缀 ---- */
+  .star {
+    position: fixed;
+    border-radius: 50%;
+    background: #fff;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ---- 点击提示 ---- */
+  #hint {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10;
+    color: rgba(255,255,255,0.25);
+    font-size: 13px;
+    letter-spacing: 1px;
+    pointer-events: none;
+    transition: opacity 0.8s;
+  }
+</style>
+</head>
+<body>
+
+<div id="snow-container"></div>
+<div id="counter">
+  <span class="label">❄ 雪花</span>
+  <span class="num" id="snow-count">0</span>
+</div>
+<div id="hint">点击任意位置 · 雪花迸散 ❄</div>
+
+<script>
+(function() {
+  'use strict';
+
+  const container = document.getElementById('snow-container');
+  const countEl   = document.getElementById('snow-count');
+
+  /* ---------- 配置 ---------- */
+  const MAX_SNOW       = 220;        // 最大雪花数
+  const SNOW_SPEED_MIN = 0.4;        // 最小下落速度
+  const SNOW_SPEED_MAX = 1.8;        // 最大下落速度
+  const SWAY_AMP_MIN   = 8;          // 最小摇摆幅度 (px)
+  const SWAY_AMP_MAX   = 25;         // 最大摇摆幅度 (px)
+  const SWAY_SPEED_MIN = 0.008;      // 最小摇摆频率
+  const SWAY_SPEED_MAX = 0.025;      // 最大摇摆频率
+  const SIZE_MIN       = 3;          // 最小尺寸 (px)
+  const SIZE_MAX       = 14;         // 最大尺寸 (px)
+  const GENERATE_INTERVAL = 160;     // 生成间隔 (ms)
+
+  /* ---------- 状态 ---------- */
+  let snowflakes = [];
+  let animationId = null;
+  let lastGenerate = 0;
+  let snowflakeId = 0;
+
+  /* ---------- 工具 ---------- */
+  function rand(a, b) { return Math.random() * (b - a) + a; }
+
+  /* ---------- 创建雪花 DOM ---------- */
+  function createSnowflakeDOM(size) {
+    const el = document.createElement('div');
+    el.className = 'snowflake';
+    el.style.width  = size + 'px';
+    el.style.height = size + 'px';
+    container.appendChild(el);
+    return el;
+  }
+
+  /* ---------- 生成一朵雪花 ---------- */
+  function spawnSnowflake(x, y) {
+    if (snowflakes.length >= MAX_SNOW) return null;
+    const size = rand(SIZE_MIN, SIZE_MAX);
+    const el = createSnowflakeDOM(size);
+    const startX = (x != null) ? x : rand(0, window.innerWidth);
+    const startY = (y != null) ? y : -size;
+    el.style.left = startX + 'px';
+    el.style.top  = startY + 'px';
+
+    const sf = {
+      id: snowflakeId++,
+      el,
+      x: startX,
+      y: startY,
+      size,
+      speed: rand(SNOW_SPEED_MIN, SNOW_SPEED_MAX),
+      swayAmp:  rand(SWAY_AMP_MIN, SWAY_AMP_MAX),
+      swaySpeed: rand(SWAY_SPEED_MIN, SWAY_SPEED_MAX),
+      swayPhase: rand(0, Math.PI * 2),
+      opacity: rand(0.6, 1),
+    };
+    el.style.opacity = sf.opacity;
+    snowflakes.push(sf);
+    updateCount();
+    return sf;
+  }
+
+  /* ---------- 移除雪花 ---------- */
+  function removeSnowflake(sf) {
+    sf.el.remove();
+    const idx = snowflakes.indexOf(sf);
+    if (idx !== -1) snowflakes.splice(idx, 1);
+    updateCount();
+  }
+
+  /* ---------- 更新计数 ---------- */
+  function updateCount() {
+    countEl.textContent = snowflakes.length;
+  }
+
+  /* ---------- 更新所有雪花位置 ---------- */
+  function updateSnowflakes(timestamp) {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    for (let i = snowflakes.length - 1; i >= 0; i--) {
+      const sf = snowflakes[i];
+      // 下落
+      sf.y += sf.speed;
+      // 左右摇摆
+      const sway = Math.sin(timestamp * sf.swaySpeed + sf.swayPhase) * sf.swayAmp;
+      sf.el.style.left = (sf.x + sway) + 'px';
+      sf.el.style.top  = sf.y + 'px';
+
+      // 超出底部移除
+      if (sf.y > h + sf.size) {
+        removeSnowflake(sf);
+      }
+    }
+  }
+
+  /* ---------- 自动生成雪花 ---------- */
+  function autoGenerate(timestamp) {
+    if (timestamp - lastGenerate > GENERATE_INTERVAL) {
+      lastGenerate = timestamp;
+      // 随机在顶部宽度范围内生成
+      spawnSnowflake(null, null);
+    }
+  }
+
+  /* ---------- 动画循环 ---------- */
+  function animate(timestamp) {
+    autoGenerate(timestamp);
+    updateSnowflakes(timestamp);
+    animationId = requestAnimationFrame(animate);
+  }
+
+  /* ---------- 迸散效果 ---------- */
+  function burst(x, y) {
+    const COUNT = 40;       // 迸散粒子数
+    const SPEED = 12;       // 基础速度
+    const LIFE  = 1200;     // 生命周期 (ms)
+
+    for (let i = 0; i < COUNT; i++) {
+      const size = rand(2, 8);
+      const el = document.createElement('div');
+      el.className = 'burst-particle';
+      el.style.width  = size + 'px';
+      el.style.height = size + 'px';
+      el.style.left = x + 'px';
+      el.style.top  = y + 'px';
+      // 随机颜色微调
+      const hue = 200 + Math.random() * 40;
+      el.style.background = `radial-gradient(circle at 30% 30%, #fff, hsl(${hue}, 80%, 75%))`;
+      container.appendChild(el);
+
+      const angle = Math.random() * Math.PI * 2;
+      const speed = rand(SPEED * 0.5, SPEED * 1.5);
+      const vx = Math.cos(angle) * speed;
+      const vy = Math.sin(angle) * speed - 2; // 略微向上
+      const gravity = 0.12;
+      const startTime = performance.now();
+
+      function animateParticle() {
+        const now = performance.now();
+        const dt = Math.min(now - startTime, LIFE);
+        const progress = dt / LIFE; // 0→1
+        const cx = x + vx * progress + (gravity * 20) * progress * progress;
+        const cy = y + vy * progress + (gravity * 40) * progress * progress;
+        el.style.left = cx + 'px';
+        el.style.top  = cy + 'px';
+        el.style.opacity = 1 - progress;
+        el.style.transform = `scale(${1 - progress * 0.6})`;
+
+        if (progress < 1) {
+          requestAnimationFrame(animateParticle);
+        } else {
+          el.remove();
+        }
+      }
+      animateParticle();
+    }
+  }
+
+  /* ---------- 窗口 resize ---------- */
+  function onResize() {
+    // 无需额外处理，雪花位置基于百分比/实际像素
+  }
+
+  /* ---------- 点击迸散 ---------- */
+  function onClick(e) {
+    const x = e.clientX;
+    const y = e.clientY;
+    burst(x, y);
+  }
+
+  /* ---------- 隐藏提示 ---------- */
+  function hideHint() {
+    const hint = document.getElementById('hint');
+    if (hint) {
+      hint.style.opacity = '0';
+      setTimeout(() => { hint.style.display = 'none'; }, 1000);
+    }
+  }
+
+  /* ---------- 生成背景星星 ---------- */
+  function createStars() {
+    const count = 80;
+    for (let i = 0; i < count; i++) {
+      const star = document.createElement('div');
+      star.className = 'star';
+      const size = rand(0.5, 2.2);
+      star.style.width  = size + 'px';
+      star.style.height = size + 'px';
+      star.style.left = rand(0, 100) + '%';
+      star.style.top  = rand(0, 70) + '%';
+      star.style.opacity = rand(0.2, 0.8);
+      // 闪烁动画
+      const duration = rand(2, 6);
+      const delay = rand(0, 5);
+      star.style.animation = `blink ${duration}s ease-in-out ${delay}s infinite alternate`;
+      document.body.appendChild(star);
+    }
+    // 动态插入 keyframes
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes blink {
+        0%   { opacity: 0.15; transform: scale(0.8); }
+        100% { opacity: 0.9;  transform: scale(1.2); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  /* ---------- 初始化 ---------- */
+  function init() {
+    createStars();
+    // 预生成一些雪花
+    for (let i = 0; i < 30; i++) {
+      setTimeout(() => {
+        spawnSnowflake(rand(0, window.innerWidth), rand(-window.innerHeight * 0.5, 0));
+      }, i * 30);
+    }
+    // 启动动画
+    animationId = requestAnimationFrame(animate);
+    // 事件绑定
+    window.addEventListener('resize', onResize);
+    document.addEventListener('click', onClick);
+    document.addEventListener('click', hideHint, { once: true });
+  }
+
+  // 页面加载完成后启动
+  if (document.readyState === 'complete') {
+    init();
+  } else {
+    window.addEventListener('load', init);
+  }
+
+})();
+</script>
+</body>
+</html>
