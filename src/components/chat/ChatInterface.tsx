@@ -16,6 +16,7 @@ import { useFileUpload } from './hooks/use-file-upload';
 
 // Components
 import { ConversationSidebar } from './ConversationSidebar';
+import { useAuth } from '@/lib/auth-provider';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
 import { ModelSelector } from './ModelSelector';
@@ -39,6 +40,7 @@ const CHAT_MODES: ChatMode[] = [
 ];
 
 export function ChatInterface() {
+  const { user: authUser } = useAuth();
   const [selectedModel, setSelectedModel] = useState('');
 
   // Load default model from admin settings

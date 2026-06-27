@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>交互式个人主页</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+        }
+        .card {
+            width: 420px;
+            padding: 40px;
+            background: rgba(255,255,255,0.06);
+            border-radius: 24px;
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 25px 50px rgba(0,0,0,0.4);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 35px 60px rgba(0,0,0,0.5);
+        }
+        .avatar {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            margin: 0 auto 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            font-weight: 700;
+            border: 3px solid rgba(255,255,255,0.2);
+        }
+        h1 { text-align: center; font-size: 28px; font-weight: 600; }
+        .title {
+            text-align: center;
+            color: rgba(255,255,255,0.65);
+            margin: 6px 0 24px;
+            font-size: 14px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        .skills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin: 20px 0 28px;
+        }
+        .skills span {
+            padding: 6px 18px;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.08);
+            font-size: 13px;
+            border: 1px solid rgba(255,255,255,0.06);
+            transition: 0.2s;
+        }
+        .skills span:hover { background: rgba(102,126,234,0.3); transform: scale(1.05); }
+        .counter-box {
+            display: flex;
+            justify-content: space-around;
+            margin: 18px 0 24px;
+            padding: 16px 0;
+            border-top: 1px solid rgba(255,255,255,0.08);
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        .stat { text-align: center; }
+        .stat .num { font-size: 24px; font-weight: 700; }
+        .stat .label { font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 4px; }
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 10px;
+        }
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.25s;
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            border: none;
+        }
+        .btn:hover { transform: scale(1.02); filter: brightness(1.15); }
+        .btn:active { transform: scale(0.97); }
+        .greeting {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 15px;
+            color: rgba(255,255,255,0.7);
+            min-height: 28px;
+            transition: 0.3s;
+        }
+        .clock {
+            text-align: center;
+            font-size: 13px;
+            color: rgba(255,255,255,0.35);
+            margin-top: 8px;
+            font-variant-numeric: tabular-nums;
+        }
+        @media (max-width: 480px) {
+            .card { width: 92%; padding: 28px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="card" id="app">
+        <div class="avatar">D</div>
+        <h1>DeepSeek</h1>
+        <div class="title">AI 编程助手</div>
+
+        <div class="skills">
+            <span>HTML5</span>
+            <span>CSS3</span>
+            <span>JavaScript</span>
+            <span>React</span>
+            <span>Node.js</span>
+            <span>Python</span>
+        </div>
+
+        <div class="counter-box">
+            <div class="stat">
+                <div class="num" id="projects">0</div>
+                <div class="label">项目</div>
+            </div>
+            <div class="stat">
+                <div class="num" id="stars">0</div>
+                <div class="label">Star</div>
+            </div>
+            <div class="stat">
+                <div class="num" id="followers">0</div>
+                <div class="label">关注者</div>
+            </div>
+        </div>
+
+        <div class="btn-group">
+            <button class="btn btn-primary" id="followBtn">+ 关注</button>
+            <button class="btn" id="resetBtn">重置</button>
+        </div>
+
+        <div class="greeting" id="greeting">点击关注开始计数</div>
+        <div class="clock" id="clock">--:--:--</div>
+    </div>
+
+    <script>
+        // 数字递增动画
+        function animateNum(el, target) {
+            let cur = 0;
+            const step = Math.ceil(target / 40);
+            const timer = setInterval(() => {
+                cur += step;
+                if (cur >= target) { cur = target; clearInterval(timer); }
+                el.textContent = cur;
+            }, 20);
+        }
+
+        // 初始化随机数据
+        const projEl = document.getElementById('projects');
+        const starEl = document.getElementById('stars');
+        const folEl = document.getElementById('followers');
+        const greeting = document.getElementById('greeting');
+        const followBtn = document.getElementById('followBtn');
+        const resetBtn = document.getElementById('resetBtn');
+
+        let followed = false;
+        const base = { projects: 42, stars: 128, followers: 36 };
+
+        function initStats() {
+            animateNum(projEl, base.projects);
+            animateNum(starEl, base.stars);
+            animateNum(folEl, base.followers);
+        }
+        initStats();
+
+        // 关注逻辑
+        followBtn.addEventListener('click', () => {
+            if (followed) {
+                greeting.textContent = '已关注，感谢支持！';
+                return;
+            }
+            followed = true;
+            base.followers += 1;
+            animateNum(folEl, base.followers);
+            followBtn.textContent = '已关注';
+            followBtn.style.background = 'rgba(255,255,255,0.12)';
+            greeting.textContent = '感谢关注！一起加油 🚀';
+        });
+
+        resetBtn.addEventListener('click', () => {
+            followed = false;
+            base.followers = 36;
+            animateNum(folEl, base.followers);
+            followBtn.textContent = '+ 关注';
+            followBtn.style.background = '';
+            greeting.textContent = '已重置，点击关注开始计数';
+        });
+
+        // 实时时钟
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').textContent =
+                now.toLocaleTimeString('zh-CN', { hour12: false });
+        }
+        updateClock();
+        setInterval(updateClock, 1000);
+    </script>
+</body>
+</html>

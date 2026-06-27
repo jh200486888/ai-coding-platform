@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { listConversationsByUser, createConversationWithUser } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const user = await getCurrentUser();
     if (!user) {
-      return NextResponse.json({ error: '请先登录' }, { status: 401 });
+      // Anonymous users get empty list
+      return NextResponse.json([]);
     }
     
     const conversations = await listConversationsByUser(user.id, user.role);
@@ -20,12 +21,9 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
-    if (!user) {
-      return NextResponse.json({ error: '请先登录' }, { status: 401 });
-    }
-
     const { id, title, modelId } = await request.json();
-    await createConversationWithUser(id, title || '新对话', modelId || null, user.id);
+    const userId = user?.id || null;
+    await createConversationWithUser(id, title || '新对话', modelId || null, userId);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Create conversation error:', error);

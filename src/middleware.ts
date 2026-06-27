@@ -8,11 +8,11 @@ const JWT_SECRET = new TextEncoder().encode(
 const COOKIE_NAME = 'user_session';
 
 // Routes that require user authentication
-const PROTECTED_ROUTES = ['/', '/workspace', '/image-gen'];
+const PROTECTED_ROUTES = ['/image-gen'];  // Homepage and workspace are now open to all users
 // Routes that should redirect to home if already logged in
 const AUTH_ROUTES = ['/login'];
 // API routes that require user authentication
-const PROTECTED_API_ROUTES = ['/api/chat', '/api/conversations', '/api/workspace', '/api/speech-to-text', '/api/image-generate', '/api/image-gen'];
+const PROTECTED_API_ROUTES = ['/api/image-generate', '/api/image-gen'];  // Chat and conversations are now open
 // Admin routes - keep existing admin auth separate
 const ADMIN_ROUTES = ['/api/admin'];
 
@@ -45,11 +45,8 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Redirect logged-in users away from login page
+  // Login page is always accessible (no redirect)
   if (AUTH_ROUTES.some(route => pathname === route)) {
-    if (isAuthenticated) {
-      return NextResponse.redirect(new URL('/', request.url));
-    }
     return NextResponse.next();
   }
 

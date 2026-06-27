@@ -181,24 +181,35 @@ export function ConversationSidebar({
           )}
         </div>
 
-        {/* User info & logout */}
+        {/* User info / Login prompt */}
         <div className="border-t border-border/50 p-3">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-violet-500/20 flex items-center justify-center shrink-0">
-              <User className="w-4 h-4 text-violet-400" />
+          {authUser ? (
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-violet-500/20 flex items-center justify-center shrink-0">
+                <User className="w-4 h-4 text-violet-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium truncate">{authUser.name || authUser.email}</div>
+                <div className="text-xs text-muted-foreground truncate">{authUser.email}</div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                title="退出登录"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">{authUser?.name || authUser?.email || '用户'}</div>
-              <div className="text-xs text-muted-foreground truncate">{authUser?.email || ''}</div>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-              title="退出登录"
+          ) : (
+            <a
+              href="/login"
+              className="flex items-center gap-2 w-full p-2 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary transition-colors"
             >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
+              <User className="w-4 h-4" />
+              <span className="text-sm font-medium">登录 / 注册</span>
+              <span className="text-xs text-muted-foreground ml-auto">领积分</span>
+            </a>
+          )}
         </div>
       </div>
     </>

@@ -386,6 +386,15 @@ export async function POST(request: NextRequest) {
     });
     let model_id = rawModelId || rawModelId2 || '';
 
+    // Detect if user sent image attachments (from body or message markers)
+    const hasImageAttachments = (bodyAttachments && bodyAttachments.some((a: any) => a.type === 'image')) ||
+      messages.some((m: any) => {
+        const c = typeof m.content === 'string' ? m.content : '';
+        return c.includes('[image:');
+      });
+    // Multimodal model candidates (preferred order)
+    const MULTIMODAL_MODEL_ORDER = ['gpt-4o', 'gpt-4.1', 'gemini-2.5-pro', 'gemini-2.5-flash', 'qwen-max', 'qwen-plus', 'claude-sonnet-4-5', 'glm-4.5-flash', 'glm-5.2'];
+
     // Auto model selection: pick first available model with active API key
     if (model_id === 'auto') {
       const preferredOrder = ['deepseek-v4-flash', 'gpt-4.1', 'claude-sonnet-4-5', 'qwen-max', 'glm-4.5-flash'];
@@ -410,12 +419,35 @@ export async function POST(request: NextRequest) {
     }
 
     // 获取模型和 API Key 配置
-    const modelConfig = await getModelConfig(model_id);
+    let modelConfig = await getModelConfig(model_id);
     if (!modelConfig) {
       return new Response(JSON.stringify({ error: `模型 ${model_id} 未配置` }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
+    }
+
+    // Auto-switch to multimodal model if user sent images but current model doesn't support it
+    if (hasImageAttachments) {
+      const MULTIMODAL_PROVIDERS = ['openai', 'anthropic', 'google', 'qwen', 'zhipu'];
+      const isMultimodal = MULTIMODAL_PROVIDERS.includes(modelConfig.provider) || 
+        MULTIMODAL_MODEL_ORDER.some(m => model_id.includes(m));
+      
+      if (!isMultimodal) {
+        // Try to find an available multimodal model
+        for (const candidate of MULTIMODAL_MODEL_ORDER) {
+          const cfg = await getModelConfig(candidate);
+          if (cfg) {
+            const keyData = await getApiKeyByProvider(cfg.provider);
+            if (keyData && keyData.is_active) {
+              console.log(`[Multimodal] Auto-switching from ${model_id} to ${candidate} for image input`);
+              model_id = candidate;
+              modelConfig = cfg;
+              break;
+            }
+          }
+        }
+      }
     }
 
     const apiKeyData = await getApiKeyByProvider(modelConfig.provider);
@@ -511,6 +543,11 @@ export async function POST(request: NextRequest) {
     });
     const model = provider.languageModel(model_id);
 
+    // Check if model supports multimodal (image input)
+    const MULTIMODAL_PROVIDERS = ['openai', 'anthropic', 'google', 'qwen', 'zhipu'];
+    const supportsMultimodal = MULTIMODAL_PROVIDERS.includes(modelConfig.provider) || 
+      MULTIMODAL_MODEL_ORDER.some(m => model_id.includes(m));
+
     // 构建系统提示词
     const identityName = MODEL_IDENTITY[modelConfig.provider] || modelConfig.provider;
     const modePrompt = MODE_PROMPTS[mode] || SYSTEM_PROMPT;
@@ -528,7 +565,7 @@ export async function POST(request: NextRequest) {
     }));
 
     // Build messages with multi-modal support (images, PDFs, files, body attachments)
-    const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string }; image?: any }> }>= [
+    const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; data?: string; mediaType?: string; image_url?: { url: string }; image?: any }> }>= [
       ...userAssistantMessages.map((m, idx) => {
         // Match image markers: [image:data:image/png;base64,...]
         const imageMatches = [...m.content.matchAll(/\[image:([\s\S]*?)\]/g)];
@@ -542,7 +579,7 @@ export async function POST(request: NextRequest) {
         const hasBodyAttachments = isLastUserMsg && bodyAttachments && bodyAttachments.length > 0;
         
         if (m.role === 'user' && (hasAttachments || hasBodyAttachments)) {
-          const parts: Array<{ type: string; text?: string; image_url?: { url: string }; image?: any }> = [];
+          const parts: Array<{ type: string; text?: string; data?: string; mediaType?: string; image_url?: { url: string }; image?: any }> = [];
           // Clean text: remove all attachment markers
           let textContent = m.content
             .replace(/\[image:[\s\S]*?\]/g, '')
@@ -554,11 +591,21 @@ export async function POST(request: NextRequest) {
             parts.push({ type: 'text', text: textContent });
           }
           
-          // Add image parts
+          // Add image parts (only for multimodal models)
           for (const imgMatch of imageMatches) {
             const imgUrl = imgMatch[1].trim();
             if (imgUrl.startsWith('data:image/') || imgUrl.startsWith('data:')) {
-              parts.push({ type: 'image', image: imgUrl });
+              if (supportsMultimodal) {
+                // Use file part (AI SDK v7 new format) instead of deprecated image part
+                // Extract mediaType from data URL
+                const mediaTypeMatch = imgUrl.match(/data:(image\/[^;]+);/);
+                const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : 'image/png';
+                const base64Data = imgUrl.split(',')[1] || '';
+                parts.push({ type: 'file', data: base64Data, mediaType });
+              } else {
+                // Non-multimodal model: describe image as text
+                parts.push({ type: 'text', text: '[用户上传了一张图片，但当前模型不支持图片输入，请基于文字描述回答]' });
+              }
             }
           }
           
@@ -575,7 +622,15 @@ export async function POST(request: NextRequest) {
           if (hasBodyAttachments) {
             for (const att of bodyAttachments!) {
               if (att.type === 'image' && att.url) {
-                parts.push({ type: 'image', image: att.url });
+                if (supportsMultimodal) {
+                  const imgUrl = att.url;
+                  const mediaTypeMatch = imgUrl.match(/data:(image\/[^;]+);/);
+                  const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : 'image/png';
+                  const base64Data = imgUrl.split(',')[1] || '';
+                  parts.push({ type: 'file', data: base64Data, mediaType });
+                } else {
+                  parts.push({ type: 'text', text: '[用户上传了一张图片，但当前模型不支持图片输入，请基于文字描述回答]' });
+                }
               } else if (att.content) {
                 parts.push({ type: 'text', text: `[文件: ${att.name}]\n${att.content.slice(0, 6000)}` });
               }

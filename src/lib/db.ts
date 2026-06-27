@@ -482,7 +482,7 @@ export async function listConversationsByUser(userId: string, role?: string): Pr
   );
 }
 
-export async function createConversationWithUser(id: string, title: string, modelId: string | null, userId: string): Promise<void> {
+export async function createConversationWithUser(id: string, title: string, modelId: string | null, userId: string | null): Promise<void> {
   const now = new Date().toISOString();
   await run(
     'INSERT INTO conversations (id, title, "modelId", "userId", "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, $5, $6)',

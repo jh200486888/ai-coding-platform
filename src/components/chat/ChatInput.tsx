@@ -36,6 +36,7 @@ interface ChatInputProps {
   onGenerateImage: () => void;
   enableSearch?: boolean;
   onToggleSearch?: () => void;
+  isLoggedIn?: boolean;
 }
 
 export function ChatInput({
@@ -54,6 +55,7 @@ export function ChatInput({
   onGenerateImage,
   enableSearch = true,
   onToggleSearch,
+  isLoggedIn = true,
 }: ChatInputProps) {
   const currentMode = CHAT_MODES.find(m => m.id === selectedMode);
   const canSubmit = input.trim() || attachments.length > 0;
@@ -84,6 +86,18 @@ export function ChatInput({
                 </button>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Login guide bar */}
+      {!isLoggedIn && (
+        <div className="border-t border-border px-3 py-2 md:px-4 bg-primary/5">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-muted-foreground">💡 登录后可保存对话记录、使用更多功能</span>
+            <a href="/login" className="text-primary font-medium hover:underline ml-auto shrink-0">
+              登录领积分 →
+            </a>
           </div>
         </div>
       )}
