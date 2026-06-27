@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateSpeech } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
 import { getApiKeyByProvider } from '@/lib/db';
 import { decodeApiKey } from '@/lib/ai-providers';
 
@@ -23,21 +21,27 @@ export async function POST(req: NextRequest) {
     const apiKey = decodeApiKey(keyRow.api_key_encrypted);
     const baseUrl = keyRow.base_url || 'https://api.openai.com/v1';
 
-    const openai = createOpenAI({
-      apiKey,
-      baseURL: baseUrl,
+    const response = await fetch(baseUrl + '/audio/speech', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + apiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'tts-1',
+        input: truncatedText,
+        voice: voice,
+        response_format: 'mp3',
+      }),
     });
 
-    const { audio } = await generateSpeech({
-      model: openai.speech('tts-1'),
-      text: truncatedText,
-      voice: voice,
-      outputFormat: 'mp3',
-    });
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('TTS API error:', response.status, errText);
+      return NextResponse.json({ error: 'TTS API 调用失败' }, { status: 502 });
+    }
 
-    const audioUint8 = audio.uint8Array;
-    const audioBuffer = Buffer.from(audioUint8);
-
+    const audioBuffer = await response.arrayBuffer();
     return new NextResponse(audioBuffer, {
       headers: {
         'Content-Type': 'audio/mpeg',

@@ -8,20 +8,20 @@ import { createSubAgentTool } from '@/lib/sub-agents';
 
 // ============ 日志中间件（AI SDK 原生 Middleware） ============
 const loggingMiddleware: LanguageModelMiddleware = {
-  wrapGenerate: async ({ doGenerate, params, model }) => {
+  wrapGenerate: async ({ doGenerate, params }) => {
     const startTime = Date.now();
-    console.log(`[AI] ${model?.modelId || 'unknown'} request started`);
+    console.log(`[AI] ${params.model?.modelId || 'unknown'} request started`);
     const result = await doGenerate();
     const duration = Date.now() - startTime;
-    console.log(`[AI] ${model?.modelId || 'unknown'} completed in ${duration}ms`);
+    console.log(`[AI] ${params.model?.modelId || 'unknown'} completed in ${duration}ms`);
     return result;
   },
-  wrapStream: async ({ doStream, params, model }) => {
+  wrapStream: async ({ doStream, params }) => {
     const startTime = Date.now();
-    console.log(`[AI] ${model?.modelId || 'unknown'} stream started`);
+    console.log(`[AI] ${params.model?.modelId || 'unknown'} stream started`);
     const result = await doStream();
     const duration = Date.now() - startTime;
-    console.log(`[AI] ${model?.modelId || 'unknown'} stream completed in ${duration}ms`);
+    console.log(`[AI] ${params.model?.modelId || 'unknown'} stream completed in ${duration}ms`);
     return result;
   },
 };
@@ -612,7 +612,7 @@ export async function POST(request: NextRequest) {
       model,
       middleware: [
         loggingMiddleware,
-        extractReasoningMiddleware({ tagName: 'think' }),
+        extractReasoningMiddleware(),
       ],
     });
     const result = streamText({

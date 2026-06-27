@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { transcribe } from 'ai';
-import { createOpenAI } from '@ai-sdk/openai';
 import { getApiKeyByProvider } from '@/lib/db';
 import { decodeApiKey } from '@/lib/ai-providers';
 import { logger } from '@/lib/logger';
@@ -20,28 +18,23 @@ export async function POST(req: NextRequest) {
       const apiKey = decodeApiKey(keyRow.api_key_encrypted);
       const baseUrl = keyRow.base_url || 'https://api.openai.com/v1';
 
-      try {
-        const openai = createOpenAI({
-          apiKey,
-          baseURL: baseUrl,
-        });
+      const whisperForm = new FormData();
+      whisperForm.append('file', audioFile, 'audio.webm');
+      whisperForm.append('model', 'whisper-1');
+      whisperForm.append('language', 'zh');
 
-        const audioBuffer = new Uint8Array(await audioFile.arrayBuffer());
+      const res = await fetch(`${baseUrl}/audio/transcriptions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: whisperForm,
+      });
 
-        const { text } = await transcribe({
-          model: openai.transcription('whisper-1'),
-          audio: audioBuffer,
-          providerOptions: {
-            openai: {
-              language: 'zh',
-            },
-          },
-        });
-
-        return NextResponse.json({ text: text || '' });
-      } catch (whisperError) {
-        logger.warn('Whisper API failed, falling back', whisperError);
+      if (res.ok) {
+        const data = await res.json();
+        return NextResponse.json({ text: data.text || '' });
       }
+
+      logger.warn('Whisper API failed, falling back', res.status);
     }
 
     return NextResponse.json({

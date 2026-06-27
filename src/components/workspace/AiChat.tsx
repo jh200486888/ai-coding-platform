@@ -1,8 +1,11 @@
 'use client';
 import { toast } from 'sonner';
-
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Paperclip, X, Image, FileText, Code, Wrench, CheckCircle, XCircle, Loader2, MessageSquare, Brain, CircleCheck, CircleX, LoaderCircle } from 'lucide-react';
+import { Send, Paperclip, X, FileText, Brain, Loader2 } from 'lucide-react';
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
+import { z } from 'zod';
+import type { UIMessage } from 'ai';
 import type { WorkspaceFile, Attachment } from '@/types';
 import { ToolCallDisplay } from '@/components/chat/tool-call-display';
 
@@ -11,25 +14,6 @@ interface AiChatProps {
   modelId: string;
   files: WorkspaceFile[];
   onFilesChanged?: () => void;
-}
-
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  toolCalls?: Array<{
-    callId: string;
-    toolName: string;
-    status: 'running' | 'done' | 'error';
-    summary?: string;
-  }>;
-}
-
-interface ToolCall {
-  callId: string;
-  toolName: string;
-  status: 'running' | 'done' | 'error';
-  summary?: string;
 }
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -51,54 +35,141 @@ function classifyFile(file: File): Attachment['type'] {
   return 'document';
 }
 
-// Tool name Chinese mapping
-const TOOL_NAME_ZH: Record<string, string> = {
-  createFile: "创建文件",
-  editFile: "修改文件",
-  deleteFile: "删除文件",
-  runCommand: "执行命令",
-  deploy: "部署项目",
-  readFile: "读取文件",
-};
-
-// Chinese tool name mapping for history parsing (Chinese -> English for display compatibility)
-const TOOL_NAME_CN: Record<string, string> = {
-  '创建文件': 'createFile',
-  '修改文件': 'editFile',
-  '删除文件': 'deleteFile',
-  '执行命令': 'runCommand',
-  '部署项目': 'deploy',
-  '读取文件': 'readFile',
-  '联网搜索': 'searchWeb',
-  '保存记忆': 'saveMemory',
-};
-
-// Helper function to generate tool args summary
-function getToolArgsSummary(toolName: string, args: any): string {
-  if (!args) return '';
-  if (args.path) return args.path;
-  if (args.command) return args.command.length > 50 ? args.command.slice(0, 50) + '...' : args.command;
-  if (args.query) return args.query;
+// Helper: 从 UIMessage 提取纯文本
+function extractTextContent(msg: any): string {
+  if (typeof msg.content === 'string') return msg.content;
+  if (Array.isArray(msg.parts)) {
+    return msg.parts
+      .filter((p: any) => p.type === 'text')
+      .map((p: any) => p.text || '')
+      .join('');
+  }
   return '';
 }
 
+// 从 UIMessage parts 提取工具调用显示数据
+function extractToolCallsFromMessage(msg: any): Array<{
+  callId: string;
+  toolName: string;
+  status: 'running' | 'done' | 'error';
+  summary?: string;
+  isSubAgent?: boolean;
+  subAgentOutput?: string;
+}> {
+  const parts = msg.parts || [];
+  return parts
+    .filter((p: any) => p.type === 'tool-invocation' || p.type?.startsWith('tool-') || p.type === 'dynamic-tool')
+    .map((p: any) => {
+      const state = String(p.state || '').toLowerCase();
+      const isPreliminary = p.preliminary === true;
+      const isStreaming = state === 'output-available' && isPreliminary;
+      const isError = state === 'output-error' || (state === 'output-available' && !isPreliminary && p.errorText);
+      const isDone = (state === 'output-available' && !isPreliminary) || (p.output !== undefined && !isPreliminary && !isError);
+      const toolName = p.toolName || (p.type || '').replace('tool-', '');
+
+      let summary: string | undefined;
+      const output = typeof p.output === 'string' ? p.output : '';
+      if (isStreaming) {
+        const toolMatch = output.match(/工具:\s*(.+)/);
+        summary = toolMatch ? toolMatch[1] : '执行中...';
+      } else if (isDone) {
+        summary = output.slice(0, 100) || '完成';
+      } else if (isError) {
+        summary = (p.errorText || output).slice(0, 100);
+      } else if (state === 'call' || state === 'input-streaming' || state === 'input-available') {
+        summary = '执行中...';
+      }
+
+      return {
+        callId: p.toolCallId || p.type,
+        toolName,
+        status: isError ? 'error' : isDone ? 'done' : 'running',
+        summary,
+        isSubAgent: toolName === 'delegate_task',
+        subAgentOutput: toolName === 'delegate_task' && isStreaming ? output : undefined,
+      };
+    });
+}
+
+// DB 消息 → UIMessage 格式转换
+function convertDBMessages(dbMsgs: any[]): UIMessage[] {
+  return dbMsgs
+    .filter((m: any) => m.role !== 'system')
+    .map((m: any) => {
+      const content: string = m.content || '';
+      const parts: any[] = [];
+      let toolCalls: any[] = [];
+      let displayContent = content;
+
+      if (m.role === 'assistant' && content.includes('<!--EXEC_LOG')) {
+        const logMatch = content.match(/<!--EXEC_LOG\n([\s\S]*?)\n-->/);
+        if (logMatch) {
+          const lines = logMatch[1].split('\n').filter(Boolean);
+          toolCalls = lines.map((line: string) => {
+            const match = line.match(/^\d+\.\s+(.+?):\s+(✅|❌)\s*(.*)/);
+            if (match) {
+              return { toolName: match[1], status: match[2] === '✅' ? 'done' : 'error', summary: match[3] };
+            }
+            return null;
+          }).filter(Boolean);
+          displayContent = content.replace(/\n\n<!--EXEC_LOG\n[\s\S]*?\n-->/, '');
+        }
+      }
+
+      if (displayContent) {
+        parts.push({ type: 'text', text: displayContent });
+      }
+      for (const tc of toolCalls) {
+        parts.push({
+          type: `tool-${tc.toolName}`,
+          toolCallId: `hist-${tc.toolName}-${Math.random().toString(36).slice(2, 8)}`,
+          state: tc.status === 'error' ? 'output-error' : 'output-available',
+          input: {},
+          ...(tc.status !== 'error' && { output: tc.summary }),
+          ...(tc.status === 'error' && { errorText: tc.summary }),
+        });
+      }
+
+      return {
+        id: m.id || `msg-${Math.random().toString(36).slice(2)}`,
+        role: m.role as 'user' | 'assistant',
+        parts: parts.length > 0 ? parts : [{ type: 'text' as const, text: '' }],
+        createdAt: new Date(m.created_at || m.createdAt || Date.now()),
+      } as UIMessage;
+    });
+}
+
 export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProps) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Local input state (AI SDK v7 useChat doesn't manage input)
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isThinking, setIsThinking] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const streamingRef = useRef<{ content: string; assistantId: string } | null>(null);
-  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // AI SDK useChat hook
+  const chat = useChat({
+    transport: new DefaultChatTransport({ api: '/api/workspace/chat' }),
+    messageMetadataSchema: z.object({ conversationId: z.string().optional() }).optional(),
+    async onFinish({ message }) {
+      // 触发文件刷新
+      onFilesChanged?.();
+    },
+    onError(error) {
+      toast.error('AI 响应出错，请重试');
+      console.error('[AiChat] error:', error);
+    },
+  });
+
+  const isLoading = chat.status === 'submitted' || chat.status === 'streaming';
+  const isThinking = chat.status === 'submitted';
+
+  // Auto-scroll on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [chat.messages]);
 
-  // Load history on mount
+  // Load history on mount or projectId change
   useEffect(() => {
     const loadHistory = async () => {
       try {
@@ -106,43 +177,10 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data) && data.length > 0) {
-            setMessages(data.map((m: any) => {
-              let content = m.content;
-              let toolCalls: ChatMessage['toolCalls'] = undefined;
-              
-              // 解析 EXEC_LOG 标记，恢复工具调用信息
-              if (m.role === 'assistant' && content.includes('<!--EXEC_LOG')) {
-                const logMatch = content.match(/<!--EXEC_LOG\n([\s\S]*?)\n-->/);
-                if (logMatch) {
-                  const logContent = logMatch[1];
-                  toolCalls = [];
-                  const lines = logContent.split('\n');
-                  for (const line of lines) {
-                    const match = line.match(/^\d+\.\s+(.+?):\s+(✅|❌)\s*(.*)/);
-                    if (match) {
-                      const cnName = match[1];
-                      const status = match[2] === '✅' ? 'done' : 'error';
-                      const summary = match[3];
-                      toolCalls.push({
-                        callId: 'hist-' + toolCalls.length,
-                        toolName: cnName, // 存储中文名
-                        status,
-                        summary,
-                      });
-                    }
-                  }
-                  // 从 content 中移除 EXEC_LOG 部分，避免重复显示
-                  content = content.replace(/\n\n<!--EXEC_LOG\n[\s\S]*?\n-->/, '');
-                }
-              }
-              
-              return {
-                id: m.id,
-                role: m.role,
-                content,
-                toolCalls,
-              };
-            }));
+            const uiMessages = convertDBMessages(data);
+            chat.setMessages(uiMessages);
+          } else {
+            chat.setMessages([]);
           }
         }
       } catch (err) {
@@ -151,29 +189,6 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
     };
     loadHistory();
   }, [projectId]);
-
-  // Flush timer for streaming
-  const startFlushTimer = useCallback((assistantId: string) => {
-    if (flushTimerRef.current) clearInterval(flushTimerRef.current);
-    flushTimerRef.current = setInterval(() => {
-      if (streamingRef.current) {
-        const { content } = streamingRef.current;
-        setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content } : m));
-      }
-    }, 50);
-  }, []);
-
-  const stopFlushTimer = useCallback(() => {
-    if (flushTimerRef.current) {
-      clearInterval(flushTimerRef.current);
-      flushTimerRef.current = null;
-    }
-    if (streamingRef.current) {
-      const { content, assistantId } = streamingRef.current;
-      setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content } : m));
-      streamingRef.current = null;
-    }
-  }, []);
 
   const handleFiles = useCallback(async (fileList: FileList | File[]) => {
     const newAttachments: Attachment[] = [];
@@ -227,132 +242,22 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
     if (!input.trim() && attachments.length === 0) return;
     if (isLoading) return;
 
-    const userContent = input;
-    const userMessage: ChatMessage = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: userContent,
-    };
-
-    setMessages(prev => [...prev, userMessage]);
+    const content = input;
     setInput('');
     setAttachments([]);
-    setIsLoading(true);
-    setIsThinking(true);
 
-    const assistantId = (Date.now() + 1).toString();
-    const assistantMessage: ChatMessage = {
-      id: assistantId,
-      role: 'assistant',
-      content: '',
-      toolCalls: [],
-    };
-    setMessages(prev => [...prev, assistantMessage]);
-
-    streamingRef.current = { content: '', assistantId };
-    startFlushTimer(assistantId);
-
-    const allMessages = [...messages, userMessage].map(m => ({
-      role: m.role,
-      content: m.content,
-    }));
-
-    try {
-      const response = await fetch('/api/workspace/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: allMessages,
+    chat.sendMessage(
+      { text: content },
+      {
+        body: {
           modelId,
           projectId,
           conversationId: projectId,
-        }),
-      });
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || '请求失败');
+          mode: 'coding',
+          enable_search: true,
+        },
       }
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('无响应流');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-      const toolCalls: ChatMessage['toolCalls'] = [];
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const events = buffer.split('\n\n');
-        buffer = events.pop() || '';
-
-        for (const sseEvent of events) {
-          const dataLine = sseEvent.split('\n').find(l => l.startsWith('data: '));
-          if (!dataLine) continue;
-          const jsonStr = dataLine.slice(6);
-          if (!jsonStr.trim()) continue;
-
-          try {
-            const event = JSON.parse(jsonStr);
-
-            switch (event.type) {
-              case 'content':
-                setIsThinking(false);
-                if (streamingRef.current) {
-                  streamingRef.current.content += event.content || '';
-                }
-                break;
-
-              case 'tool-start':
-                setIsThinking(false);
-                toolCalls.push({
-                  callId: event.callId || '',
-                  toolName: event.toolName || '',
-                  status: 'running',
-                  summary: getToolArgsSummary(event.toolName, event.args),
-                });
-                setMessages(prev => prev.map(m =>
-                  m.id === assistantId ? { ...m, toolCalls: [...toolCalls] } : m
-                ));
-                break;
-
-              case 'tool-result':
-                const idx = toolCalls.findIndex(tc => tc.callId === event.callId);
-                if (idx >= 0) {
-                  toolCalls[idx] = {
-                    ...toolCalls[idx],
-                    status: event.success ? 'done' : 'error',
-                    summary: event.summary,
-                  };
-                  setMessages(prev => prev.map(m =>
-                    m.id === assistantId ? { ...m, toolCalls: [...toolCalls] } : m
-                  ));
-                }
-                break;
-
-              case 'error':
-                if (streamingRef.current) {
-                  streamingRef.current.content += `❌ ${event.error}`;
-                }
-                break;
-            }
-          } catch {}
-        }
-      }
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : '未知错误';
-      if (streamingRef.current) {
-        streamingRef.current.content += `❌ ${errMsg}`;
-      }
-    } finally {
-      stopFlushTimer();
-      setIsLoading(false);
-      setIsThinking(false);
-      onFilesChanged?.();
-    }
+    );
   };
 
   return (
@@ -388,35 +293,40 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
-        {messages.length === 0 ? (
+        {chat.messages.length === 0 ? (
           <div className="text-center text-muted-foreground text-sm py-8">
             <div className="text-4xl mb-4">🤖</div>
             <p>告诉我你想做什么</p>
             <p className="text-xs mt-2">AI 可以帮你创建文件、修改代码、执行命令</p>
           </div>
         ) : (
-          messages.map(message => (
-            <div
-              key={message.id}
-              className={'flex ' + (message.role === 'user' ? 'justify-end' : 'justify-start')}
-            >
-              <div
-                className={'max-w-[90%] rounded-lg px-3 py-2 ' +
-                  (message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted')
-                }
-              >
-                {message.toolCalls && message.toolCalls.length > 0 && (
-                  <div className="mb-2">
-                    <ToolCallDisplay toolCalls={message.toolCalls} />
-                  </div>
-                )}
+          chat.messages.map((message) => {
+            const textContent = extractTextContent(message);
+            const toolCalls = message.role === 'assistant' ? extractToolCallsFromMessage(message) : [];
 
-                {message.content && (
-                  <div className="text-sm whitespace-pre-wrap">{message.content}</div>
-                )}
+            return (
+              <div
+                key={message.id}
+                className={'flex ' + (message.role === 'user' ? 'justify-end' : 'justify-start')}
+              >
+                <div
+                  className={'max-w-[90%] rounded-lg px-3 py-2 ' +
+                    (message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted')
+                  }
+                >
+                  {toolCalls.length > 0 && (
+                    <div className="mb-2">
+                      <ToolCallDisplay toolCalls={toolCalls} />
+                    </div>
+                  )}
+
+                  {textContent && (
+                    <div className="text-sm whitespace-pre-wrap">{textContent}</div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
         <div ref={messagesEndRef} />
       </div>

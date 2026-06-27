@@ -1,30 +1,10 @@
 import { NextRequest } from 'next/server';
-import { streamText, stepCountIs, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware } from 'ai';
+import { streamText, stepCountIs } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig, getSetting } from '@/lib/db';
 import { z } from 'zod';
-import { tool } from 'ai';
+import { tool, ToolLoopAgent } from 'ai';
 import { createSubAgentTool } from '@/lib/sub-agents';
-
-// ============ 日志中间件（AI SDK 原生 Middleware） ============
-const loggingMiddleware: LanguageModelMiddleware = {
-  wrapGenerate: async ({ doGenerate, params, model }) => {
-    const startTime = Date.now();
-    console.log(`[AI] ${model?.modelId || 'unknown'} request started`);
-    const result = await doGenerate();
-    const duration = Date.now() - startTime;
-    console.log(`[AI] ${model?.modelId || 'unknown'} completed in ${duration}ms`);
-    return result;
-  },
-  wrapStream: async ({ doStream, params, model }) => {
-    const startTime = Date.now();
-    console.log(`[AI] ${model?.modelId || 'unknown'} stream started`);
-    const result = await doStream();
-    const duration = Date.now() - startTime;
-    console.log(`[AI] ${model?.modelId || 'unknown'} stream completed in ${duration}ms`);
-    return result;
-  },
-};
 
 // ============ 工具执行函数 ============
 const PROJECT_DIR = '/www/wwwroot/agent.piyiguo.com';
@@ -606,18 +586,11 @@ export async function POST(request: NextRequest) {
       activeTools.delegate_task = createSubAgentTool(model, activeTools);
     }
 
-    // ====== AI SDK v7 原生 Middleware + Telemetry ======
+    // ====== AI SDK v7 原生流式响应 ======
     const streamStartTime = Date.now();
-    const wrappedModel = wrapLanguageModel({
-      model,
-      middleware: [
-        loggingMiddleware,
-        extractReasoningMiddleware({ tagName: 'think' }),
-      ],
-    });
     const result = streamText({
       system: dynamicPrompt,
-      model: wrappedModel,
+      model,
       messages: chatMessages as any,
       tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
       stopWhen: stepCountIs(maxSteps),
@@ -629,10 +602,6 @@ export async function POST(request: NextRequest) {
       ...(presencePenalty !== undefined && { presencePenalty }),
       ...(frequencyPenalty !== undefined && { frequencyPenalty }),
       ...(seed !== undefined && { seed }),
-      telemetry: {
-        isEnabled: true,
-        functionId: 'chat-completion',
-      },
     });
 
     return result.toUIMessageStreamResponse({
@@ -671,18 +640,6 @@ export async function POST(request: NextRequest) {
           telemetry.recordAICall({
             provider: modelConfig.provider, model: model_id,
             operation: 'chat_stream', durationMs: Date.now() - streamStartTime, success: true,
-          });
-        } catch {}
-
-        // 记录到 telemetry_events 表（AI SDK 原生 Telemetry 补充）
-        try {
-          const { recordTelemetry } = await import('@/lib/telemetry');
-          await recordTelemetry({
-            functionId: 'chat-completion',
-            model: model_id,
-            mode: mode,
-            durationMs: Date.now() - streamStartTime,
-            status: 'success',
           });
         } catch {}
 

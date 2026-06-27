@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { streamText, stepCountIs, tool, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware } from 'ai';
+import { streamText, stepCountIs, tool } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { z } from 'zod';
 import { query, queryOne, run, getSetting } from '@/lib/db';
@@ -83,26 +83,6 @@ const MODEL_IDENTITY: Record<string, string> = {
   doubao: '豆包 (Doubao)',
   groq: 'Groq (Llama)',
   yi: '零一万物 (Yi)',
-};
-
-// ============ 日志中间件（AI SDK 原生 Middleware） ============
-const loggingMiddleware: LanguageModelMiddleware = {
-  wrapGenerate: async ({ doGenerate, model }) => {
-    const startTime = Date.now();
-    console.log(`[AI] ${model.modelId} request started`);
-    const result = await doGenerate();
-    const duration = Date.now() - startTime;
-    console.log(`[AI] ${model.modelId} completed in ${duration}ms`);
-    return result;
-  },
-  wrapStream: async ({ doStream, model }) => {
-    const startTime = Date.now();
-    console.log(`[AI] ${model.modelId} stream started`);
-    const result = await doStream();
-    const duration = Date.now() - startTime;
-    console.log(`[AI] ${model.modelId} stream completed in ${duration}ms`);
-    return result;
-  },
 };
 
 // ============ 工具执行函数 (workspace: 操作 workspace_files DB + 服务器文件系统) ============
@@ -472,29 +452,18 @@ export async function POST(request: NextRequest) {
       activeTools.delegate_task = createSubAgentTool(model, activeTools);
     }
 
-    // ====== AI SDK v7 原生 Middleware + Telemetry ======
+    // ====== AI SDK v7 原生流式响应 ======
     const streamStartTime = Date.now();
-    const wrappedModel = wrapLanguageModel({
-      model,
-      middleware: [
-        loggingMiddleware,
-        extractReasoningMiddleware({ tagName: 'think' }),
-      ],
-    });
 
     const result = streamText({
       system: fullSystemPrompt,
-      model: wrappedModel,
+      model,
       messages: userAssistantMessages as any,
       tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
       stopWhen: stepCountIs(maxSteps),
       temperature,
       maxOutputTokens: wsMaxOutputTokens,
       ...(wsTopP !== undefined && { topP: wsTopP }),
-      telemetry: {
-        isEnabled: true,
-        functionId: 'workspace-chat-completion',
-      },
     });
 
     // 保存用户消息到 workspace_messages
@@ -557,24 +526,12 @@ export async function POST(request: NextRequest) {
           console.error('[workspace/chat onEnd] save error:', e);
         }
 
-        // Telemetry (ai_telemetry 表)
+        // Telemetry
         try {
           const { telemetry } = await import('@/lib/ai-telemetry');
           telemetry.recordAICall({
             provider: modelConfig.provider, model: modelId,
             operation: 'workspace_chat_stream', durationMs: Date.now() - streamStartTime, success: true,
-          });
-        } catch {}
-
-        // 记录到 telemetry_events 表（AI SDK 原生 Telemetry 补充）
-        try {
-          const { recordTelemetry } = await import('@/lib/telemetry');
-          await recordTelemetry({
-            functionId: 'workspace-chat-completion',
-            model: modelId,
-            mode: mode,
-            durationMs: Date.now() - streamStartTime,
-            status: 'success',
           });
         } catch {}
 
