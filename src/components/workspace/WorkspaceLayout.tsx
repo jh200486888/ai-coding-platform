@@ -155,7 +155,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
       <div className="flex-1 min-h-0 overflow-hidden">
         <ResizablePanelGroup orientation="horizontal">
           {/* File tree panel */}
-          <ResizablePanel defaultSize={20} minSize={12} maxSize={35}>
+          <ResizablePanel defaultSize={25} minSize={18} maxSize={35}>
             <FileTree
               files={files}
               activeFile={activeFile}

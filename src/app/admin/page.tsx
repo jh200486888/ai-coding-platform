@@ -746,7 +746,8 @@ function ConversationsPanel() {
       const res = await fetch("/api/conversations");
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
-      if (data.data) setConversations(data.data);
+      const convs = Array.isArray(data) ? data : (data.data || []);
+      setConversations(convs);
       if (showFeedback) toast.success("对话记录已刷新");
     } catch (err) {
       console.error("Failed to fetch conversations:", err);

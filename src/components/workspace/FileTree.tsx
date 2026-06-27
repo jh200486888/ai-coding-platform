@@ -32,7 +32,7 @@ function TreeNode({ file, children, activeFile, onSelect, onDelete, level }: Tre
         className={`flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-accent rounded ${
           isActive ? 'bg-accent' : ''
         }`}
-        style={{ paddingLeft: `${level * 16 + 8}px` }}
+        style={{ paddingLeft: `${level * 16 + 12}px` }}
         onClick={() => {
           if (isFolder) {
             setIsExpanded(!isExpanded);
