@@ -478,9 +478,16 @@ export async function getRecentTelemetry(limit: number): Promise<any[]> {
 
 // ============ User-scoped Conversations ============
 
-export async function listConversationsByUser(userId: string): Promise<Conversation[]> {
+export async function listConversationsByUser(userId: string, role?: string): Promise<Conversation[]> {
+  // Admin users can see all conversations; regular users only see their own
+  if (role === 'admin') {
+    return query<Conversation>(
+      'SELECT id, title, "modelId" as model_id, "userId", "createdAt" as created_at, "updatedAt" as updated_at FROM conversations ORDER BY "updatedAt" DESC LIMIT 100',
+      []
+    );
+  }
   return query<Conversation>(
-    'SELECT id, title, "modelId" as model_id, "userId", "createdAt" as created_at, "updatedAt" as updated_at FROM conversations WHERE "userId" = $1 OR "userId" IS NULL ORDER BY "updatedAt" DESC LIMIT 100',
+    'SELECT id, title, "modelId" as model_id, "userId", "createdAt" as created_at, "updatedAt" as updated_at FROM conversations WHERE "userId" = $1 ORDER BY "updatedAt" DESC LIMIT 100',
     [userId]
   );
 }
@@ -503,33 +510,35 @@ export async function setConversationUserId(conversationId: string, userId: stri
 
 // ============ Full-text Search ============
 
-export async function searchConversationsAndMessages(searchText: string, userId: string, limit: number = 20): Promise<any[]> {
+export async function searchConversationsAndMessages(searchText: string, userId: string, limit: number = 20, role?: string): Promise<any[]> {
+  const userFilter = role === 'admin' ? 'TRUE' : 'c."userId" = $2';
+  const params = role === 'admin' ? [searchText, limit] : [searchText, userId, limit];
+  const limitParam = role === 'admin' ? '$2' : '$3';
   const sql = `
     WITH msg_matches AS (
-      SELECT DISTINCT c.id as conversation_id, c.title,
+      SELECT c.id as conversation_id, c.title,
         ts_headline('simple', m.content, websearch_to_tsquery('simple', $1), 'MaxWords=35,MinWords=15,ShortWord=3,HighlightAll=FALSE') as highlight
       FROM conversations c
-      JOIN messages m ON m."conversationId" = c.id
-      WHERE (c."userId" = $2 OR c."userId" IS NULL)
+      JOIN chat_messages m ON m."conversationId" = c.id
+      WHERE ${userFilter}
         AND to_tsvector('simple', m.content) @@ websearch_to_tsquery('simple', $1)
       ORDER BY c."updatedAt" DESC
-      LIMIT $3
+      LIMIT ${limitParam}
     ),
     title_matches AS (
       SELECT c.id as conversation_id, c.title,
         ts_headline('simple', c.title, websearch_to_tsquery('simple', $1), 'MaxWords=35,MinWords=15,ShortWord=3,HighlightAll=FALSE') as highlight
       FROM conversations c
-      WHERE (c."userId" = $2 OR c."userId" IS NULL)
+      WHERE ${userFilter}
         AND to_tsvector('simple', c.title) @@ websearch_to_tsquery('simple', $1)
         AND c.id NOT IN (SELECT conversation_id FROM msg_matches)
       ORDER BY c."updatedAt" DESC
-      LIMIT $3
+      LIMIT ${limitParam}
     )
     SELECT * FROM msg_matches UNION ALL SELECT * FROM title_matches ORDER BY title
   `;
-  return await query(sql, [searchText, userId, limit]);
+  return await query(sql, params);
 }
-
 export function highlightMatch(text: string, keyword: string): string {
   if (!keyword) return text;
   const regex = new RegExp(`(${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');

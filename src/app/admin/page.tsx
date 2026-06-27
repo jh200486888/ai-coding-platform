@@ -1179,6 +1179,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
             </div>
           )}
         </div>
+        {settingsSubTab === 'oauth' && <AuthSettingsPanel />}
       </div>
     </div>
   );

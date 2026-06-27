@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     }
 
     const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 50);
-    const results = await searchConversationsAndMessages(query.trim(), user.id, limit);
+    const results = await searchConversationsAndMessages(query.trim(), user.id, limit, user.role);
     
     return NextResponse.json({ results });
   } catch (error) {

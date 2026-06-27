@@ -22,7 +22,7 @@ export default function LoginPage() {
   const [smsCooldown, setSmsCooldown] = useState(0);
 
   // OAuth config from backend
-  const [oauthConfig, setOauthConfig] = useState<{github?: boolean; google?: boolean; wechat?: boolean; sms?: boolean}>({});
+  const [oauthConfig, setOauthConfig] = useState<{github?: boolean; google?: boolean; wechat?: boolean; sms?: boolean; github_client_id?: string; google_client_id?: string; wechat_app_id?: string}>({});
 
   useEffect(() => {
     // Check which OAuth providers are configured
@@ -95,7 +95,7 @@ export default function LoginPage() {
 
   // GitHub OAuth: https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps
   const handleGithubLogin = () => {
-    const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
+    const clientId = oauthConfig.github_client_id;
     if (!clientId) { setError('GitHub 登录未配置'); return; }
     const redirectUri = `${window.location.origin}/api/auth/github`;
     const url = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent('user:email')}`;
@@ -104,7 +104,7 @@ export default function LoginPage() {
 
   // Google OAuth: https://developers.google.com/identity/protocols/oauth2/web-server
   const handleGoogleLogin = () => {
-    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    const clientId = oauthConfig.google_client_id;
     if (!clientId) { setError('Google 登录未配置'); return; }
     const redirectUri = `${window.location.origin}/api/auth/google`;
     const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent('openid email profile')}`;
@@ -113,7 +113,7 @@ export default function LoginPage() {
 
   // WeChat OAuth: https://developers.weixin.qq.com/doc/oplatform/Website_App/WeChat_Login/Wechat_Login.html
   const handleWechatLogin = () => {
-    const appId = process.env.NEXT_PUBLIC_WECHAT_APP_ID;
+    const appId = oauthConfig.wechat_app_id;
     if (!appId) { setError('微信登录未配置'); return; }
     const redirectUri = `${window.location.origin}/api/auth/wechat`;
     const url = `https://open.weixin.qq.com/connect/qrconnect?appid=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=snsapi_login&state=wechat_login#wechat_redirect`;

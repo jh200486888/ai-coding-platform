@@ -9,7 +9,7 @@ export async function GET() {
       return NextResponse.json({ error: '请先登录' }, { status: 401 });
     }
     
-    const conversations = await listConversationsByUser(user.id);
+    const conversations = await listConversationsByUser(user.id, user.role);
     return NextResponse.json(conversations);
   } catch (error) {
     console.error('List conversations error:', error);
