@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import Link from 'next/link';
-import { Code2, MessageSquare, Palette, FolderOpen, X, File, Folder, ChevronRight, ChevronDown } from 'lucide-react';
+import { Code2, MessageSquare, Palette, FolderOpen, X, File, Folder, ChevronRight, ChevronDown, Plus } from 'lucide-react';
 
 interface ProjectFile {
   id: string;
@@ -63,9 +63,14 @@ function ProjectPanel({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
     <div className={`h-full flex flex-col border-l border-border bg-card transition-all duration-200 ${isOpen ? 'w-72 min-w-[18rem]' : 'w-0 min-w-0'} overflow-hidden`}>
       <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
         <span className="text-sm font-medium truncate">项目文件</span>
-        <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors">
-          <X className="w-4 h-4 text-muted-foreground" />
-        </button>
+        <div className="flex items-center gap-1">
+          <Link href="/workspace" onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors" title="新建项目">
+            <Plus className="w-4 h-4 text-primary" />
+          </Link>
+          <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors">
+            <X className="w-4 h-4 text-muted-foreground" />
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto p-2 min-h-0">
         {!selectedProject ? (

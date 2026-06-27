@@ -370,7 +370,23 @@ export async function POST(request: NextRequest) {
       messages: { role: string; content: string }[];
     };
     const mode = rawMode || 'coding';
-    const model_id = rawModelId || rawModelId2 || 'deepseek-v4-flash';
+    let model_id = rawModelId || rawModelId2 || 'deepseek-v4-flash';
+
+    // Auto model selection: pick first available model with active API key
+    if (model_id === 'auto') {
+      const preferredOrder = ['deepseek-v4-flash', 'gpt-4.1', 'claude-sonnet-4-5', 'qwen-max', 'glm-4.5-flash'];
+      for (const candidate of preferredOrder) {
+        const cfg = await getModelConfig(candidate);
+        if (cfg) {
+          const keyData = await getApiKeyByProvider(cfg.provider);
+          if (keyData && keyData.is_active) {
+            model_id = candidate;
+            break;
+          }
+        }
+      }
+      if (model_id === 'auto') model_id = 'deepseek-v4-flash'; // fallback
+    }
 
     if (!messages || messages.length === 0) {
       return new Response(JSON.stringify({ error: 'Messages are required' }), {

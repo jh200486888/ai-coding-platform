@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, X, Check, Monitor, Smartphone, Search } from 'lucide-react';
 import { getAllModels, getModelsByProvider } from '@/lib/models';
+const AUTO_MODEL = { id: 'auto', name: '自动选择', provider: 'auto', description: '系统自动选择最优模型' };
+
 
 interface ModelSelectorProps {
   selectedModel: string;
@@ -18,8 +20,11 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   // 直接用前端模型列表，不走数据库
-  const models = getAllModels();
-  const providers = getModelsByProvider();
+  const models = [AUTO_MODEL, ...getAllModels()];
+  const providers = [
+    { id: 'auto', name: '自动选择', models: [AUTO_MODEL] },
+    ...getModelsByProvider(),
+  ];
 
   useEffect(() => {
     setMounted(true);
@@ -69,7 +74,9 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
     };
   }, [isOpen, isMobile]);
 
-  const selectedModelConfig = models.find(m => m.id === selectedModel);
+  const selectedModelConfig = selectedModel === 'auto' 
+    ? AUTO_MODEL 
+    : models.find(m => m.id === selectedModel);
 
   // Filter models by search query
   const filteredProviders = searchQuery.trim()

@@ -177,11 +177,9 @@ export function ChatInterface() {
     if (msg && msg.role === 'user') {
       setEditingMessageId(messageId);
       setEditContent(msg.content);
-      // Remove this and following messages
-      const idx = messages.findIndex(m => m.id === messageId);
-      setMessages(messages.slice(0, idx));
+      // Don't truncate messages here - edit box is shown in-place
     }
-  }, [messages, setMessages]);
+  }, [messages]);
 
   const handleSaveEdit = useCallback(async () => {
     if (!editContent.trim()) {
@@ -190,11 +188,18 @@ export function ChatInterface() {
       return;
     }
     const content = editContent;
+    // Remove the edited message and all following messages, then resend
+    if (editingMessageId) {
+      const idx = messages.findIndex(m => m.id === editingMessageId);
+      if (idx >= 0) {
+        setMessages(messages.slice(0, idx));
+      }
+    }
     setEditingMessageId(null);
     setEditContent('');
     setInput('');
     await sendMessage(content, []);
-  }, [editContent, sendMessage]);
+  }, [editContent, editingMessageId, messages, setMessages, sendMessage]);
 
   const handleEditCancel = useCallback(() => {
     setEditingMessageId(null);
