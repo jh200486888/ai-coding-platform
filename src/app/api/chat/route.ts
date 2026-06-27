@@ -633,6 +633,7 @@ export async function POST(request: NextRequest) {
         isEnabled: true,
         functionId: 'chat-completion',
       },
+      abortSignal: request.signal,
     });
 
     return result.toUIMessageStreamResponse({

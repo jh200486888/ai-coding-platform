@@ -495,6 +495,7 @@ export async function POST(request: NextRequest) {
         isEnabled: true,
         functionId: 'workspace-chat-completion',
       },
+      abortSignal: request.signal,
     });
 
     // 保存用户消息到 workspace_messages
