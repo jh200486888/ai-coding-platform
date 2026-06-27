@@ -10,9 +10,9 @@ function getPool(): Pool {
     pool = new Pool({
       host: process.env.DB_HOST || '127.0.0.1',
       port: parseInt(process.env.DB_PORT || '5432'),
-      user: process.env.DB_USER || 'ai_platform',
-      password: process.env.DB_PASSWORD || 'AiPlatform2026!',
-      database: process.env.DB_NAME || 'ai_platform',
+      user: process.env.DB_USER || 'agent',
+      password: process.env.DB_PASSWORD || 'i3m8x5a2e8',
+      database: process.env.DB_NAME || 'agent',
       max: 10,
     });
   }
@@ -143,26 +143,16 @@ export async function seedDefaultModels(): Promise<void> {
   const count = await queryOne<{ cnt: string }>('SELECT COUNT(*) as cnt FROM model_configs');
   if (count && parseInt(count.cnt) > 0) return;
 
-  const defaults = [
-    { model_id: 'deepseek-v4-pro', display_name: 'DeepSeek V4 Pro', provider: 'deepseek', sort: 1 },
-    { model_id: 'deepseek-v4-flash', display_name: 'DeepSeek V4 Flash', provider: 'deepseek', sort: 2 },
-    { model_id: 'glm-5.2', display_name: 'GLM-5.2', provider: 'zhipu', sort: 3 },
-    { model_id: 'glm-5-turbo', display_name: 'GLM-5 Turbo', provider: 'zhipu', sort: 4 },
-    { model_id: 'qwen-3.7-max', display_name: '通义千问 3.7 Max', provider: 'qwen', sort: 5 },
-    { model_id: 'kimi-k2.5', display_name: 'Kimi K2.5', provider: 'kimi', sort: 6 },
-    { model_id: 'gpt-4o', display_name: 'GPT-4o', provider: 'openai', sort: 7 },
-    { model_id: 'gpt-4o-mini', display_name: 'GPT-4o Mini', provider: 'openai', sort: 8 },
-    { model_id: 'claude-4-sonnet', display_name: 'Claude 4 Sonnet', provider: 'anthropic', sort: 9 },
-    { model_id: 'gemini-2.5-pro', display_name: 'Gemini 2.5 Pro', provider: 'google', sort: 10 },
-  ];
-
-  for (const m of defaults) {
+  // 从 models.ts 导入统一模型列表，避免多处维护
+  const { MODELS } = await import('@/lib/models');
+  let sort = 1;
+  for (const m of MODELS) {
     await upsertModelConfig({
-      model_id: m.model_id,
-      display_name: m.display_name,
+      model_id: m.id,
+      display_name: m.name,
       provider: m.provider,
       is_enabled: 1,
-      sort_order: m.sort,
+      sort_order: sort++,
     });
   }
 }

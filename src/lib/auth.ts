@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 import { queryOne } from './db';
 
 const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET || 'ai-coding-platform-jwt-secret-2026-secure'
+  process.env.JWT_SECRET || process.env.DATABASE_URL || 'fallback-dev-secret-change-in-production'
 );
 
 const ACCESS_TOKEN_EXPIRY = '7d';

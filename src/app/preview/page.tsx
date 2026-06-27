@@ -262,7 +262,7 @@ export default function PreviewPage() {
           {/* 底部信息 */}
           <div className="col-span-full text-center py-8">
             <p className="text-muted-foreground text-sm">
-              agent.piyiguo.com · 基于 Next.js + Tailwind CSS
+              {typeof window !== 'undefined' ? window.location.host : 'AI Coding Platform'} · 基于 Next.js + Tailwind CSS
             </p>
           </div>
 

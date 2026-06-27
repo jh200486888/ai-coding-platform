@@ -32,8 +32,8 @@ export default function ModelSelector({ models, selectedModel, onSelect }: Model
 
   const enabledModels = models.filter((m) => m.is_enabled === 1);
   
-  // 默认选中 deepseek-v4-flash
-  const defaultModel = enabledModels.find((m) => m.model_id === 'deepseek-v4-flash') || enabledModels[0];
+  // 优先使用外部传入的 selectedModel，否则选第一个启用模型
+  const defaultModel = enabledModels.find((m) => m.model_id === selectedModel) || enabledModels[0];
   const currentModel = enabledModels.find((m) => m.model_id === selectedModel) || defaultModel;
 
   // 按厂商分组

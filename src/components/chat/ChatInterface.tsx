@@ -39,7 +39,7 @@ const CHAT_MODES: ChatMode[] = [
 ];
 
 export function ChatInterface() {
-  const [selectedModel, setSelectedModel] = useState('deepseek-v4-flash');
+  const [selectedModel, setSelectedModel] = useState('');
 
   // Load default model from admin settings
   useEffect(() => {
@@ -50,8 +50,13 @@ export function ChatInterface() {
           const data = await res.json();
           const defaultModel = data.data?.default_model;
           if (defaultModel) setSelectedModel(defaultModel);
+          else setSelectedModel('deepseek-v4-flash'); // fallback only when no setting
+        } else {
+          setSelectedModel('deepseek-v4-flash');
         }
-      } catch {}
+      } catch {
+        setSelectedModel('deepseek-v4-flash');
+      }
     };
     loadDefaultModel();
   }, []);

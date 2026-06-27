@@ -28,7 +28,7 @@ const loggingMiddleware: LanguageModelMiddleware = {
 };
 
 // ============ 工具执行函数 ============
-const PROJECT_DIR = '/www/wwwroot/agent.piyiguo.com';
+const PROJECT_DIR = process.env.PROJECT_DIR || '/www/wwwroot/agent.piyiguo.com';
 
 async function execCreateFile(path: string, content: string): Promise<string> {
   const fs = await import('fs/promises');
@@ -236,28 +236,8 @@ try {
   mcpToolsMap = await mcpManager.getAllTools();
 } catch {}
 
-// ============ Provider URL 映射 ============
-const PROVIDER_URLS: Record<string, string> = {
-  openai: 'https://api.openai.com/v1',
-  'openai-image': 'https://api.openai.com/v1',
-  anthropic: 'https://api.anthropic.com/v1',
-  deepseek: 'https://api.deepseek.com/v1',
-  google: 'https://generativelanguage.googleapis.com/v1beta/openai',
-  qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  moonshot: 'https://api.moonshot.cn/v1',
-  kimi: 'https://api.moonshot.cn/v1',
-  zhipu: 'https://open.bigmodel.cn/api/paas/v4',
-  doubao: 'https://ark.cn-beijing.volces.com/api/v3',
-  yi: 'https://api.lingyiwanwu.com/v1',
-  baidu: 'https://qianfan.baidubce.com/v2',
-  spark: 'https://spark-api-open.xf-yun.com/v1',
-  minimax: 'https://api.minimax.chat/v1',
-  meta: 'https://api.together.xyz/v1',
-  mistral: 'https://api.mistral.ai/v1',
-  cohere: 'https://api.cohere.ai/v1',
-  groq: 'https://api.groq.com/openai/v1',
-  banana: 'https://api.banana.dev/v1',
-};
+// ============ Provider URL 映射（从 models.ts 统一导入） ============
+import { PROVIDER_URLS } from '@/lib/models';
 
 // ============ 系统提示词 ============
 const SYSTEM_PROMPT = `你是一个专业的AI编程助手，运行在服务器上，可以直接操作文件和执行命令。
@@ -404,7 +384,7 @@ export async function POST(request: NextRequest) {
       }
       return m;
     });
-    let model_id = rawModelId || rawModelId2 || 'deepseek-v4-flash';
+    let model_id = rawModelId || rawModelId2 || '';
 
     // Auto model selection: pick first available model with active API key
     if (model_id === 'auto') {
@@ -419,7 +399,7 @@ export async function POST(request: NextRequest) {
           }
         }
       }
-      if (model_id === 'auto') model_id = 'deepseek-v4-flash'; // fallback
+      if (model_id === 'auto') { const dm = await getSetting('default_model'); model_id = dm || 'deepseek-v4-flash'; }
     }
 
     if (!messages || messages.length === 0) {

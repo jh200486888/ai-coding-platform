@@ -48,7 +48,7 @@ async function saveSystemPrompt(prompt: string): Promise<void> {
   }
 }
 
-const PROJECT_DIR = '/www/wwwroot/agent.piyiguo.com';
+const PROJECT_DIR = process.env.PROJECT_DIR || '/www/wwwroot/agent.piyiguo.com';
 
 // Provider URL mappings
 const PROVIDER_URLS: Record<string, string> = {
