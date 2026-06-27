@@ -555,6 +555,7 @@ export async function POST(request: NextRequest) {
     Object.assign(activeTools, mcpToolsMap);
 
     // ====== AI SDK v7 原生流式响应 ======
+    const streamStartTime = Date.now();
     const result = streamText({
       system: dynamicPrompt,
       model,
@@ -580,7 +581,7 @@ export async function POST(request: NextRequest) {
         return undefined;
       },
       // 流结束后保存助手消息 + 遥测
-      async onFinish({ message }) {
+      async onEnd({ responseMessage: message, isAborted }) {
         try {
           const text = (message as any).text
             || (message.parts || []).filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
@@ -598,16 +599,14 @@ export async function POST(request: NextRequest) {
             }).join('\n');
             savedContent = text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
           }
-          if (text) await createMessage(convId!, 'assistant', savedContent, model_id);
+          if (text && !isAborted) await createMessage(convId!, 'assistant', savedContent, model_id);
         } catch {}
 
         try {
           const { telemetry } = await import('@/lib/ai-telemetry');
-          const usage = (message as any).usage;
           telemetry.recordAICall({
             provider: modelConfig.provider, model: model_id,
-            operation: 'chat_stream', success: true,
-            tokensUsed: usage ? { prompt: usage.promptTokens || 0, completion: usage.completionTokens || 0, total: (usage.promptTokens || 0) + (usage.completionTokens || 0) } : undefined,
+            operation: 'chat_stream', durationMs: Date.now() - streamStartTime, success: true,
           });
         } catch {}
 

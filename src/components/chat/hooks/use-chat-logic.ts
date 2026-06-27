@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
 import { z } from 'zod';
 import type { UIMessage } from 'ai';
 import { toast } from 'sonner';
@@ -87,7 +88,7 @@ export function useChatLogic(options: {
   currentConvIdRef.current = currentConvId;
 
   const chat = useChat({
-    transport: { api: '/api/chat' },
+    transport: new DefaultChatTransport({ api: '/api/chat' }),
     messageMetadataSchema: z.object({ conversationId: z.string().optional() }).optional(),
     async onFinish({ message }) {
       // 从 message metadata 提取 conversation_id

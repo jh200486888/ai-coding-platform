@@ -193,9 +193,10 @@ export function ChatInterface() {
       toast.error('没有可导出的对话');
       return;
     }
-    const content = messages.map(m => {
+    const content = messages.map((m: any) => {
       const role = m.role === 'user' ? '用户' : '助手';
-      return `[${role}] ${new Date(m.createdAt).toLocaleString('zh-CN')}\n${m.content}`;
+      const text = (m.parts || []).filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
+      return `[${role}] ${text}`;
     }).join('\n\n');
     
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -212,7 +213,7 @@ export function ChatInterface() {
     const msg = messages.find(m => m.id === messageId);
     if (msg && msg.role === 'user') {
       setEditingMessageId(messageId);
-      setEditContent(msg.content);
+      setEditContent((msg as any).content || (msg as any).parts?.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('') || '');
       // Don't truncate messages here - edit box is shown in-place
     }
   }, [messages]);
@@ -430,7 +431,7 @@ export function ChatInterface() {
 
         {/* Messages */}
         <ChatMessages
-          messages={messages}
+          messages={messages as any}
           isLoading={isLoading}
           isThinking={isThinking}
           toolCalls={toolCalls}
