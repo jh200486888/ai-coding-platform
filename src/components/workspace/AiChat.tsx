@@ -262,7 +262,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
 
   return (
     <div
-      className="h-full flex flex-col bg-card border-l border-border relative"
+      className="h-full flex flex-col bg-card border-l border-border relative min-w-0"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -277,7 +277,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
       )}
 
       <div className="h-10 flex items-center px-4 border-b border-border">
-        <span className="text-sm font-medium">AI 编程助手</span>
+        <span className="text-sm font-medium truncate">AI 编程助手</span>
         {isThinking && (
           <span className="ml-2 flex items-center gap-1 text-xs text-accent">
             <Brain className="w-3 h-3 animate-pulse" />
@@ -310,7 +310,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
                 className={'flex ' + (message.role === 'user' ? 'justify-end' : 'justify-start')}
               >
                 <div
-                  className={'max-w-[90%] rounded-lg px-3 py-2 ' +
+                  className={'max-w-[85%] rounded-lg px-3 py-2 ' +
                     (message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted')
                   }
                 >
@@ -377,7 +377,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
             value={input}
             onChange={e => setInput(e.target.value)}
             placeholder="告诉我你想做什么..."
-            className="flex-1 bg-background border border-border rounded px-3 py-2 text-sm"
+            className="flex-1 min-w-0 bg-background border border-border rounded px-3 py-2 text-sm"
             disabled={isLoading}
           />
           <button

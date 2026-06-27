@@ -29,7 +29,7 @@ function TreeNode({ file, children, activeFile, onSelect, onDelete, level }: Tre
   return (
     <div>
       <div
-        className={`flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-accent rounded ${
+        className={`flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-accent rounded overflow-hidden ${
           isActive ? 'bg-accent' : ''
         }`}
         style={{ paddingLeft: `${level * 16 + 12}px` }}
@@ -57,7 +57,7 @@ function TreeNode({ file, children, activeFile, onSelect, onDelete, level }: Tre
             <File className="w-4 h-4 text-muted-foreground" />
           </>
         )}
-        <span className="text-sm flex-1 truncate">{file.name}</span>
+        <span className="text-sm flex-1 truncate min-w-0">{file.name}</span>
         <button
           onClick={e => {
             e.stopPropagation();
