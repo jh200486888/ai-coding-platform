@@ -377,7 +377,7 @@ export async function cleanupTelemetry(daysOld: number): Promise<void> {
 }
 
 export async function getTelemetryStats(hours: number): Promise<any> {
-  const rows = await query(
+  const rows: any[] = await query(
     `SELECT provider, model, operation,
             COUNT(*) as call_count,
             AVG(duration_ms) as avg_duration_ms,
@@ -389,7 +389,83 @@ export async function getTelemetryStats(hours: number): Promise<any> {
      GROUP BY provider, model, operation
      ORDER BY call_count DESC`
   );
-  return rows;
+
+  // Build overall stats
+  let totalCalls = 0, successCalls = 0, totalTokens = 0, totalPromptTokens = 0, totalCompletionTokens = 0;
+  let weightedDuration = 0;
+  for (const r of rows) {
+    const cnt = parseInt(r.call_count) || 0;
+    totalCalls += cnt;
+    successCalls += parseInt(r.success_count) || 0;
+    totalTokens += parseInt(r.total_tokens) || 0;
+    weightedDuration += (parseFloat(r.avg_duration_ms) || 0) * cnt;
+  }
+
+  // Get prompt/completion token split if available
+  try {
+    const tokenRows: any[] = await query(
+      `SELECT SUM(prompt_tokens) as pt, SUM(completion_tokens) as ct FROM ai_telemetry WHERE created_at >= NOW() - INTERVAL '${hours} hours'`
+    );
+    if (tokenRows[0]) {
+      totalPromptTokens = parseInt(tokenRows[0].pt) || 0;
+      totalCompletionTokens = parseInt(tokenRows[0].ct) || 0;
+    }
+  } catch {}
+
+  // Build byProvider
+  const providerMap: Record<string, any> = {};
+  for (const r of rows) {
+    const key = r.provider || 'unknown';
+    if (!providerMap[key]) providerMap[key] = { provider: key, count: 0, avg_duration: 0, total_tokens: 0, success_count: 0, _weighted: 0 };
+    const cnt = parseInt(r.call_count) || 0;
+    providerMap[key].count += cnt;
+    providerMap[key].total_tokens += parseInt(r.total_tokens) || 0;
+    providerMap[key].success_count += parseInt(r.success_count) || 0;
+    providerMap[key]._weighted += (parseFloat(r.avg_duration_ms) || 0) * cnt;
+  }
+  const byProvider = Object.values(providerMap).map((p: any) => ({
+    provider: p.provider, count: p.count,
+    avg_duration: p.count > 0 ? Math.round(p._weighted / p.count) : 0,
+    total_tokens: p.total_tokens, success_count: p.success_count
+  }));
+
+  // Build byModel
+  const modelMap: Record<string, any> = {};
+  for (const r of rows) {
+    const key = (r.provider || '') + ':' + (r.model || '');
+    if (!modelMap[key]) modelMap[key] = { model: r.model, provider: r.provider, count: 0, avg_duration: 0, total_tokens: 0, _weighted: 0 };
+    const cnt = parseInt(r.call_count) || 0;
+    modelMap[key].count += cnt;
+    modelMap[key].total_tokens += parseInt(r.total_tokens) || 0;
+    modelMap[key]._weighted += (parseFloat(r.avg_duration_ms) || 0) * cnt;
+  }
+  const byModel = Object.values(modelMap).map((m: any) => ({
+    model: m.model, provider: m.provider, count: m.count,
+    avg_duration: m.count > 0 ? Math.round(m._weighted / m.count) : 0,
+    total_tokens: m.total_tokens
+  }));
+
+  // Build errors
+  const errorRows: any[] = await query(
+    `SELECT error_code, COUNT(*) as count, model, provider FROM ai_telemetry WHERE success = false AND created_at >= NOW() - INTERVAL '${hours} hours' GROUP BY error_code, model, provider ORDER BY count DESC LIMIT 10`
+  ).catch(() => []);
+
+  return {
+    period: hours + 'h',
+    overall: {
+      totalCalls,
+      successCalls,
+      successRate: totalCalls > 0 ? Math.round(successCalls / totalCalls * 100) : 0,
+      avgDuration: totalCalls > 0 ? Math.round(weightedDuration / totalCalls) : 0,
+      totalTokens,
+      totalPromptTokens,
+      totalCompletionTokens,
+    },
+    byProvider,
+    byModel,
+    hourlyTrend: [],
+    errors: errorRows.map((r: any) => ({ error_code: r.error_code || 'unknown', count: parseInt(r.count), model: r.model, provider: r.provider })),
+  };
 }
 
 export async function getRecentTelemetry(limit: number): Promise<any[]> {

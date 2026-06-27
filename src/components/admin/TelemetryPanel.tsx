@@ -117,24 +117,24 @@ export function TelemetryPanel() {
         <StatCard
           icon={<TrendingUp size={16} />}
           label="总调用次数"
-          value={stats.overall.totalCalls}
+          value={stats.overall?.totalCalls ?? 0}
         />
         <StatCard
           icon={<Activity size={16} />}
           label="成功率"
-          value={`${stats.overall.successRate}%`}
-          subValue={`${stats.overall.successCalls}/${stats.overall.totalCalls}`}
+          value={`${stats.overall?.successRate ?? 0}%`}
+          subValue={`${stats.overall?.successCalls ?? 0}/${stats.overall?.totalCalls ?? 0}`}
         />
         <StatCard
           icon={<Clock size={16} />}
           label="平均耗时"
-          value={`${stats.overall.avgDuration}ms`}
+          value={`${stats.overall?.avgDuration ?? 0}ms`}
         />
         <StatCard
           icon={<BarChart3 size={16} />}
           label="Token 消耗"
-          value={formatNumber(stats.overall.totalTokens)}
-          subValue={`输入 ${formatNumber(stats.overall.totalPromptTokens)} / 输出 ${formatNumber(stats.overall.totalCompletionTokens)}`}
+          value={formatNumber(stats.overall?.totalTokens ?? 0)}
+          subValue={`输入 ${formatNumber(stats.overall?.totalPromptTokens ?? 0)} / 输出 ${formatNumber(stats.overall?.totalCompletionTokens ?? 0)}`}
         />
       </div>
 
@@ -145,7 +145,7 @@ export function TelemetryPanel() {
           各 Provider 调用情况
         </h3>
         <div className="space-y-2">
-          {stats.byProvider.map((p) => (
+          {(stats.byProvider || []).map((p) => (
             <div key={p.provider} className="flex items-center justify-between p-2 rounded hover:bg-accent/50">
               <div className="flex items-center gap-3">
                 <span className="font-medium text-sm">{p.provider}</span>
@@ -158,7 +158,7 @@ export function TelemetryPanel() {
               </div>
             </div>
           ))}
-          {stats.byProvider.length === 0 && (
+          {(stats.byProvider || []).length === 0 && (
             <div className="text-center py-4 text-muted-foreground text-sm">暂无数据</div>
           )}
         </div>
@@ -168,7 +168,7 @@ export function TelemetryPanel() {
       <div className="bg-card border border-border rounded-lg p-4">
         <h3 className="text-sm font-semibold mb-3">Top 10 模型</h3>
         <div className="space-y-2">
-          {stats.byModel.map((m) => (
+          {(stats.byModel || []).map((m) => (
             <div key={m.model} className="flex items-center justify-between p-2 rounded hover:bg-accent/50">
               <div>
                 <div className="text-sm font-medium">{m.model}</div>
@@ -180,21 +180,21 @@ export function TelemetryPanel() {
               </div>
             </div>
           ))}
-          {stats.byModel.length === 0 && (
+          {(stats.byModel || []).length === 0 && (
             <div className="text-center py-4 text-muted-foreground text-sm">暂无数据</div>
           )}
         </div>
       </div>
 
       {/* Errors */}
-      {stats.errors.length > 0 && (
+      {(stats.errors || []).length > 0 && (
         <div className="bg-card border border-border rounded-lg p-4">
           <h3 className="text-sm font-semibold mb-3 flex items-center gap-2 text-destructive">
             <AlertCircle size={16} />
             错误记录
           </h3>
           <div className="space-y-2">
-            {stats.errors.map((e, i) => (
+            {(stats.errors || []).map((e, i) => (
               <div key={i} className="flex items-center justify-between p-2 rounded bg-destructive/5">
                 <div>
                   <span className="text-sm font-mono">{e.error_code}</span>

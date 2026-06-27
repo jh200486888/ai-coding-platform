@@ -264,10 +264,12 @@ export async function POST(request: NextRequest) {
       }),
     };
 
+    // Filter system messages from user/assistant messages (AI SDK v7 uses 'system' option)
+    const filteredMessages = messages.filter((m: any) => m.role !== 'system');
+
     // Build messages
     const chatMessages = [
-      { role: 'system' as const, content: fullSystemPrompt },
-      ...messages.map((m: { role: string; content: string }) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      ...filteredMessages.map((m: { role: string; content: string }) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     ];
 
     // Read advanced config for workspace chat too
@@ -283,6 +285,7 @@ export async function POST(request: NextRequest) {
     } catch {}
 
     const wsStreamOptions: any = {
+      system: fullSystemPrompt,
       model,
       messages: chatMessages,
       tools,

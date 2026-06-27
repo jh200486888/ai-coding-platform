@@ -482,9 +482,12 @@ export async function POST(request: NextRequest) {
     const memorySection = memories ? '\n\n【用户记忆】\n' + memories + '\n\n当用户提到与记忆相关的内容时，参考这些信息。用户说"记住"时，用 saveMemory 工具保存。' : '';
     const dynamicPrompt = modePrompt + memorySection + `\n\n【身份】你是 ${identityName} 的 ${model_id} 模型。当用户问你是谁时，如实回答。`;
 
+    // Filter out system messages (AI SDK v7 requires system via 'system' option only)
+    const userAssistantMessages = messages.filter((m: any) => m.role !== 'system');
+
     // Build messages with multi-modal support (images, PDFs, files)
     const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; image_url?: { url: string }; image?: any }> }> = [
-      ...messages.map(m => {
+      ...userAssistantMessages.map(m => {
         const imageMatch = m.content.match(/\[image:(data:[^\]]+)\]/);
         const pdfMatch = m.content.match(/\[pdf:(data:[^\]]+)\]/);
         const fileMatch = m.content.match(/\[file:(data:([^;]+);base64,[^\]]+)\]/);
