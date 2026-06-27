@@ -262,7 +262,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
 
   return (
     <div
-      className="h-full flex flex-col bg-card border-l border-border relative min-w-0"
+      className="h-full flex flex-col bg-card border-l border-border relative "
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -277,7 +277,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
       )}
 
       <div className="h-10 flex items-center px-4 border-b border-border">
-        <span className="text-sm font-medium truncate">AI 编程助手</span>
+        <span className="text-sm font-medium truncate text-foreground">AI 编程助手</span>
         {isThinking && (
           <span className="ml-2 flex items-center gap-1 text-xs text-accent">
             <Brain className="w-3 h-3 animate-pulse" />
@@ -294,10 +294,10 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
         {chat.messages.length === 0 ? (
-          <div className="text-center text-muted-foreground text-sm py-8">
+          <div className="text-center text-foreground/70 text-sm py-8 px-4">
             <div className="text-4xl mb-4">🤖</div>
-            <p>告诉我你想做什么</p>
-            <p className="text-xs mt-2">AI 可以帮你创建文件、修改代码、执行命令</p>
+            <p className="text-base font-medium">告诉我你想做什么</p>
+            <p className="text-xs mt-2 leading-relaxed">AI 可以帮你创建文件、<br/>修改代码、执行命令</p>
           </div>
         ) : (
           chat.messages.map((message) => {
@@ -310,7 +310,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
                 className={'flex ' + (message.role === 'user' ? 'justify-end' : 'justify-start')}
               >
                 <div
-                  className={'max-w-[85%] rounded-lg px-3 py-2 ' +
+                  className={'max-w-[90%] rounded-lg px-3 py-2 ' +
                     (message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted')
                   }
                 >
@@ -321,7 +321,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
                   )}
 
                   {textContent && (
-                    <div className="text-sm whitespace-pre-wrap">{textContent}</div>
+                    <div className="text-sm whitespace-pre-wrap break-words">{textContent}</div>
                   )}
                 </div>
               </div>
@@ -376,7 +376,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
             type="text"
             value={input}
             onChange={e => setInput(e.target.value)}
-            placeholder="告诉我你想做什么..."
+            placeholder="输入你的需求..."
             className="flex-1 min-w-0 bg-background border border-border rounded px-3 py-2 text-sm"
             disabled={isLoading}
           />

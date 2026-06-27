@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 import { FileTree } from './FileTree';
 import { CodeEditor } from './CodeEditor';
 import { AiChat } from './AiChat';
@@ -28,6 +27,14 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
   const [selectedModelId, setSelectedModelId] = useState('');
   const [models, setModels] = useState<DbModel[]>([]);
 
+  // Panel widths (px) - user can drag to resize
+  const [leftWidth, setLeftWidth] = useState(260);
+  const [rightWidth, setRightWidth] = useState(320);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef<'left' | 'right' | null>(null);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
+
   // Load models from database
   useEffect(() => {
     fetch('/api/workspace/models')
@@ -39,9 +46,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
           setSelectedModelId(list[0].model_id);
         }
       })
-      .catch(() => {
-        // fallback to empty
-      });
+      .catch(() => {});
   }, []);
 
   // Load project files
@@ -61,9 +66,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
     }
   };
 
-  useEffect(() => {
-    fetchFiles();
-  }, [projectId]);
+  useEffect(() => { fetchFiles(); }, [projectId]);
 
   const handleFileCreate = async (name: string, type: 'file' | 'folder', parentId?: string) => {
     const path = name;
@@ -72,9 +75,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ projectId, path, name, type, content: '' }),
     });
-    if (response.ok) {
-      fetchFiles();
-    }
+    if (response.ok) fetchFiles();
   };
 
   const handleFileDelete = async (fileId: string) => {
@@ -98,9 +99,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
       body: JSON.stringify({ projectId, path: file.path, content }),
     });
     if (response.ok) {
-      setFiles(prev =>
-        prev.map(f => (f.id === fileId ? { ...f, content } : f))
-      );
+      setFiles(prev => prev.map(f => (f.id === fileId ? { ...f, content } : f)));
     }
   };
 
@@ -108,9 +107,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
     if (file.type === 'file') setActiveFile(file);
   };
 
-  const handleFilesChanged = () => {
-    fetchFiles();
-  };
+  const handleFilesChanged = () => { fetchFiles(); };
 
   const handleTerminalCommand = async (command: string) => {
     setTerminalOutput(prev => [...prev, `$ ${command}`]);
@@ -129,11 +126,47 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
     }
   };
 
+  // Drag resize handlers
+  const handleMouseDown = useCallback((side: 'left' | 'right') => (e: React.MouseEvent) => {
+    e.preventDefault();
+    draggingRef.current = side;
+    startXRef.current = e.clientX;
+    startWidthRef.current = side === 'left' ? leftWidth : rightWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [leftWidth, rightWidth]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return;
+      const dx = e.clientX - startXRef.current;
+      if (draggingRef.current === 'left') {
+        setLeftWidth(Math.max(200, Math.min(500, startWidthRef.current + dx)));
+      } else {
+        setRightWidth(Math.max(200, Math.min(600, startWidthRef.current - dx)));
+      }
+    };
+    const handleMouseUp = () => {
+      if (draggingRef.current) {
+        draggingRef.current = null;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       {/* Top toolbar: model selection */}
       <div className="h-10 shrink-0 border-b border-border bg-card flex items-center px-4 gap-3">
-        <Link href="/" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"><ArrowLeft size={14} /> 首页</Link>
+        <Link href="/admin" className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors bg-primary/10 px-2.5 py-1 rounded-md hover:bg-primary/20"><ArrowLeft size={14} /> 返回项目管理</Link>
+        <Link href="/" className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors bg-primary/10 px-2.5 py-1 rounded-md hover:bg-primary/20"><ArrowLeft size={14} /> 返回首页</Link>
         <span className="text-sm text-muted-foreground ml-2">模型:</span>
         <select
           value={selectedModelId}
@@ -151,57 +184,65 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
         </span>
       </div>
 
-      {/* Main content area - resizable panels */}
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <ResizablePanelGroup orientation="horizontal">
-          {/* File tree panel */}
-          <ResizablePanel defaultSize={22} minSize={15} maxSize={30}>
-            <FileTree
-              files={files}
-              activeFile={activeFile}
-              onFileSelect={handleFileSelect}
-              onFileCreate={handleFileCreate}
-              onFileDelete={handleFileDelete}
-            />
-          </ResizablePanel>
+      {/* Main content area - custom resizable */}
+      <div className="flex-1 min-h-0 flex" ref={containerRef}>
+        {/* Left: File tree */}
+        <div style={{ width: leftWidth, minWidth: 200 }} className="shrink-0 h-full overflow-hidden">
+          <FileTree
+            files={files}
+            activeFile={activeFile}
+            onFileSelect={handleFileSelect}
+            onFileCreate={handleFileCreate}
+            onFileDelete={handleFileDelete}
+          />
+        </div>
 
-          <ResizableHandle withHandle />
+        {/* Left drag handle */}
+        <div
+          className="w-1.5 shrink-0 cursor-col-resize bg-border hover:bg-primary/50 active:bg-primary transition-colors flex items-center justify-center"
+          onMouseDown={handleMouseDown('left')}
+        >
+          <div className="w-0.5 h-8 bg-muted-foreground/30 rounded-full" />
+        </div>
 
-          {/* Code editor panel */}
-          <ResizablePanel defaultSize={40} minSize={25}>
-            <CodeEditor
-              file={activeFile}
-              onChange={content => {
-                if (activeFile) handleFileUpdate(activeFile.id, content);
-              }}
-            />
-          </ResizablePanel>
+        {/* Center: Code editor */}
+        <div className="flex-1 min-w-[200px] h-full overflow-hidden">
+          <CodeEditor
+            file={activeFile}
+            onChange={content => {
+              if (activeFile) handleFileUpdate(activeFile.id, content);
+            }}
+          />
+        </div>
 
-          <ResizableHandle withHandle />
+        {/* Right drag handle */}
+        <div
+          className="w-1.5 shrink-0 cursor-col-resize bg-border hover:bg-primary/50 active:bg-primary transition-colors flex items-center justify-center"
+          onMouseDown={handleMouseDown('right')}
+        >
+          <div className="w-0.5 h-8 bg-muted-foreground/30 rounded-full" />
+        </div>
 
-          {/* AI chat panel */}
-          <ResizablePanel defaultSize={38} minSize={22} maxSize={55}>
-            <AiChat
-              projectId={projectId}
-              modelId={selectedModelId}
-              files={files}
-              onFilesChanged={handleFilesChanged}
-            />
-          </ResizablePanel>
-        </ResizablePanelGroup>
+        {/* Right: AI Chat */}
+        <div style={{ width: rightWidth, minWidth: 200 }} className="shrink-0 h-full overflow-hidden">
+          <AiChat
+            projectId={projectId}
+            modelId={selectedModelId}
+            files={files}
+            onFilesChanged={handleFilesChanged}
+          />
+        </div>
       </div>
 
-      {/* Terminal panel (conditional, vertically resizable) */}
+      {/* Terminal panel (conditional) */}
       {showTerminal && (
-        <ResizablePanelGroup orientation="vertical" className="h-[200px] shrink-0 border-t border-border">
-          <ResizablePanel defaultSize={100} minSize={30}>
-            <Terminal
-              output={terminalOutput}
-              onCommand={handleTerminalCommand}
-              onClose={() => setShowTerminal(false)}
-            />
-          </ResizablePanel>
-        </ResizablePanelGroup>
+        <div className="h-[250px] shrink-0 border-t border-border">
+          <Terminal
+            output={terminalOutput}
+            onCommand={handleTerminalCommand}
+            onClose={() => setShowTerminal(false)}
+          />
+        </div>
       )}
 
       {/* Bottom toolbar */}

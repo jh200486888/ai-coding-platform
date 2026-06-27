@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { tool } from 'ai';
 import { createSubAgentTool } from '@/lib/sub-agents';
 
+import { describeImages } from '@/lib/vision-proxy';
 // ============ 日志中间件（AI SDK 原生 Middleware） ============
 const loggingMiddleware: LanguageModelMiddleware = {
   wrapGenerate: async ({ doGenerate, params, model }) => {
@@ -565,8 +566,11 @@ export async function POST(request: NextRequest) {
     }));
 
     // Build messages with multi-modal support (images, PDFs, files, body attachments)
-    const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; data?: string; mediaType?: string; image_url?: { url: string }; image?: any }> }>= [
-      ...userAssistantMessages.map((m, idx) => {
+    const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; data?: string; mediaType?: string; image_url?: { url: string }; image?: any }> }>= [];
+      // Process messages with async support for vision proxy
+      for (let msgIdx = 0; msgIdx < userAssistantMessages.length; msgIdx++) {
+        const m = userAssistantMessages[msgIdx];
+        const idx = msgIdx;
         // Match image markers: [image:data:image/png;base64,...]
         const imageMatches = [...m.content.matchAll(/\[image:([\s\S]*?)\]/g)];
         // Match file content markers: [file:filename]:\ncontent
@@ -591,20 +595,20 @@ export async function POST(request: NextRequest) {
             parts.push({ type: 'text', text: textContent });
           }
           
-          // Add image parts (only for multimodal models)
+          // Add image parts
+          const collectedImages: Array<{ base64Data: string; mediaType: string }> = [];
           for (const imgMatch of imageMatches) {
             const imgUrl = imgMatch[1].trim();
             if (imgUrl.startsWith('data:image/') || imgUrl.startsWith('data:')) {
+              const mediaTypeMatch = imgUrl.match(/data:(image\/[^;]+);/);
+              const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : 'image/png';
+              const base64Data = imgUrl.split(',')[1] || '';
               if (supportsMultimodal) {
-                // Use file part (AI SDK v7 new format) instead of deprecated image part
-                // Extract mediaType from data URL
-                const mediaTypeMatch = imgUrl.match(/data:(image\/[^;]+);/);
-                const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : 'image/png';
-                const base64Data = imgUrl.split(',')[1] || '';
+                // Multimodal model: send image directly
                 parts.push({ type: 'file', data: base64Data, mediaType });
               } else {
-                // Non-multimodal model: describe image as text
-                parts.push({ type: 'text', text: '[用户上传了一张图片，但当前模型不支持图片输入，请基于文字描述回答]' });
+                // Non-multimodal model: collect for vision proxy
+                collectedImages.push({ base64Data, mediaType });
               }
             }
           }
@@ -622,14 +626,15 @@ export async function POST(request: NextRequest) {
           if (hasBodyAttachments) {
             for (const att of bodyAttachments!) {
               if (att.type === 'image' && att.url) {
+                const imgUrl = att.url;
+                const mediaTypeMatch = imgUrl.match(/data:(image\/[^;]+);/);
+                const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : 'image/png';
+                const base64Data = imgUrl.split(',')[1] || '';
                 if (supportsMultimodal) {
-                  const imgUrl = att.url;
-                  const mediaTypeMatch = imgUrl.match(/data:(image\/[^;]+);/);
-                  const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : 'image/png';
-                  const base64Data = imgUrl.split(',')[1] || '';
                   parts.push({ type: 'file', data: base64Data, mediaType });
                 } else {
-                  parts.push({ type: 'text', text: '[用户上传了一张图片，但当前模型不支持图片输入，请基于文字描述回答]' });
+                  // Non-multimodal model: collect for vision proxy
+                  collectedImages.push({ base64Data, mediaType });
                 }
               } else if (att.content) {
                 parts.push({ type: 'text', text: `[文件: ${att.name}]\n${att.content.slice(0, 6000)}` });
@@ -637,11 +642,21 @@ export async function POST(request: NextRequest) {
             }
           }
           
-          return { role: m.role, content: parts.length > 0 ? parts : m.content };
+          // Vision proxy: if non-multimodal model and images collected, describe them via vision model
+          if (!supportsMultimodal && collectedImages.length > 0) {
+            try {
+              const imageDescription = await describeImages(collectedImages, textContent || undefined);
+              parts.push({ type: 'text', text: imageDescription });
+            } catch (e: any) {
+              parts.push({ type: 'text', text: '[图片识别失败: ' + (e.message || '未知错误') + ']' });
+            }
+          }
+          
+          chatMessages.push({ role: m.role, content: parts.length > 0 ? parts : m.content });
+        } else {
+          chatMessages.push({ role: m.role, content: m.content });
         }
-        return { role: m.role, content: m.content };
-      }),
-    ];
+      }
 
     // 合并工具：基础工具 + 增强工具 + MCP工具
     const baseToolNames = MODE_TOOLS[mode] || [];

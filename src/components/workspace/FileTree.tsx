@@ -29,8 +29,8 @@ function TreeNode({ file, children, activeFile, onSelect, onDelete, level }: Tre
   return (
     <div>
       <div
-        className={`flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-accent rounded overflow-hidden ${
-          isActive ? 'bg-accent' : ''
+        className={`flex items-center gap-1 px-2 py-1 cursor-pointer hover:bg-primary/10 rounded overflow-hidden ${
+          isActive ? 'bg-primary/15 text-foreground font-medium' : ''
         }`}
         style={{ paddingLeft: `${level * 16 + 12}px` }}
         onClick={() => {
@@ -57,7 +57,7 @@ function TreeNode({ file, children, activeFile, onSelect, onDelete, level }: Tre
             <File className="w-4 h-4 text-muted-foreground" />
           </>
         )}
-        <span className="text-sm flex-1 truncate min-w-0">{file.name}</span>
+        <span className="text-sm flex-1 truncate min-w-0 text-foreground">{file.name}</span>
         <button
           onClick={e => {
             e.stopPropagation();
@@ -105,10 +105,10 @@ export function FileTree({ files, activeFile, onFileSelect, onFileCreate, onFile
   };
 
   return (
-    <div className="h-full flex flex-col bg-card border-r border-border">
+    <div className="h-full flex flex-col bg-card border-r border-border ">
       {/* 标题栏 */}
       <div className="h-10 flex items-center justify-between px-4 border-b border-border">
-        <span className="text-sm font-medium">文件</span>
+        <span className="text-sm font-medium text-foreground">文件</span>
         <button
           onClick={() => setShowNewFileInput(!showNewFileInput)}
           className="text-muted-foreground hover:text-foreground"
