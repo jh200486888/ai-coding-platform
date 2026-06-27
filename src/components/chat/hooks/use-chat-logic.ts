@@ -131,6 +131,7 @@ export function useChatLogic(options: UseChatLogicOptions) {
         body: JSON.stringify({
           messages: requestMessages,
           model_id: selectedModel,
+          conversation_id: currentConvId || undefined,
         }),
         signal: abortControllerRef.current.signal,
       });

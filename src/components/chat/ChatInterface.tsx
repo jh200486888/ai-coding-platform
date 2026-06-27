@@ -39,6 +39,21 @@ const CHAT_MODES: ChatMode[] = [
 
 export function ChatInterface() {
   const [selectedModel, setSelectedModel] = useState('deepseek-v4-flash');
+
+  // Load default model from admin settings
+  useEffect(() => {
+    const loadDefaultModel = async () => {
+      try {
+        const res = await fetch('/api/admin/settings');
+        if (res.ok) {
+          const data = await res.json();
+          const defaultModel = data.data?.default_model;
+          if (defaultModel) setSelectedModel(defaultModel);
+        }
+      } catch {}
+    };
+    loadDefaultModel();
+  }, []);
   const [selectedMode, setSelectedMode] = useState('coding');
   const [showSidebar, setShowSidebar] = useState(false);
   const [input, setInput] = useState('');
@@ -110,7 +125,8 @@ export function ChatInterface() {
     selectedMode,
     attachments,
     onConversationCreated: (convId) => {
-      // Handle new conversation created
+      if (convId) setCurrentConvId(convId);
+      fetchConversations();
     },
   });
 
