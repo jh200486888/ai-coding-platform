@@ -30,19 +30,26 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// POST /api/admin/settings - 批量更新设置
+// POST /api/admin/settings - 更新单个设置 (兼容 { key, value } 格式)
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+    
+    // Handle { key, value } format from frontend
+    if (body.key !== undefined && body.value !== undefined) {
+      await setSetting(body.key, String(body.value));
+      return NextResponse.json({ success: true });
+    }
+    
+    // Handle batch format { key1: value1, key2: value2 }
     const settings = body as Record<string, string>;
-
     for (const [key, value] of Object.entries(settings)) {
       await setSetting(key, String(value));
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Failed to batch set settings:', error);
-    return NextResponse.json({ success: false, error: '批量保存设置失败' }, { status: 500 });
+    console.error('Failed to set settings:', error);
+    return NextResponse.json({ success: false, error: '保存设置失败' }, { status: 500 });
   }
 }

@@ -2,10 +2,42 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, X, Check, Monitor, Smartphone, Search } from 'lucide-react';
+import { ChevronDown, X, Check, Monitor, Smartphone, Search, Loader2 } from 'lucide-react';
 import { getAllModels, getModelsByProvider } from '@/lib/models';
 const AUTO_MODEL = { id: 'auto', name: '自动选择', provider: 'auto', description: '系统自动选择最优模型' };
 
+interface ModelItem {
+  id: string;
+  name: string;
+  provider: string;
+  description?: string;
+}
+
+interface ProviderGroup {
+  id: string;
+  name: string;
+  models: ModelItem[];
+}
+
+// Provider name mapping
+const providerNames: Record<string, string> = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  google: 'Google AI',
+  deepseek: 'DeepSeek',
+  zhipu: '智谱 AI',
+  qwen: '通义千问',
+  moonshot: 'Moonshot AI',
+  baidu: '百度文心',
+  doubao: '豆包',
+  groq: 'Groq',
+  mistral: 'Mistral AI',
+  xai: 'xAI',
+  cohere: 'Cohere',
+  'openai-image': 'OpenAI Image',
+  banana: 'Banana',
+  auto: '自动选择',
+};
 
 interface ModelSelectorProps {
   selectedModel: string;
@@ -19,12 +51,59 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
   const [mounted, setMounted] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // 直接用前端模型列表，不走数据库
-  const models = [AUTO_MODEL, ...getAllModels()];
-  const providers = [
+  const [models, setModels] = useState<ModelItem[]>([AUTO_MODEL]);
+  const [providers, setProviders] = useState<ProviderGroup[]>([
     { id: 'auto', name: '自动选择', models: [AUTO_MODEL] },
-    ...getModelsByProvider(),
-  ];
+  ]);
+  const [loading, setLoading] = useState(true);
+
+  // Load models from backend API
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        const res = await fetch('/api/models');
+        if (res.ok) {
+          const data = await res.json();
+          const dbModels: ModelItem[] = (data.data || [])
+            .filter((m: any) => m.is_enabled)
+            .map((m: any) => ({
+              id: m.model_id,
+              name: m.display_name,
+              provider: m.provider,
+              description: m.description || undefined,
+            }));
+          
+          const allModels = [AUTO_MODEL, ...dbModels];
+          setModels(allModels);
+          
+          // Group by provider
+          const providerMap = new Map<string, ModelItem[]>();
+          providerMap.set('auto', [AUTO_MODEL]);
+          
+          dbModels.forEach(model => {
+            if (!providerMap.has(model.provider)) {
+              providerMap.set(model.provider, []);
+            }
+            providerMap.get(model.provider)!.push(model);
+          });
+          
+          const groupedProviders: ProviderGroup[] = Array.from(providerMap.entries()).map(([id, models]) => ({
+            id,
+            name: providerNames[id] || id,
+            models,
+          }));
+          
+          setProviders(groupedProviders);
+        }
+      } catch (err) {
+        console.error('Failed to load models:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadModels();
+  }, []);
 
   useEffect(() => {
     setMounted(true);
@@ -76,7 +155,7 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
 
   const selectedModelConfig = selectedModel === 'auto' 
     ? AUTO_MODEL 
-    : models.find(m => m.id === selectedModel);
+    : models.find(m => m.id === selectedModel) || { id: selectedModel, name: selectedModel, provider: 'unknown' };
 
   // Filter models by search query
   const filteredProviders = searchQuery.trim()
@@ -147,7 +226,13 @@ export function ModelSelector({ selectedModel, onModelChange }: ModelSelectorPro
             ))}
           </div>
         ))}
-        {models.length === 0 && (
+        {loading && (
+          <div className="px-4 py-8 text-center text-sm text-muted-foreground flex flex-col items-center gap-2">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            加载模型列表...
+          </div>
+        )}
+        {!loading && models.length === 0 && (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">
             暂无可用模型
           </div>
