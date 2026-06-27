@@ -63,3 +63,20 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
+
+
+// PATCH - toggle task active status
+export async function PATCH(request: NextRequest) {
+  try {
+    const { id, isActive } = await request.json() as { id: string; isActive: boolean };
+    if (!id) return NextResponse.json({ error: '缺少 id' }, { status: 400 });
+
+    await run(
+      'UPDATE scheduled_tasks SET "isActive" = $1, "updatedAt" = NOW() WHERE id = $2',
+      [isActive, id]
+    );
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}

@@ -2,11 +2,12 @@
 import { toast } from 'sonner';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette, Activity, Plug, Brain } from 'lucide-react';
+import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette, Activity, Plug, Brain, LayoutDashboard, ChevronDown, ChevronRight, Clock, Database, CheckCircle2, XCircle, Cpu, BarChart3 } from 'lucide-react';
 import { ImageGenPanel } from "@/components/admin/ImageGenPanel";
 import { TelemetryPanel } from "@/components/admin/TelemetryPanel";
 import { McpServersPanel } from "@/components/admin/McpServersPanel";
 import { MemoryPanel } from "@/components/admin/MemoryPanel";
+import { ScheduledTasksPanel } from "@/components/admin/ScheduledTasksPanel";
 import Link from 'next/link';
 import { useTheme } from '@/components/theme-provider';
 import type { ModelConfig, ApiKey, Conversation } from '@/lib/types';
@@ -55,77 +56,288 @@ const MODELS_DATA = [
   { id: 'nano-banana-pro', name: 'Nano Banana Pro', provider: 'banana', description: '轻量极速模型' },
 ];
 
-type Tab = 'keys' | 'models' | 'conversations' | 'settings' | 'projects' | 'account' | 'imagegen' | 'telemetry' | 'mcp' | 'memory';
+type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'projects' | 'account' | 'imagegen' | 'telemetry' | 'mcp' | 'memory' | 'tasks';
+
+// ============ Sidebar Navigation Structure ============
+interface SidebarGroup {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  items: { id: Tab; label: string; icon?: React.ReactNode }[];
+}
+
+const SIDEBAR_GROUPS: SidebarGroup[] = [
+  {
+    id: 'dashboard',
+    label: '仪表盘',
+    icon: <LayoutDashboard size={16} />,
+    items: [{ id: 'dashboard', label: '仪表盘' }],
+  },
+  {
+    id: 'ai',
+    label: 'AI 配置',
+    icon: <Cpu size={16} />,
+    items: [
+      { id: 'models', label: '模型管理', icon: <Settings size={14} /> },
+      { id: 'keys', label: 'API密钥', icon: <Key size={14} /> },
+      { id: 'mcp', label: 'MCP服务器', icon: <Plug size={14} /> },
+    ],
+  },
+  {
+    id: 'system',
+    label: '系统',
+    icon: <Settings size={16} />,
+    items: [
+      { id: 'settings', label: '基本设置' },
+      { id: 'settings-advanced', label: '高级参数' },
+    ],
+  },
+  {
+    id: 'data',
+    label: '数据',
+    icon: <Database size={16} />,
+    items: [
+      { id: 'conversations', label: '对话记录', icon: <MessageSquare size={14} /> },
+      { id: 'memory', label: '记忆管理', icon: <Brain size={14} /> },
+      { id: 'projects', label: '项目管理', icon: <Folder size={14} /> },
+      { id: 'tasks', label: '定时任务', icon: <Clock size={14} /> },
+      { id: 'imagegen', label: '图片生成', icon: <Palette size={14} /> },
+    ],
+  },
+  {
+    id: 'monitor',
+    label: '监控',
+    icon: <BarChart3 size={16} />,
+    items: [{ id: 'telemetry', label: 'AI监控', icon: <Activity size={14} /> }],
+  },
+  {
+    id: 'account',
+    label: '账号',
+    icon: <Lock size={16} />,
+    items: [{ id: 'account', label: '账号设置' }],
+  },
+];
 
 export default function AdminPage() {
   const { theme, setTheme } = useTheme();
-  const [activeTab, setActiveTab] = useState<Tab>('models');
+  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  const toggleGroup = (groupId: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
+
+  const activeGroup = SIDEBAR_GROUPS.find(g => g.items.some(i => i.id === activeTab))?.id || 'dashboard';
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b border-border bg-card">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-accent transition-colors text-sm font-medium">
-              <ArrowLeft size={16} /> 返回首页
-            </Link>
-            <h1 className="text-xl font-bold">后台管理</h1>
-          </div>
+    <div className="min-h-screen bg-background flex">
+      {/* Left Sidebar */}
+      <aside className="w-[220px] min-h-screen bg-card border-r border-border flex flex-col shrink-0">
+        <div className="px-4 py-4 border-b border-border">
+          <Link href="/" className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-accent transition-colors text-sm font-medium text-muted-foreground">
+            <ArrowLeft size={14} /> 返回首页
+          </Link>
+          <h1 className="text-lg font-bold mt-2">后台管理</h1>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto py-2 px-2">
+          {SIDEBAR_GROUPS.map(group => {
+            const isSingle = group.id === 'dashboard' || group.id === 'account';
+            const isCollapsed = collapsedGroups.has(group.id);
+            const isGroupActive = activeGroup === group.id;
+
+            if (isSingle) {
+              const item = group.items[0];
+              const isActive = activeTab === item.id;
+              return (
+                <div key={group.id}>
+                  <button
+                    onClick={() => setActiveTab(item.id)}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors relative ${
+                      isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                    }`}
+                  >
+                    {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 bg-primary rounded-r" />}
+                    {group.icon}
+                    {group.label}
+                  </button>
+                  {group.id === 'dashboard' && <div className="my-2 border-t border-border" />}
+                </div>
+              );
+            }
+
+            return (
+              <div key={group.id} className="mb-1">
+                <button
+                  onClick={() => toggleGroup(group.id)}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold uppercase tracking-wider transition-colors ${
+                    isGroupActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">{group.icon}{group.label}</span>
+                  {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                </button>
+                {!isCollapsed && (
+                  <div className="ml-2 mt-0.5 space-y-0.5">
+                    {group.items.map(item => {
+                      const isActive = activeTab === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => setActiveTab(item.id)}
+                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm transition-colors relative ${
+                            isActive ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                          }`}
+                        >
+                          {isActive && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 bg-primary rounded-r" />}
+                          {item.icon}{item.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </nav>
+
+        <div className="px-3 py-3 border-t border-border">
           <button
             onClick={async () => { await fetch('/api/admin/login', { method: 'DELETE' }); window.location.href = '/admin/login'; }}
-            className="p-2 rounded-lg hover:bg-accent transition-colors"
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
           >
             退出登录
           </button>
         </div>
-      </header>
+      </aside>
 
-      {/* Tabs */}
-      <div className="max-w-6xl mx-auto px-4 py-6">
-        <div className="flex gap-2 mb-6 border-b border-border pb-4 flex-wrap">
-          <TabButton icon={<Key size={16} />} label="API 密钥" active={activeTab === 'keys'} onClick={() => setActiveTab('keys')} />
-          <TabButton icon={<Settings size={16} />} label="模型配置" active={activeTab === 'models'} onClick={() => setActiveTab('models')} />
-          <TabButton icon={<MessageSquare size={16} />} label="对话记录" active={activeTab === 'conversations'} onClick={() => setActiveTab('conversations')} />
-          <TabButton icon={<Settings size={16} />} label="系统设置" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
-          <TabButton icon={<Folder size={16} />} label="项目管理" active={activeTab === 'projects'} onClick={() => setActiveTab('projects')} />
-          <TabButton icon={<Lock size={16} />} label="账号设置" active={activeTab === 'account'} onClick={() => setActiveTab('account')} />
-          <TabButton icon={<Palette size={16} />} label="图片生成" active={activeTab === 'imagegen'} onClick={() => setActiveTab('imagegen')} />
-          <TabButton icon={<Activity size={16} />} label="AI 监控" active={activeTab === 'telemetry'} onClick={() => setActiveTab('telemetry')} />
-          <TabButton icon={<Plug size={16} />} label="MCP 服务器" active={activeTab === 'mcp'} onClick={() => setActiveTab('mcp')} />
-          <TabButton icon={<Brain size={16} />} label="记忆管理" active={activeTab === 'memory'} onClick={() => setActiveTab('memory')} />
+      <main className="flex-1 min-h-screen overflow-y-auto">
+        <div className="max-w-5xl mx-auto px-6 py-6">
+          {activeTab === 'dashboard' && <DashboardPanel />}
+          {activeTab === 'keys' && <ApiKeysPanel />}
+          {activeTab === 'models' && <ModelsPanel />}
+          {activeTab === 'conversations' && <ConversationsPanel />}
+          {activeTab === 'settings' && <SettingsPanel initialSubTab="basic" />}
+          {activeTab === 'settings-advanced' && <SettingsPanel initialSubTab="advanced" />}
+          {activeTab === 'projects' && <ProjectsPanel />}
+          {activeTab === 'account' && <AccountPanel />}
+          {activeTab === 'imagegen' && <ImageGenPanel />}
+          {activeTab === 'telemetry' && <TelemetryPanel />}
+          {activeTab === 'mcp' && <McpServersPanel />}
+          {activeTab === 'memory' && <MemoryPanel />}
+          {activeTab === 'tasks' && <ScheduledTasksPanel />}
         </div>
-
-        {activeTab === 'keys' && <ApiKeysPanel />}
-        {activeTab === 'models' && <ModelsPanel />}
-        {activeTab === 'conversations' && <ConversationsPanel />}
-        {activeTab === 'settings' && <SettingsPanel />}
-        {activeTab === 'projects' && <ProjectsPanel />}
-        {activeTab === 'account' && <AccountPanel />}
-        {activeTab === 'imagegen' && <ImageGenPanel />}
-        {activeTab === 'telemetry' && <TelemetryPanel />}
-        {activeTab === 'mcp' && <McpServersPanel />}
-        {activeTab === 'memory' && <MemoryPanel />}
-      </div>
+      </main>
     </div>
   );
 }
 
-function TabButton({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
+// ============ Dashboard Panel ============
+function DashboardPanel() {
+  const [stats, setStats] = useState<{
+    totalConversations: number;
+    todayMessages: number;
+    activeModels: number;
+    apiSuccessRate: number;
+    recentConversations: { id: string; title: string; modelId: string; createdAt: string }[];
+    dbHealthy: boolean;
+    activeApiKeys: number;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { fetchDashboard(); }, []);
+
+  const fetchDashboard = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/dashboard');
+      const data = await res.json();
+      if (data.success && data.data) setStats(data.data);
+    } catch (err) { console.error('Failed to fetch dashboard:', err); }
+    finally { setLoading(false); }
+  };
+
+  const statCards = stats ? [
+    { label: '总对话数', value: stats.totalConversations, icon: <MessageSquare size={20} />, color: 'text-blue-400' },
+    { label: '今日消息数', value: stats.todayMessages, icon: <BarChart3 size={20} />, color: 'text-green-400' },
+    { label: '活跃模型数', value: stats.activeModels, icon: <Cpu size={20} />, color: 'text-purple-400' },
+    { label: 'API成功率', value: `${stats.apiSuccessRate}%`, icon: <Activity size={20} />, color: stats.apiSuccessRate >= 95 ? 'text-green-400' : 'text-yellow-400' },
+  ] : [];
+
   return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-        active ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-      }`}
-    >
-      {icon}
-      {label}
-    </button>
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-lg font-semibold">仪表盘</h2>
+        <button onClick={fetchDashboard} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent">
+          <RefreshCw size={14} /> 刷新
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-center text-muted-foreground py-12">加载中...</div>
+      ) : stats ? (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-4">
+            {statCards.map((card, i) => (
+              <div key={i} className="bg-card border border-border rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-muted-foreground">{card.label}</span>
+                  <span className={card.color}>{card.icon}</span>
+                </div>
+                <div className="text-2xl font-bold">{card.value}</div>
+              </div>
+            ))}
+          </div>
+          <div className="bg-card border border-border rounded-xl p-4">
+            <h3 className="font-medium mb-3">系统状态</h3>
+            <div className="flex flex-wrap gap-4">
+              <div className="flex items-center gap-2">
+                {stats.dbHealthy ? (
+                  <><CheckCircle2 size={16} className="text-green-400" /><span className="text-sm">数据库连接正常</span></>
+                ) : (
+                  <><XCircle size={16} className="text-red-400" /><span className="text-sm">数据库连接异常</span></>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {stats.activeApiKeys > 0 ? (
+                  <><CheckCircle2 size={16} className="text-green-400" /><span className="text-sm">{stats.activeApiKeys} 个API密钥可用</span></>
+                ) : (
+                  <><XCircle size={16} className="text-yellow-400" /><span className="text-sm">未配置API密钥</span></>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="bg-card border border-border rounded-xl p-4">
+            <h3 className="font-medium mb-3">最近对话</h3>
+            {stats.recentConversations.length > 0 ? (
+              <div className="space-y-2">
+                {stats.recentConversations.map((conv) => (
+                  <div key={conv.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-accent/50">
+                    <div>
+                      <span className="text-sm font-medium">{conv.title}</span>
+                      <span className="text-xs text-muted-foreground ml-2">{conv.modelId}</span>
+                    </div>
+                    <span className="text-xs text-muted-foreground">{new Date(conv.createdAt).toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">暂无对话记录</p>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="text-center text-muted-foreground py-12">加载失败，请刷新重试</div>
+      )}
+    </div>
   );
 }
 
-// ============ API Keys Panel ============
 const PROVIDERS = [
   { id: 'openai', name: 'OpenAI', desc: 'GPT-4o / GPT-4 / GPT-3.5' },
   { id: 'anthropic', name: 'Anthropic', desc: 'Claude 4 / Claude 3.5' },
@@ -666,7 +878,7 @@ function ConversationsPanel() {
 }
 
 // ============ Settings Panel ============
-function SettingsPanel() {
+function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | "advanced" }) {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [form, setForm] = useState({
     system_prompt: '',
@@ -698,6 +910,7 @@ function SettingsPanel() {
     seed: -1,
     max_output_tokens: 16384,
   });
+  const [settingsSubTab, setSettingsSubTab] = useState<'basic' | 'advanced'>(initialSubTab);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showModeTemps, setShowModeTemps] = useState(false);
   const [showModePrompts, setShowModePrompts] = useState(false);
@@ -760,6 +973,26 @@ function SettingsPanel() {
         <h2 className="text-lg font-semibold">{'\u7cfb\u7edf\u8bbe\u7f6e'}</h2>
         <button onClick={handleSave} disabled={loading} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50">
           <Save size={14} /> {loading ? '\u4fdd\u5b58\u4e2d...' : '\u4fdd\u5b58\u8bbe\u7f6e'}
+        </button>
+      </div>
+
+      {/* Sub-tab navigation */}
+      <div className="flex gap-2 mb-6 border-b border-border pb-3">
+        <button
+          onClick={() => setSettingsSubTab('basic')}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            settingsSubTab === 'basic' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
+          }`}
+        >
+          基本设置
+        </button>
+        <button
+          onClick={() => setSettingsSubTab('advanced')}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            settingsSubTab === 'advanced' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
+          }`}
+        >
+          高级参数
         </button>
       </div>
 
@@ -850,7 +1083,7 @@ function SettingsPanel() {
             </button>
           </div>
           <p className="text-xs text-muted-foreground mb-3">{'\u8c03\u6574\u5de5\u5177\u6267\u884c\u3001\u8bb0\u5fc6\u7cfb\u7edf\u7b49\u9ad8\u7ea7\u53c2\u6570\u3002\u4e00\u822c\u4f7f\u7528\u9ed8\u8ba4\u503c\u5373\u53ef\u3002'}</p>
-          {showAdvanced && (
+          {(settingsSubTab === 'advanced' || showAdvanced) && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -944,7 +1177,6 @@ function SettingsPanel() {
 
 
 interface Project { id: string; name: string; description?: string; created_at?: string; createdAt: string; updated_at?: string; updatedAt: string; _count?: { files: number; conversations: number }; }
-
 function ProjectsPanel() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [showForm, setShowForm] = useState(false);
