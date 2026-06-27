@@ -2,7 +2,7 @@
 import { toast } from 'sonner';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette, Activity, Plug, Brain, LayoutDashboard, ChevronDown, ChevronRight, Clock, Database, CheckCircle2, XCircle, Cpu, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette, Activity, Plug, Brain, LayoutDashboard, ChevronDown, ChevronRight, Clock, Database, CheckCircle2, XCircle, Cpu, BarChart3, Shield } from 'lucide-react';
 import { ImageGenPanel } from "@/components/admin/ImageGenPanel";
 import { TelemetryPanel } from "@/components/admin/TelemetryPanel";
 import { McpServersPanel } from "@/components/admin/McpServersPanel";
@@ -56,7 +56,7 @@ const MODELS_DATA = [
   { id: 'nano-banana-pro', name: 'Nano Banana Pro', provider: 'banana', description: '轻量极速模型' },
 ];
 
-type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'projects' | 'account' | 'imagegen' | 'telemetry' | 'mcp' | 'memory' | 'tasks';
+type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'imagegen' | 'telemetry' | 'mcp' | 'memory' | 'tasks';
 
 // ============ Sidebar Navigation Structure ============
 interface SidebarGroup {
@@ -224,6 +224,7 @@ export default function AdminPage() {
           {activeTab === 'conversations' && <ConversationsPanel />}
           {activeTab === 'settings' && <SettingsPanel initialSubTab="basic" />}
           {activeTab === 'settings-advanced' && <SettingsPanel initialSubTab="advanced" />}
+          {activeTab === 'oauth' && <AuthSettingsPanel />}
           {activeTab === 'projects' && <ProjectsPanel />}
           {activeTab === 'account' && <AccountPanel />}
           {activeTab === 'imagegen' && <ImageGenPanel />}
@@ -878,7 +879,7 @@ function ConversationsPanel() {
 }
 
 // ============ Settings Panel ============
-function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | "advanced" }) {
+function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | "advanced" | "oauth" }) {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [form, setForm] = useState({
     system_prompt: '',
@@ -910,7 +911,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
     seed: -1,
     max_output_tokens: 16384,
   });
-  const [settingsSubTab, setSettingsSubTab] = useState<'basic' | 'advanced'>(initialSubTab);
+  const [settingsSubTab, setSettingsSubTab] = useState<'basic' | 'advanced' | 'oauth'>(initialSubTab);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showModeTemps, setShowModeTemps] = useState(false);
   const [showModePrompts, setShowModePrompts] = useState(false);
@@ -994,17 +995,25 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
         >
           高级参数
         </button>
+        <button
+          onClick={() => setSettingsSubTab('oauth')}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            settingsSubTab === 'oauth' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
+          }`}
+        >
+          第三方登录
+        </button>
       </div>
 
       <div className="space-y-6">
-        <div className="bg-card border border-border rounded-xl p-4">
+        <div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'basic' ? 'block' : 'none' }}>
           <h3 className="font-medium mb-3">{'\u7cfb\u7edf\u63d0\u793a\u8bcd (System Prompt)'}</h3>
           <p className="text-xs text-muted-foreground mb-3">{'\u8bbe\u7f6e AI \u7684\u7cfb\u7edf\u63d0\u793a\u8bcd\uff0c\u5f71\u54cd\u7f16\u7a0b\u6a21\u5f0f\u7684\u5bf9\u8bdd\u3002'}</p>
           <textarea value={form.system_prompt} onChange={(e) => setForm({ ...form, system_prompt: e.target.value })} rows={8}
             className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono" placeholder={''} />
         </div>
 
-        <div className="bg-card border border-border rounded-xl p-4">
+        <div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'basic' ? 'block' : 'none' }}>
           <h3 className="font-medium mb-3">{'\u7f51\u7ad9\u4fe1\u606f'}</h3>
           <div className="space-y-3">
             <div>
@@ -1020,7 +1029,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
           </div>
         </div>
 
-        <div className="bg-card border border-border rounded-xl p-4">
+        <div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'basic' ? 'block' : 'none' }}>
           <h3 className="font-medium mb-3">{'\u9ed8\u8ba4\u6a21\u578b'}</h3>
           <select value={form.default_model} onChange={(e) => setForm({ ...form, default_model: e.target.value })}
             className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary">
@@ -1029,7 +1038,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
           </select>
         </div>
 
-        <div className="bg-card border border-border rounded-xl p-4">
+        <div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'basic' ? 'block' : 'none' }}>
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-medium">{'\u5404\u6a21\u5f0f\u6e29\u5ea6\u914d\u7f6e'}</h3>
             <button onClick={() => setShowModeTemps(!showModeTemps)} className="text-sm text-primary hover:underline">
@@ -1052,7 +1061,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
           )}
         </div>
 
-        <div className="bg-card border border-border rounded-xl p-4">
+        <div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'basic' ? 'block' : 'none' }}>
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-medium">{'\u5404\u6a21\u5f0f\u63d0\u793a\u8bcd\u914d\u7f6e'}</h3>
             <button onClick={() => setShowModePrompts(!showModePrompts)} className="text-sm text-primary hover:underline">
@@ -1075,7 +1084,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
           )}
         </div>
 
-        <div className="bg-card border border-border rounded-xl p-4">
+        <div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'advanced' ? 'block' : 'none' }}>
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-medium">{'\u9ad8\u7ea7\u53c2\u6570\u914d\u7f6e'}</h3>
             <button onClick={() => setShowAdvanced(!showAdvanced)} className="text-sm text-primary hover:underline">
@@ -1083,7 +1092,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
             </button>
           </div>
           <p className="text-xs text-muted-foreground mb-3">{'\u8c03\u6574\u5de5\u5177\u6267\u884c\u3001\u8bb0\u5fc6\u7cfb\u7edf\u7b49\u9ad8\u7ea7\u53c2\u6570\u3002\u4e00\u822c\u4f7f\u7528\u9ed8\u8ba4\u503c\u5373\u53ef\u3002'}</p>
-          {(settingsSubTab === 'advanced' || showAdvanced) && (
+          {(settingsSubTab === 'advanced') && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -1168,6 +1177,129 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
                 </div>
               </div>
             </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ============ Auth Settings Panel ============
+function AuthSettingsPanel() {
+  const [authConfig, setAuthConfig] = useState({
+    github_client_id: '', github_client_secret: '',
+    google_client_id: '', google_client_secret: '',
+    wechat_app_id: '', wechat_app_secret: '',
+    sms_provider: 'aliyun',
+    sms_access_key_id: '', sms_access_key_secret: '',
+    sms_sign_name: '', sms_template_code: '', sms_app_id: '',
+  });
+  const [loading, setLoading] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => { fetchAuthConfig(); }, []);
+
+  const fetchAuthConfig = async () => {
+    try {
+      const keys = Object.keys(authConfig);
+      const results = await Promise.all(keys.map(k => fetch(`/api/settings?key=${k}`).then(r => r.json())));
+      const newConfig: Record<string, string> = {};
+      keys.forEach((k, i) => { newConfig[k] = results[i]?.value || ''; });
+      setAuthConfig(prev => ({ ...prev, ...newConfig }));
+    } catch (e) { console.error(e); }
+  };
+
+  const saveAuthConfig = async () => {
+    setLoading(true); setSaved(false);
+    try {
+      await Promise.all(
+        Object.entries(authConfig).map(([key, value]) =>
+          fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key, value }),
+          })
+        )
+      );
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
+  const inputCls = "w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary";
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">第三方登录配置</h2>
+        <button onClick={saveAuthConfig} disabled={loading}
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm hover:bg-primary/90 disabled:opacity-50">
+          <Save size={14} /> {loading ? '保存中...' : saved ? '已保存 ✓' : '保存配置'}
+        </button>
+      </div>
+      <p className="text-xs text-muted-foreground">配置第三方 OAuth 登录和短信验证码服务。填写对应的 Key/Secret 后，登录页会自动显示对应登录按钮。</p>
+
+      {/* GitHub OAuth */}
+      <div className="bg-card border border-border rounded-xl p-4">
+        <h3 className="font-medium mb-3">GitHub 登录</h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          在 <a href="https://github.com/settings/developers" target="_blank" className="text-primary hover:underline">GitHub Developer Settings</a> 创建 OAuth App，回调地址：<code className="text-xs bg-muted px-1 rounded">/api/auth/github</code>
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div><label className="text-sm text-muted-foreground block mb-1">Client ID</label><input value={authConfig.github_client_id} onChange={(e) => setAuthConfig({...authConfig, github_client_id: e.target.value})} className={inputCls} placeholder="GitHub OAuth App Client ID" /></div>
+          <div><label className="text-sm text-muted-foreground block mb-1">Client Secret</label><input type="password" value={authConfig.github_client_secret} onChange={(e) => setAuthConfig({...authConfig, github_client_secret: e.target.value})} className={inputCls} placeholder="GitHub OAuth App Client Secret" /></div>
+        </div>
+      </div>
+
+      {/* Google OAuth */}
+      <div className="bg-card border border-border rounded-xl p-4">
+        <h3 className="font-medium mb-3">Google 登录</h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          在 <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-primary hover:underline">Google Cloud Console</a> 创建 OAuth 2.0 凭据，回调地址：<code className="text-xs bg-muted px-1 rounded">/api/auth/google</code>，Scope：<code className="text-xs bg-muted px-1 rounded">openid email profile</code>
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div><label className="text-sm text-muted-foreground block mb-1">Client ID</label><input value={authConfig.google_client_id} onChange={(e) => setAuthConfig({...authConfig, google_client_id: e.target.value})} className={inputCls} placeholder="Google OAuth Client ID" /></div>
+          <div><label className="text-sm text-muted-foreground block mb-1">Client Secret</label><input type="password" value={authConfig.google_client_secret} onChange={(e) => setAuthConfig({...authConfig, google_client_secret: e.target.value})} className={inputCls} placeholder="Google OAuth Client Secret" /></div>
+        </div>
+      </div>
+
+      {/* WeChat OAuth */}
+      <div className="bg-card border border-border rounded-xl p-4">
+        <h3 className="font-medium mb-3">微信登录</h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          在 <a href="https://open.weixin.qq.com/" target="_blank" className="text-primary hover:underline">微信开放平台</a> 创建网站应用，回调地址：<code className="text-xs bg-muted px-1 rounded">/api/auth/wechat</code>，Scope：<code className="text-xs bg-muted px-1 rounded">snsapi_login</code>
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div><label className="text-sm text-muted-foreground block mb-1">AppID</label><input value={authConfig.wechat_app_id} onChange={(e) => setAuthConfig({...authConfig, wechat_app_id: e.target.value})} className={inputCls} placeholder="微信开放平台 AppID" /></div>
+          <div><label className="text-sm text-muted-foreground block mb-1">AppSecret</label><input type="password" value={authConfig.wechat_app_secret} onChange={(e) => setAuthConfig({...authConfig, wechat_app_secret: e.target.value})} className={inputCls} placeholder="微信开放平台 AppSecret" /></div>
+        </div>
+      </div>
+
+      {/* SMS Config */}
+      <div className="bg-card border border-border rounded-xl p-4">
+        <h3 className="font-medium mb-3">短信验证码</h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          阿里云：<a href="https://dysms.console.aliyun.com/" target="_blank" className="text-primary hover:underline">短信控制台</a> 申请签名和模板；
+          腾讯云：<a href="https://console.cloud.tencent.com/smsv2" target="_blank" className="text-primary hover:underline">短信控制台</a> 创建应用。
+        </p>
+        <div className="space-y-3">
+          <div><label className="text-sm text-muted-foreground block mb-1">短信服务商</label>
+            <select value={authConfig.sms_provider} onChange={(e) => setAuthConfig({...authConfig, sms_provider: e.target.value})} className={inputCls}>
+              <option value="aliyun">阿里云</option><option value="tencent">腾讯云</option>
+            </select>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div><label className="text-sm text-muted-foreground block mb-1">{authConfig.sms_provider === 'tencent' ? 'SecretId' : 'AccessKey ID'}</label><input value={authConfig.sms_access_key_id} onChange={(e) => setAuthConfig({...authConfig, sms_access_key_id: e.target.value})} className={inputCls} /></div>
+            <div><label className="text-sm text-muted-foreground block mb-1">{authConfig.sms_provider === 'tencent' ? 'SecretKey' : 'AccessKey Secret'}</label><input type="password" value={authConfig.sms_access_key_secret} onChange={(e) => setAuthConfig({...authConfig, sms_access_key_secret: e.target.value})} className={inputCls} /></div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div><label className="text-sm text-muted-foreground block mb-1">短信签名</label><input value={authConfig.sms_sign_name} onChange={(e) => setAuthConfig({...authConfig, sms_sign_name: e.target.value})} className={inputCls} placeholder="已审核通过的签名" /></div>
+            <div><label className="text-sm text-muted-foreground block mb-1">模板 Code</label><input value={authConfig.sms_template_code} onChange={(e) => setAuthConfig({...authConfig, sms_template_code: e.target.value})} className={inputCls} placeholder={authConfig.sms_provider === 'tencent' ? '模板 ID' : 'SMS_XXXXXX'} /></div>
+          </div>
+          {authConfig.sms_provider === 'tencent' && (
+            <div><label className="text-sm text-muted-foreground block mb-1">SdkAppId</label><input value={authConfig.sms_app_id} onChange={(e) => setAuthConfig({...authConfig, sms_app_id: e.target.value})} className={inputCls} placeholder="如 1400006666" /></div>
           )}
         </div>
       </div>

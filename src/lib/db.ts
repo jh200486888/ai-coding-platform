@@ -499,3 +499,40 @@ export async function setConversationUserId(conversationId: string, userId: stri
     [userId, new Date().toISOString(), conversationId]
   );
 }
+
+
+// ============ Full-text Search ============
+
+export async function searchConversationsAndMessages(searchText: string, userId: string, limit: number = 20): Promise<any[]> {
+  const sql = `
+    WITH msg_matches AS (
+      SELECT DISTINCT c.id as conversation_id, c.title,
+        ts_headline('simple', m.content, websearch_to_tsquery('simple', $1), 'MaxWords=35,MinWords=15,ShortWord=3,HighlightAll=FALSE') as highlight
+      FROM conversations c
+      JOIN messages m ON m."conversationId" = c.id
+      WHERE (c."userId" = $2 OR c."userId" IS NULL)
+        AND to_tsvector('simple', m.content) @@ websearch_to_tsquery('simple', $1)
+      ORDER BY c."updatedAt" DESC
+      LIMIT $3
+    ),
+    title_matches AS (
+      SELECT c.id as conversation_id, c.title,
+        ts_headline('simple', c.title, websearch_to_tsquery('simple', $1), 'MaxWords=35,MinWords=15,ShortWord=3,HighlightAll=FALSE') as highlight
+      FROM conversations c
+      WHERE (c."userId" = $2 OR c."userId" IS NULL)
+        AND to_tsvector('simple', c.title) @@ websearch_to_tsquery('simple', $1)
+        AND c.id NOT IN (SELECT conversation_id FROM msg_matches)
+      ORDER BY c."updatedAt" DESC
+      LIMIT $3
+    )
+    SELECT * FROM msg_matches UNION ALL SELECT * FROM title_matches ORDER BY title
+  `;
+  return await query(sql, [searchText, userId, limit]);
+}
+
+export function highlightMatch(text: string, keyword: string): string {
+  if (!keyword) return text;
+  const regex = new RegExp(`(${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  return text.replace(regex, '<mark>$1</mark>');
+}
+
