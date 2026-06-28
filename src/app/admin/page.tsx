@@ -743,7 +743,11 @@ function ConversationsPanel() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<{ role: string; content: string; created_at: string }[]>([]);
   const [convRefreshing, setConvRefreshing] = useState(false);
-
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectAll, setSelectAll] = useState(false);
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [filterDays, setFilterDays] = useState<number>(0); // 0 = all
+  const [batchDeleting, setBatchDeleting] = useState(false);
 
   const fetchConversations = useCallback(async (showFeedback: boolean = false) => {
     if (showFeedback) setConvRefreshing(true);
@@ -763,6 +767,56 @@ function ConversationsPanel() {
   }, []);
 
   useEffect(() => { fetchConversations(); }, [fetchConversations]);
+
+  // Filter and sort
+  const filteredConversations = conversations
+    .filter(c => {
+      if (filterDays === 0) return true;
+      const d = new Date(c.created_at);
+      const now = new Date();
+      return (now.getTime() - d.getTime()) < filterDays * 86400000;
+    })
+    .sort((a, b) => {
+      const da = new Date(a.created_at).getTime();
+      const db = new Date(b.created_at).getTime();
+      return sortOrder === 'newest' ? db - da : da - db;
+    });
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectAll) {
+      setSelectedIds(new Set());
+      setSelectAll(false);
+    } else {
+      setSelectedIds(new Set(filteredConversations.map(c => c.id)));
+      setSelectAll(true);
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`确定要删除 ${selectedIds.size} 条对话记录吗？此操作不可恢复！`)) return;
+    setBatchDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      await Promise.all(ids.map(id => fetch(`/api/conversations/${id}`, { method: 'DELETE' })));
+      setSelectedIds(new Set());
+      setSelectAll(false);
+      await fetchConversations();
+      toast.success(`已删除 ${ids.length} 条对话`);
+    } catch (err) {
+      toast.error("批量删除失败");
+    } finally {
+      setBatchDeleting(false);
+    }
+  };
 
   const loadMessages = async (id: string) => {
     if (expandedId === id) {
@@ -788,29 +842,92 @@ function ConversationsPanel() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">对话记录</h2>
-        <button
-          onClick={() => fetchConversations(true)}
-          disabled={convRefreshing}
-          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent disabled:opacity-50"
-        >
-          <RefreshCw size={14} className={convRefreshing ? "animate-spin" : ""} /> {convRefreshing ? "刷新中..." : "刷新"}
-        </button>
+        <div className="flex items-center gap-2">
+          <select
+            value={filterDays}
+            onChange={(e) => setFilterDays(Number(e.target.value))}
+            className="px-2 py-1.5 rounded-lg border border-border bg-card text-sm"
+          >
+            <option value={0}>全部时间</option>
+            <option value={1}>最近1天</option>
+            <option value={7}>最近7天</option>
+            <option value={30}>最近30天</option>
+            <option value={90}>最近90天</option>
+          </select>
+          <select
+            value={sortOrder}
+            onChange={(e) => setSortOrder(e.target.value as 'newest' | 'oldest')}
+            className="px-2 py-1.5 rounded-lg border border-border bg-card text-sm"
+          >
+            <option value="newest">最新优先</option>
+            <option value="oldest">最早优先</option>
+          </select>
+          <button
+            onClick={() => fetchConversations(true)}
+            disabled={convRefreshing}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={convRefreshing ? "animate-spin" : ""} /> {convRefreshing ? "刷新中..." : "刷新"}
+          </button>
+        </div>
+      </div>
+
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 mb-3 p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+          <span className="text-sm font-medium">已选 {selectedIds.size} 条</span>
+          <button
+            onClick={handleBatchDelete}
+            disabled={batchDeleting}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-destructive text-destructive-foreground text-sm hover:bg-destructive/90 disabled:opacity-50"
+          >
+            <Trash2 size={14} /> {batchDeleting ? "删除中..." : "批量删除"}
+          </button>
+          <button
+            onClick={() => { setSelectedIds(new Set()); setSelectAll(false); }}
+            className="px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-accent"
+          >
+            取消选择
+          </button>
+        </div>
+      )}
+
+      <div className="flex items-center gap-3 mb-2 px-2">
+        <label className="flex items-center gap-2 cursor-pointer text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={selectAll}
+            onChange={toggleSelectAll}
+            className="w-4 h-4 accent-primary"
+          />
+          全选
+        </label>
+        <span className="text-xs text-muted-foreground">
+          共 {filteredConversations.length} 条对话{filterDays > 0 ? `（最近${filterDays}天）` : ''}
+        </span>
       </div>
 
       <div className="space-y-2">
-        {conversations.map((conv) => (
-          <div key={conv.id} className="bg-card border border-border rounded-xl overflow-hidden">
+        {filteredConversations.map((conv) => (
+          <div key={conv.id} className={`bg-card border rounded-xl overflow-hidden ${selectedIds.has(conv.id) ? 'border-primary' : 'border-border'}`}>
             <div
               className="flex items-center justify-between p-4 cursor-pointer hover:bg-accent/50 transition-colors"
               onClick={() => loadMessages(conv.id)}
             >
-              <div>
-                <div className="font-medium">{conv.title}</div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  {conv.model_id} - {new Date(conv.created_at).toLocaleString()}
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(conv.id)}
+                  onChange={(e) => { e.stopPropagation(); toggleSelect(conv.id); }}
+                  className="w-4 h-4 accent-primary flex-shrink-0"
+                />
+                <div className="min-w-0">
+                  <div className="font-medium truncate">{conv.title}</div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {conv.model_id} - {new Date(conv.created_at).toLocaleString()}
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 <span className="text-xs text-muted-foreground">{expandedId === conv.id ? '收起' : '展开'}</span>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleDelete(conv.id); }}
@@ -837,15 +954,16 @@ function ConversationsPanel() {
             )}
           </div>
         ))}
-        {conversations.length === 0 && (
-          <div className="text-center text-muted-foreground py-8">No conversations yet</div>
+        {filteredConversations.length === 0 && (
+          <div className="text-center text-muted-foreground py-8">
+            {conversations.length === 0 ? 'No conversations yet' : '没有符合筛选条件的对话'}
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-// ============ Settings Panel ============
 function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | "advanced" | "oauth" }) {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [form, setForm] = useState({

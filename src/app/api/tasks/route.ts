@@ -1,10 +1,10 @@
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, isAdminAuthenticated } from '@/lib/auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { query, queryOne, run } from '@/lib/db';
 
 // GET - list all scheduled tasks
 export async function GET() {
-  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+  const user = await getCurrentUser(); const isAdmin = await isAdminAuthenticated(); if (!user && !isAdmin) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
 
   try {
     const rows = await query('SELECT * FROM scheduled_tasks ORDER BY \"createdAt\" DESC');
@@ -16,7 +16,7 @@ export async function GET() {
 
 // POST - create a new scheduled task
 export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+  const user = await getCurrentUser(); const isAdmin = await isAdminAuthenticated(); if (!user && !isAdmin) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
 
   try {
     const { title, prompt, runIn } = await request.json() as {
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
 
 // DELETE - delete a task
 export async function DELETE(request: NextRequest) {
-  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+  const user = await getCurrentUser(); const isAdmin = await isAdminAuthenticated(); if (!user && !isAdmin) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
 
   try {
     const { searchParams } = new URL(request.url);
@@ -74,7 +74,7 @@ export async function DELETE(request: NextRequest) {
 
 // PATCH - toggle task active status
 export async function PATCH(request: NextRequest) {
-  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+  const user = await getCurrentUser(); const isAdmin = await isAdminAuthenticated(); if (!user && !isAdmin) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
 
   try {
     const { id, isActive } = await request.json() as { id: string; isActive: boolean };

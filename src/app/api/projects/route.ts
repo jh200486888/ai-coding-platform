@@ -1,11 +1,11 @@
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, isAdminAuthenticated } from '@/lib/auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { query, queryOne, run } from '@/lib/db';
 import { randomUUID } from 'crypto';
 
 // GET /api/projects
 export async function GET() {
-  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+  const user = await getCurrentUser(); const isAdmin = await isAdminAuthenticated(); if (!user && !isAdmin) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
 
   try {
     const projects_rows = await query<any>(
@@ -32,7 +32,7 @@ export async function GET() {
 
 // POST /api/projects
 export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+  const user = await getCurrentUser(); const isAdmin = await isAdminAuthenticated(); if (!user && !isAdmin) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
 
   try {
     const body = await request.json();
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
 
 // DELETE /api/projects
 export async function DELETE(request: NextRequest) {
-  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+  const user = await getCurrentUser(); const isAdmin = await isAdminAuthenticated(); if (!user && !isAdmin) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
 
   try {
     const { searchParams } = new URL(request.url);
