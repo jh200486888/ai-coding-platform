@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { ToolLoopAgent, isStepCount, pruneMessages, streamText, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
+import { ToolLoopAgent, isStepCount, pruneMessages, streamText, toUIMessageStream, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig, getSetting, setConversationUserId } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
@@ -794,7 +794,8 @@ export async function POST(request: NextRequest) {
     // AI SDK v7: use createUIMessageStream to enable follow-up stream merging
     const uiStream = createUIMessageStream({
       execute: async ({ writer }) => {
-        const result = agent.stream({
+        // agent.stream() returns PromiseLike<StreamTextResult> - must await first
+        const agentResult = await agent.stream({
           messages: chatMessages as any,
           timeout: { totalMs: Math.max(timeoutTotalMs, maxSteps * 30000), stepMs: timeoutStepMs },
           onStepFinish: ({ finishReason, toolCalls, text }) => {
@@ -807,7 +808,7 @@ export async function POST(request: NextRequest) {
         });
 
         // Merge primary stream into the UI stream
-        writer.merge((result as any).toUIMessageStream({
+        writer.merge(agentResult.toUIMessageStream({
           sendReasoning: true,
           messageMetadata: ({ part }: any) => {
             if (part.type === 'start' || part.type === 'finish') {
@@ -816,10 +817,7 @@ export async function POST(request: NextRequest) {
             return undefined;
           },
         }));
-
-        // Wait for primary stream to complete
-        const finalResult = await result;
-        let text = (await finalResult.text) || '';
+        let text = (await agentResult.text) || '';
 
         // Detect DSML markup (DeepSeek bug: outputs tool calls as text)
         const isDSMLText = text && (text.includes('DSML') || text.includes('tool_calls') || text.includes('invoke name='));
@@ -830,7 +828,7 @@ export async function POST(request: NextRequest) {
 
         // Extract tool results from steps for follow-up context injection
         const allToolResults: string[] = [];
-        for (const step of await finalResult.steps) {
+        for (const step of await agentResult.steps) {
           for (const tc of step.toolCalls || []) {
             const tr = step.toolResults?.find((r: any) => r.toolCallId === tc.toolCallId);
             if (tr) {
@@ -842,7 +840,7 @@ export async function POST(request: NextRequest) {
 
         // Build EXEC_LOG from tool results
         const toolPartsForLog: {name: string; output: string}[] = [];
-        for (const step of await finalResult.steps) {
+        for (const step of await agentResult.steps) {
           for (const tc of step.toolCalls || []) {
             const tr = step.toolResults?.find((r: any) => r.toolCallId === tc.toolCallId);
             if (tr) {
