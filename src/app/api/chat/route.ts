@@ -790,6 +790,14 @@ export async function POST(request: NextRequest) {
       model: wrappedModel,
       instructions: dynamicPrompt + (generateSkillsCatalog() ? "\n\n" + generateSkillsCatalog() : ""),
       tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
+      // AI SDK official toolApproval - requires user confirmation for dangerous tools
+      toolApproval: {
+        ssh_execute: 'user-approval',
+        ssh_write_file: 'user-approval',
+        build_project: 'user-approval',
+        deploy_service: 'user-approval',
+        git_commit: 'user-approval',
+      },
       stopWhen: isStepCount(Math.max(maxSteps, 15)),
       // prepareStep: context compression when conversation gets too long
       prepareStep: async ({ messages, stepNumber }) => {

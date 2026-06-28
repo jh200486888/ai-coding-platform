@@ -27,7 +27,6 @@ export const sshExecuteTool = tool({
     timeout: z.number().default(60).describe('超时秒数，默认60。构建等长任务设300'),
     cwd: z.string().optional().describe('工作目录，默认为项目根目录'),
   }),
-  needsApproval: true,
   execute: async ({ command, server, timeout, cwd }: { command: string; server: 'production' | 'development'; timeout: number; cwd?: string }) => {
     // 安全检查：危险命令直接拒绝
     for (const pattern of DANGEROUS_COMMANDS) {
@@ -116,7 +115,6 @@ export const sshWriteFileTool = tool({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
     backup: z.boolean().default(true).describe('是否备份原文件，默认true'),
   }),
-  needsApproval: true,
   execute: async ({ path, content, server, backup }: { path: string; content: string; server: 'production' | 'development'; backup?: boolean }) => {
     try {
       const result = await sshPool.writeFile(server, path, content, backup);
@@ -140,7 +138,6 @@ export const buildProjectTool = tool({
   parameters: z.object({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
   }),
-  needsApproval: true,
   execute: async ({ server }: { server: 'production' | 'development' }) => {
     try {
       const result = await sshPool.execute(server,
@@ -168,7 +165,6 @@ export const deployServiceTool = tool({
   parameters: z.object({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
   }),
-  needsApproval: true,
   execute: async ({ server }) => {
     try {
       // Get server config for PM2 service name and port
@@ -261,7 +257,6 @@ export const gitCommitTool = tool({
     message: z.string().describe('提交信息'),
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
   }),
-  needsApproval: true,
   execute: async ({ message, server }: { message: string; server: 'production' | 'development' }) => {
     try {
       // 先看状态

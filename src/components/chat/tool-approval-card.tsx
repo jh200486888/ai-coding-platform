@@ -1,7 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import { ShieldAlert, ShieldCheck, ShieldX, ChevronDown, ChevronRight } from 'lucide-react';
+import { ShieldAlert, ShieldCheck, ShieldX, ChevronDown, ChevronRight, LoaderCircle, CheckCircle2, XCircle } from 'lucide-react';
+
+/**
+ * ToolApprovalCard - AI SDK official tool approval flow
+ * 
+ * State transitions per AI SDK docs:
+ * - approval-requested: user needs to approve/deny (part.approval.id available)
+ * - approval-responded: user responded, waiting for server execution
+ * - output-available: tool executed successfully
+ * - output-denied: user denied the tool execution
+ * 
+ * Uses addToolApprovalResponse({ id, approved }) from useChat hook.
+ * sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses
+ * handles auto-submit after approval.
+ */
 
 const TOOL_DISPLAY: Record<string, { name: string; risk: 'high' | 'medium' | 'low'; reason: string }> = {
   ssh_execute: { name: '执行SSH命令', risk: 'medium', reason: '将在远程服务器上执行命令' },
@@ -19,30 +33,35 @@ const RISK_STYLE = {
   low: { bg: 'bg-blue-500/5', border: 'border-blue-500/30', badge: 'bg-blue-500/20 text-blue-400', label: '低风险' },
 };
 
+type ApprovalState = 'approval-requested' | 'approval-responded' | 'output-available' | 'output-denied';
+
 interface ToolApprovalCardProps {
   toolName: string;
   args: Record<string, unknown>;
-  approvalId: string;
-  onApprove: (id: string) => void;
-  onDeny: (id: string) => void;
+  state: ApprovalState;
+  approvalId?: string;
+  isAutomatic?: boolean;
+  approved?: boolean;
+  reason?: string;
+  output?: string;
+  onApprove?: (id: string) => void;
+  onDeny?: (id: string) => void;
 }
 
-export function ToolApprovalCard({ toolName, args, approvalId, onApprove, onDeny }: ToolApprovalCardProps) {
-  const [expanded, setExpanded] = useState(true);
-  const [responded, setResponded] = useState(false);
+export function ToolApprovalCard({
+  toolName, args, state, approvalId, isAutomatic, approved, reason, output,
+  onApprove, onDeny,
+}: ToolApprovalCardProps) {
+  const [expanded, setExpanded] = useState(state === 'approval-requested');
 
   const info = TOOL_DISPLAY[toolName] || { name: toolName, risk: 'low' as const, reason: '需要确认后执行' };
   const style = RISK_STYLE[info.risk];
 
-  const handleApprove = () => { setResponded(true); onApprove(approvalId); };
-  const handleDeny = () => { setResponded(true); onDeny(approvalId); };
-
-  // 关键参数
+  // 关键参数提取
   const keyArgs: [string, string][] = [];
   if (toolName === 'ssh_execute' && args.command) {
     keyArgs.push(['命令', String(args.command).slice(0, 300)]);
     if (args.server) keyArgs.push(['服务器', String(args.server)]);
-    if (args.timeout) keyArgs.push(['超时', String(args.timeout) + '秒']);
   } else if (toolName === 'ssh_write_file' && args.path) {
     keyArgs.push(['文件路径', String(args.path)]);
     if (args.server) keyArgs.push(['服务器', String(args.server)]);
@@ -53,6 +72,64 @@ export function ToolApprovalCard({ toolName, args, approvalId, onApprove, onDeny
       keyArgs.push([k, String(v).slice(0, 150)]);
     }
   }
+
+  // State-based rendering
+  const renderState = () => {
+    switch (state) {
+      case 'approval-requested':
+        if (isAutomatic) {
+          return (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <LoaderCircle className="w-3 h-3 animate-spin" />
+              自动审批中...
+            </div>
+          );
+        }
+        return (
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => approvalId && onDeny?.(approvalId)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-red-950/40 text-red-400 hover:text-red-300 transition-colors"
+            >
+              <ShieldX className="w-3.5 h-3.5" />拒绝
+            </button>
+            <button
+              onClick={() => approvalId && onApprove?.(approvalId)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />批准执行
+            </button>
+          </div>
+        );
+
+      case 'approval-responded':
+        return (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <LoaderCircle className="w-3 h-3 animate-spin" />
+            {approved ? '已批准，执行中...' : '已拒绝'}
+            {reason && <span className="ml-1 text-muted-foreground/70">({reason})</span>}
+          </div>
+        );
+
+      case 'output-available':
+        return (
+          <div className="flex items-center gap-1.5 text-xs text-green-400">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            执行完成
+            {output && <span className="text-muted-foreground ml-1 truncate max-w-[300px]">{String(output).slice(0, 80)}</span>}
+          </div>
+        );
+
+      case 'output-denied':
+        return (
+          <div className="flex items-center gap-1.5 text-xs text-red-400">
+            <XCircle className="w-3.5 h-3.5" />
+            已拒绝执行
+            {reason && <span className="text-muted-foreground ml-1">({reason})</span>}
+          </div>
+        );
+    }
+  };
 
   return (
     <div className={`my-2 rounded-lg border ${style.border} ${style.bg} overflow-hidden`}>
@@ -81,19 +158,7 @@ export function ToolApprovalCard({ toolName, args, approvalId, onApprove, onDeny
               ))}
             </div>
           )}
-
-          {!responded ? (
-            <div className="flex gap-2 justify-end">
-              <button onClick={handleDeny} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-red-950/40 text-red-400 hover:text-red-300 transition-colors">
-                <ShieldX className="w-3.5 h-3.5" />拒绝
-              </button>
-              <button onClick={handleApprove} className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
-                <ShieldCheck className="w-3.5 h-3.5" />批准执行
-              </button>
-            </div>
-          ) : (
-            <div className="text-xs text-muted-foreground text-right animate-pulse">已响应，等待执行...</div>
-          )}
+          {renderState()}
         </div>
       )}
     </div>

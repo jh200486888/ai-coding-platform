@@ -194,20 +194,36 @@ export function ChatInterface() {
     return allToolCalls;
   })();
 
-  // 从parts中提取审批请求卡片
+  // 从parts中提取审批请求卡片（AI SDK official state flow）
   const approvalCards = (() => {
-    const cards: Array<{ toolName: string; args: Record<string, unknown>; approvalId: string; callId: string }> = [];
+    const cards: Array<{
+      toolName: string;
+      args: Record<string, unknown>;
+      state: 'approval-requested' | 'approval-responded' | 'output-available' | 'output-denied';
+      approvalId?: string;
+      callId: string;
+      isAutomatic?: boolean;
+      approved?: boolean;
+      reason?: string;
+      output?: string;
+    }> = [];
     for (const msg of messages) {
       if (msg.role !== "assistant") continue;
       const parts = (msg as any).parts || [];
       for (const p of parts) {
         const state = String(p.state || "").toLowerCase();
-        if (state === "approval-requested" && p.approval?.id) {
+        if (['approval-requested', 'approval-responded', 'output-denied'].includes(state) ||
+            (state === 'output-available' && p.approval)) {
           cards.push({
             toolName: p.toolName || (p.type || "").replace("tool-", ""),
             args: p.input || p.args || {},
-            approvalId: p.approval.id,
+            state: state as "approval-requested" | "approval-responded" | "output-available" | "output-denied",
+            approvalId: p.approval?.id,
             callId: p.toolCallId || p.type,
+            isAutomatic: p.approval?.isAutomatic,
+            approved: p.approval?.approved,
+            reason: p.approval?.reason,
+            output: typeof p.output === 'string' ? p.output : undefined,
           });
         }
       }
@@ -575,7 +591,7 @@ export function ChatInterface() {
           CHAT_MODES={CHAT_MODES}
         />
 
-        {/* Tool Approval Cards */}
+        {/* Tool Approval Cards (AI SDK official approval flow) */}
         {approvalCards.length > 0 && (
           <div className="px-3 md:px-4">
             {approvalCards.map((card) => (
@@ -583,7 +599,12 @@ export function ChatInterface() {
                 key={card.callId}
                 toolName={card.toolName}
                 args={card.args}
+                state={card.state}
                 approvalId={card.approvalId}
+                isAutomatic={card.isAutomatic}
+                approved={card.approved}
+                reason={card.reason}
+                output={card.output}
                 onApprove={handleApprove}
                 onDeny={handleDeny}
               />
