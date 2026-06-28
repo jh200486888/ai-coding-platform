@@ -57,12 +57,19 @@ async function execDeleteFile(path: string): Promise<string> {
   } catch (e: any) { return `❌ 删除失败: ${e.message || '文件不存在'}`; }
 }
 
-async function execReadFile(path: string): Promise<string> {
+async function execReadFile(path: string, offset?: number, limit?: number): Promise<string> {
   const fs = await import('fs/promises');
   const filePath = `${PROJECT_DIR}/${path}`;
   try {
     const content = await fs.readFile(filePath, 'utf-8');
-    return content.slice(0, 50000);
+    const lines = content.split('\n');
+    const totalLines = lines.length;
+    const startLine = Math.max(1, offset || 1) - 1;
+    const endLine = limit ? Math.min(startLine + limit, totalLines) : totalLines;
+    const selectedLines = lines.slice(startLine, endLine);
+    const result = selectedLines.map((line, i) => `${startLine + i + 1}\t${line}`).join('\n');
+    const header = `[文件: ${path} | 共${totalLines}行 | 显示${startLine + 1}-${endLine}行]`;
+    return header + '\n' + result;
   } catch (e: any) {
     return `❌ 读取文件失败: ${path} - ${e.message || '文件不存在或无法读取'}`;
   }
@@ -166,7 +173,7 @@ async function execSaveMemory(category: string, content: string): Promise<string
 // ============ 工具定义（AI SDK v7 格式） ============
 const tools = {
   createFile: tool({
-    description: '在项目目录创建文件。必须提供完整文件路径和文件内容。',
+    description: '创建新文件。优先用于创建完整的新文件，文件路径相对于项目根目录。修改已有文件时优先用 editFile 而非覆盖整个文件。',
     inputSchema: z.object({
       path: z.string().describe('文件相对路径，如 src/app/page.tsx'),
       content: z.string().describe('文件完整内容'),
@@ -174,7 +181,7 @@ const tools = {
     execute: async ({ path, content }) => execCreateFile(path, content),
   }),
   editFile: tool({
-    description: '修改已有文件。提供旧文本和新文本进行替换。',
+    description: '精确替换文件中的文本。提供要替换的旧文本（必须完全匹配）和新文本。适合小范围修改。如果改动超过文件50%，用 createFile 覆盖更安全。替换前先用 readFile 确认当前内容。',
     inputSchema: z.object({
       path: z.string().describe('文件相对路径'),
       oldText: z.string().describe('要替换的原始文本'),
@@ -190,35 +197,37 @@ const tools = {
     execute: async ({ path }) => execDeleteFile(path),
   }),
   readFile: tool({
-    description: '读取项目中的文件内容。',
+    description: '读取文件内容。大文件用 offset 和 limit 参数分段读取，避免超长输出。修改代码前务必先 readFile 了解当前内容，不要猜测。',
     inputSchema: z.object({
       path: z.string().describe('文件相对路径'),
+      offset: z.number().optional().describe('起始行号，从1开始。默认1'),
+      limit: z.number().optional().describe('读取行数。默认全部，建议大文件每次100-200行'),
     }),
-    execute: async ({ path }) => execReadFile(path),
+    execute: async ({ path, offset, limit }) => execReadFile(path, offset, limit),
   }),
   runCommand: tool({
-    description: '在项目目录执行 shell 命令。用于安装依赖、构建、部署等。',
+    description: '执行 shell 命令。可用场景：安装依赖(pnpm install)、构建(pnpm build)、部署(pm2 restart)、查看进程(pm2 list)、检查端口(ss -tlnp)、查看日志(pm2 logs --lines 50)。多个命令用 && 连接。命令超时120秒。',
     inputSchema: z.object({
       command: z.string().describe('要执行的命令，如 pnpm install, pnpm build, pm2 restart'),
     }),
     execute: async ({ command }) => execRunCommand(command),
   }),
   deploy: tool({
-    description: '部署项目：执行 pnpm install + pnpm build + pm2 restart。',
+    description: '一键部署：自动执行 pnpm install → pnpm build → pm2 restart。修改代码后用此工具快速上线。如果构建失败，先用 readFile 查看报错再修复。',
     inputSchema: z.object({
       confirm: z.boolean().describe('确认部署'),
     }),
     execute: async () => execDeploy(),
   }),
   searchWeb: tool({
-    description: "搜索互联网获取实时信息。用于查询最新新闻、价格、技术文档等。",
+    description: '搜索互联网获取实时信息。适合查询：最新技术动态、API文档用法、错误信息解决方案、价格数据、新闻事件。搜索关键词要简洁精准，2-5个词。',
     inputSchema: z.object({
       query: z.string().describe("搜索关键词"),
     }),
     execute: async ({ query }) => execSearchWeb(query),
   }),
   saveMemory: tool({
-    description: '保存记忆到长期存储。当用户说记住或提到重要偏好、项目信息时使用。',
+    description: '保存重要信息到长期记忆。触发场景：用户说"记住/记一下"，用户提到偏好/习惯/项目配置/关键决策。分类：preference(偏好)、project(项目)、fact(事实)、note(备注)。',
     inputSchema: z.object({
       category: z.string().describe("分类：preference/project/fact/note"),
       content: z.string().describe("要记住的内容"),

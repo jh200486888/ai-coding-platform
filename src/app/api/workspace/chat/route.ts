@@ -180,12 +180,19 @@ async function execRunCommand(command: string): Promise<string> {
   }
 }
 
-async function execReadFile(path: string): Promise<string> {
+async function execReadFile(path: string, offset?: number, limit?: number): Promise<string> {
   try {
     const fs = await import('fs/promises');
     const filePath = `${PROJECT_DIR}/${path}`;
     const content = await fs.readFile(filePath, 'utf-8');
-    return content.slice(0, 50000);
+    const lines = content.split('\n');
+    const totalLines = lines.length;
+    const startLine = Math.max(1, offset || 1) - 1;
+    const endLine = limit ? Math.min(startLine + limit, totalLines) : totalLines;
+    const selectedLines = lines.slice(startLine, endLine);
+    const result = selectedLines.map((line, i) => `${startLine + i + 1}\t${line}`).join('\n');
+    const header = `[文件: ${path} | 共${totalLines}行 | 显示${startLine + 1}-${endLine}行]`;
+    return header + '\n' + result;
   } catch (e: any) {
     return `❌ 读取文件失败: ${path} - ${e.message || '文件不存在或无法读取'}`;
   }
@@ -482,12 +489,14 @@ export async function POST(request: NextRequest) {
           execRunCommand(command),
       }),
       readFile: tool({
-        description: '读取项目中的文件内容。',
+        description: '读取文件内容。大文件用 offset 和 limit 参数分段读取，避免超长输出。修改代码前务必先 readFile 了解当前内容，不要猜测。',
         inputSchema: z.object({
           path: z.string().describe('文件相对路径'),
+          offset: z.number().optional().describe('起始行号，从1开始。默认1'),
+          limit: z.number().optional().describe('读取行数。默认全部，建议大文件每次100-200行'),
         }),
-        execute: async ({ path }: { path: string }) =>
-          execReadFile(path),
+        execute: async ({ path, offset, limit }: { path: string; offset?: number; limit?: number }) =>
+          execReadFile(path, offset, limit),
       }),
       searchWeb: tool({
         description: '搜索互联网获取实时信息。用于查询最新新闻、价格、技术文档等。',
