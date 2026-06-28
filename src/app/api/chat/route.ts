@@ -760,6 +760,19 @@ export async function POST(request: NextRequest) {
       messages: chatMessages as any,
       tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
       stopWhen: isLoopFinished(),
+      // AI SDK native: force model to output text after N tool-only steps
+      // No need for a separate follow-up call - this is the proper way
+      prepareStep: async ({ steps }) => {
+        const toolOnlySteps = steps.filter((s: any) => s.toolCalls && s.toolCalls.length > 0 && (!s.text || s.text.length === 0)).length;
+        if (toolOnlySteps >= 8) {
+          console.log('[AI] prepareStep: ' + toolOnlySteps + ' tool-only steps, forcing text output');
+          return {
+            activeTools: [],
+            system: dynamicPrompt + '\n\n【重要】你已通过工具收集了足够的信息，现在必须直接输出完整的文字分析报告。你已没有工具可用，只能输出文字。立即开始写报告。'
+          };
+        }
+        return {};
+      },
       temperature,
       maxOutputTokens,
       maxRetries,
@@ -824,12 +837,18 @@ export async function POST(request: NextRequest) {
           if (toolParts.length > 0) {
             savedContent = text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
           }
-          // Save message even if aborted (step limit) - tool results are valuable
-          // If no text but has tool results, save with a marker for frontend follow-up
-          // When step limit reached with no text: make a follow-up call WITHOUT tools
-          // to force the model to produce a text summary
-          if (isAborted && !text && toolParts.length > 0) {
-            console.log('[AI] Making tool-free follow-up call for summary...');
+          // prepareStep (activeTools:[]) is the primary mechanism for text output after tool loops
+          // This follow-up is a safety net only
+          if (text && toolParts.length > 0) {
+            // Normal: model produced text + tool results (via prepareStep or naturally)
+            const reportTitle = text.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '分析报告';
+            savedContent = text + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->';
+            await createMessage(convId!, 'assistant', savedContent, model_id);
+          } else if (text) {
+            await createMessage(convId!, 'assistant', savedContent, model_id);
+          } else if (!text && toolParts.length > 0) {
+            // Safety net: no text but has tools - make follow-up call WITHOUT tools
+            console.log('[AI] Safety net: making tool-free follow-up call...');
             try {
               const followUpMessages = [
                 ...chatMessages.slice(0, -1),
@@ -839,7 +858,6 @@ export async function POST(request: NextRequest) {
                 system: dynamicPrompt + '\n\n【重要】你之前已经通过工具收集了足够的信息，现在必须直接输出文字总结。不要再请求任何工具，直接开始写分析报告。',
                 model: wrappedModel,
                 messages: followUpMessages as any,
-                // NO tools - force text output
                 temperature,
                 maxOutputTokens,
                 maxRetries: 1,
@@ -854,12 +872,9 @@ export async function POST(request: NextRequest) {
               }
             } catch (e: any) {
               console.error('[AI] Follow-up summary failed:', e.message);
-              // Fallback: save marker if follow-up also failed
               const abortContent = '⚠️ 工具调用已达上限，请发送"总结"获取分析报告。\n\n' + savedContent;
               await createMessage(convId!, 'assistant', abortContent, model_id);
             }
-          } else if (text) {
-            await createMessage(convId!, 'assistant', savedContent, model_id);
           } else if (!isAborted) {
             await createMessage(convId!, 'assistant', savedContent, model_id);
           }
