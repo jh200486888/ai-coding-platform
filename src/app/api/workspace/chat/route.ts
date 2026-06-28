@@ -609,13 +609,13 @@ export async function POST(request: NextRequest) {
 
           // 从 message parts 提取工具执行记录
           const toolParts = (message.parts || []).filter(
-            (p: any) => p.type?.startsWith('tool-') && p.toolInvocation?.state === 'output-available'
+            (p: any) => p.type?.startsWith('tool-') && p.state === 'output-available'
           );
           let savedContent = text;
           if (toolParts.length > 0) {
             const execLog = toolParts.map((tp: any, i: number) => {
               const name = tp.toolName || 'unknown';
-              const out = typeof tp.toolInvocation.output === 'string' ? tp.toolInvocation.output : JSON.stringify(tp.toolInvocation.output);
+              const out = typeof tp.output === 'string' ? tp.output : JSON.stringify(tp.output);
               return `${i + 1}. ${name}: ${out.startsWith('❌') ? '❌' : '✅'} ${out.slice(0, 100)}`;
             }).join('\n');
             savedContent = text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';

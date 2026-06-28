@@ -153,8 +153,8 @@ export function ChatInterface() {
           const state = String(p.state || "").toLowerCase();
           const isPreliminary = p.preliminary === true;
           const isStreaming = state === "output-available" && isPreliminary;
-          const isError = state === "output-error" || (state === "output-available" && !isPreliminary && p.errorText);
-          const isDone = (state === "output-available" && !isPreliminary) || (p.output !== undefined && !isPreliminary && !isError);
+          const isError = state === "output-error" || (state === "output-available" && !isPreliminary && p.errorText) || (state === "output-available" && typeof p.output === "string" && p.output.startsWith("❌"));
+          const isDone = ((state === "output-available" && !isPreliminary) || (p.output !== undefined && !isPreliminary)) && !isError;
           const toolName = p.toolName || (p.type === "dynamic-tool" ? p.toolName : (p.type || "").replace("tool-", ""));
           
           let summary: string | undefined;
@@ -519,6 +519,7 @@ export function ChatInterface() {
           isLoading={isLoading}
           isThinking={isThinking}
           toolCalls={toolCalls}
+          conversationId={currentConvId || undefined}
           messagesEndRef={messagesEndRef}
           editingMessageId={editingMessageId}
           editContent={editContent}

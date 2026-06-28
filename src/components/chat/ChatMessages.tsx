@@ -33,6 +33,7 @@ interface ChatMessagesProps {
   onDrop: (e: React.DragEvent) => void;
   isDragging: boolean;
   CHAT_MODES: Array<{ id: string; name: string; icon: any; color: string; placeholder: string }>;
+  conversationId?: string;
 }
 
 export function ChatMessages({
@@ -54,6 +55,7 @@ export function ChatMessages({
   onDrop,
   isDragging,
   CHAT_MODES,
+  conversationId,
 }: ChatMessagesProps) {
   const dropZoneRef = useRef<HTMLDivElement>(null);
 

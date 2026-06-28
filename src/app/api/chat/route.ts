@@ -809,13 +809,16 @@ export async function POST(request: NextRequest) {
           }
 
           // 从 message parts 提取工具执行记录
-          const toolParts = (message.parts || []).filter(
-            (p: any) => p.type?.startsWith('tool-') && p.toolInvocation?.state === 'output-available'
+          const allParts = message.parts || [];
+          console.log('[AI] onEnd parts count:', allParts.length, 'types:', allParts.map((p: any) => p.type).join(','));
+          const toolParts = allParts.filter(
+            (p: any) => p.type?.startsWith('tool-') && p.state === 'output-available'
           );
+          console.log('[AI] toolParts found:', toolParts.length, 'of', allParts.length, 'total parts');
           let savedContent = text;
           const execLog = toolParts.length > 0 ? toolParts.map((tp: any, i: number) => {
-            const name = tp.toolName || 'unknown';
-            const out = typeof tp.toolInvocation.output === 'string' ? tp.toolInvocation.output : JSON.stringify(tp.toolInvocation.output);
+            const name = tp.toolName || tp.toolInvocation?.toolName || 'unknown';
+            const out = typeof tp.output === 'string' ? tp.output : JSON.stringify(tp.output);
             return `${i + 1}. ${name}: ${out.startsWith('❌') ? '❌' : '✅'} ${out.slice(0, 100)}`;
           }).join('\n') : '';
           if (toolParts.length > 0) {
@@ -844,7 +847,8 @@ export async function POST(request: NextRequest) {
               });
               const followUpText = await followUpResult.text;
               if (followUpText) {
-                const fullContent = followUpText + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
+                const reportTitle = followUpText.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '分析报告';
+                const fullContent = followUpText + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->';
                 await createMessage(convId!, 'assistant', fullContent, model_id);
                 console.log(`[AI] Follow-up summary generated: ${followUpText.length} chars`);
               }

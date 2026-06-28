@@ -1,7 +1,8 @@
-'use client';
+"use client";
 
 import { useState, useCallback, useRef } from 'react';
-import { User, Bot, Image, FileText, Code, Copy, Check, Pencil, Volume2, Square } from 'lucide-react';
+import { User, Bot, Image, FileText, Code, Copy, Check, Pencil, Volume2, Square, FileSearch } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import type { Message, Attachment } from '@/types';
 
 // Clean attachment markers from message content for display
@@ -21,6 +22,7 @@ interface MessageBubbleProps {
   onEditChange?: (v: string) => void;
   onEditSave?: () => void;
   onEditCancel?: () => void;
+  conversationId?: string;
 }
 
 function formatSize(bytes: number): string {
@@ -57,13 +59,26 @@ function stripMarkdown(text: string): string {
 }
 
 interface ContentSegment {
-  type: 'code' | 'text';
+  type: 'code' | 'text' | 'report-card';
   content: string;
   lang?: string;
+  reportTitle?: string;
 }
 
 function parseContent(text: string): ContentSegment[] {
   const segments: ContentSegment[] = [];
+  
+  // Extract REPORT_CARD marker if present
+  let reportTitle: string | undefined;
+  const reportMatch = text.match(/<!--REPORT_CARD\n(.+?)\n-->/);
+  if (reportMatch) {
+    reportTitle = reportMatch[1];
+    text = text.replace(/<!--REPORT_CARD\n.+?\n-->/, '');
+  }
+  
+  // Remove EXEC_LOG from display
+  text = text.replace(/\n\n<!--EXEC_LOG\n[\s\S]*?\n-->/, '');
+  
   const regex = /```(\w*)\n?([\s\S]*?)```/g;
   let lastIndex = 0;
   let match;
@@ -79,6 +94,12 @@ function parseContent(text: string): ContentSegment[] {
     const remaining = text.slice(lastIndex).trim();
     if (remaining) segments.push({ type: 'text', content: remaining });
   }
+  
+  // Add report card segment at the end if marker was found
+  if (reportTitle) {
+    segments.push({ type: 'report-card', content: '', reportTitle });
+  }
+  
   if (segments.length === 0 && text) segments.push({ type: 'text', content: text });
   return segments;
 }
@@ -124,19 +145,48 @@ function AttachmentItem({ attachment }: { attachment: Attachment }) {
   );
 }
 
-function RenderedContent({ content }: { content: string }) {
+function ReportCard({ title, conversationId }: { title: string; conversationId?: string }) {
+  const router = useRouter();
+  const handleClick = () => {
+    if (conversationId) {
+      router.push(`/preview/${conversationId}`);
+    }
+  };
+  return (
+    <div
+      onClick={handleClick}
+      className="mt-3 flex items-center gap-3 bg-muted/60 hover:bg-muted border border-border/60 hover:border-primary/40 rounded-lg px-4 py-3 cursor-pointer transition-all group"
+    >
+      <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+        <FileSearch className="w-5 h-5 text-primary" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate">{title}</div>
+        <div className="text-[11px] text-muted-foreground mt-0.5">点击查看完整分析文档</div>
+      </div>
+      <div className="flex-shrink-0 text-muted-foreground group-hover:text-primary transition-colors">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function RenderedContent({ content, conversationId }: { content: string; conversationId?: string }) {
   const segments = parseContent(content);
   return (
     <>
       {segments.map((seg, i) => {
         if (seg.type === 'code') return <CodeBlock key={i} content={seg.content} lang={seg.lang} />;
+        if (seg.type === 'report-card') return <ReportCard key={i} title={seg.reportTitle || '分析报告'} conversationId={conversationId} />;
         return <span key={i} className="whitespace-pre-wrap break-words">{stripMarkdown(seg.content)}</span>;
       })}
     </>
   );
 }
 
-export function MessageBubble({ message, isEditing, editContent, onEdit, onEditChange, onEditSave, onEditCancel }: MessageBubbleProps) {
+export function MessageBubble({ message, isEditing, editContent, onEdit, onEditChange, onEditSave, onEditCancel, conversationId }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const hasAttachments = message.attachments && message.attachments.length > 0;
   const [isPlaying, setIsPlaying] = useState(false);
@@ -184,7 +234,6 @@ export function MessageBubble({ message, isEditing, editContent, onEdit, onEditC
           </div>
         )}
 
-        {/* 编辑模式 */}
         {isEditing && isUser ? (
           <div className="space-y-2">
             <textarea
@@ -206,11 +255,10 @@ export function MessageBubble({ message, isEditing, editContent, onEdit, onEditC
                 {isUser ? (
                   <span className="whitespace-pre-wrap break-words">{cleanAttachmentMarkers(message.content)}</span>
                 ) : (
-                  <RenderedContent content={message.content} />
+                  <RenderedContent content={message.content} conversationId={conversationId} />
                 )}
               </div>
             )}
-            {/* 用户消息显示编辑按钮 */}
             {isUser && message.content && !isEditing && (
               <button
                 onClick={onEdit}
@@ -220,8 +268,6 @@ export function MessageBubble({ message, isEditing, editContent, onEdit, onEditC
                 编辑
               </button>
             )}
-            {/* AI消息显示朗读按钮 */}
-
             {!isUser && message.content && (
               <button
                 onClick={handleTTS}
