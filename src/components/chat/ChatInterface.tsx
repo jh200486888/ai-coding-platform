@@ -547,6 +547,7 @@ export function ChatInterface() {
           onRemoveAttachment={removeAttachment}
           onFileSelect={handleFileSelect}
           fileInputRef={fileInputRef}
+          onPasteImage={handleFiles}
           selectedMode={selectedMode}
           CHAT_MODES={CHAT_MODES}
           isGeneratingImage={isGeneratingImage}

@@ -37,6 +37,7 @@ interface ChatInputProps {
   enableSearch?: boolean;
   onToggleSearch?: () => void;
   isLoggedIn?: boolean;
+  onPasteImage?: (files: FileList) => void;
 }
 
 export function ChatInput({
@@ -56,6 +57,7 @@ export function ChatInput({
   enableSearch = true,
   onToggleSearch,
   isLoggedIn = true,
+  onPasteImage,
 }: ChatInputProps) {
   const currentMode = CHAT_MODES.find(m => m.id === selectedMode);
   const canSubmit = input.trim() || attachments.length > 0;
@@ -170,6 +172,24 @@ export function ChatInput({
             type="text"
             value={input}
             onChange={e => onInputChange(e.target.value)}
+            onPaste={(e) => {
+              const items = e.clipboardData?.items;
+              if (items) {
+                const imageFiles: File[] = [];
+                for (let i = 0; i < items.length; i++) {
+                  if (items[i].type.startsWith('image/')) {
+                    const file = items[i].getAsFile();
+                    if (file) imageFiles.push(file);
+                  }
+                }
+                if (imageFiles.length > 0 && onPasteImage) {
+                  e.preventDefault();
+                  const dt = new DataTransfer();
+                  imageFiles.forEach(f => dt.items.add(f));
+                  onPasteImage(dt.files);
+                }
+              }
+            }}
             placeholder={currentMode?.placeholder || "输入消息..."}
             className="flex-1 min-w-0 bg-input border border-border rounded-lg px-3 py-2 text-sm md:text-base focus:outline-none focus:ring-2 focus:ring-primary"
             disabled={isLoading}
