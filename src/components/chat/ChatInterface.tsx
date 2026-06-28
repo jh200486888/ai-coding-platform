@@ -1,5 +1,4 @@
 "use client";
-import ExportButton from '@/components/ExportButton';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
@@ -227,26 +226,59 @@ export function ChatInterface() {
     deleteConversation(convId, handleNewChat);
   }, [deleteConversation, handleNewChat]);
 
-  const handleExport = useCallback(() => {
+  const handleExport = useCallback(async (format: string = 'md') => {
     if (messages.length === 0) {
       toast.error('没有可导出的对话');
       return;
     }
-    const content = messages.map((m: any) => {
-      const role = m.role === 'user' ? '用户' : '助手';
-      const text = (m.parts || []).filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
-      return `[${role}] ${text}`;
-    }).join('\n\n');
-    
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `对话_${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success('对话已导出');
-  }, [messages]);
+    // Collect assistant text content (skip EXEC_LOG)
+    const content = messages
+      .filter((m: any) => m.role === 'assistant')
+      .map((m: any) => {
+        const text = (m.parts || []).filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
+        return text.replace(/\n\n<!--EXEC_LOG[\s\S]*?-->/, '').trim();
+      })
+      .filter(Boolean)
+      .join('\n\n---\n\n');
+
+    if (!content) {
+      toast.error('没有可导出的内容');
+      return;
+    }
+
+    if (format === 'preview') {
+      // Open preview page
+      window.open(`/preview/${currentConvId}`, '_blank');
+      return;
+    }
+
+    try {
+      const title = messages.find((m: any) => m.role === 'user')?.content?.slice(0, 30)?.replace(/\n/g, ' ') || '报告';
+      const res = await fetch('/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, format, title }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        toast.error(err.error || '导出失败');
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const ext = format === 'html' ? 'html' : format;
+      a.download = `${title}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('导出成功');
+    } catch (e: any) {
+      toast.error('导出失败: ' + e.message);
+    }
+  }, [messages, currentConvId]);
 
   const handleEditMessage = useCallback((messageId: string) => {
     const msg = messages.find(m => m.id === messageId);
@@ -451,9 +483,22 @@ export function ChatInterface() {
           {currentConvId && (
             <>
               <button
-                onClick={handleExport}
+                onClick={() => handleExport('preview')}
                 className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors shrink-0"
-                title="导出对话"
+                title="文档预览"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                  <polyline points="10 9 9 9 8 9" />
+                </svg>
+              </button>
+              <button
+                onClick={() => handleExport('md')}
+                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors shrink-0"
+                title="导出MD"
               >
                 <Download className="w-4 h-4" />
               </button>

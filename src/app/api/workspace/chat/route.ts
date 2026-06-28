@@ -543,6 +543,12 @@ export async function POST(request: NextRequest) {
       ],
     });
 
+    // Step limit safety: prevent infinite tool-calling loops
+    const WS_MAX_STEPS = 20;
+    let wsStepCount = 0;
+    const wsStepAbortController = new AbortController();
+    const wsCombinedSignal = AbortSignal.any([request.signal, wsStepAbortController.signal]);
+
     const result = streamText({
       system: fullSystemPrompt,
       model: wrappedModel,
@@ -552,11 +558,19 @@ export async function POST(request: NextRequest) {
       temperature,
       maxOutputTokens: wsMaxOutputTokens,
       ...(wsTopP !== undefined && { topP: wsTopP }),
+      onStepFinish: ({ finishReason, toolCalls, text }) => {
+        wsStepCount++;
+        console.log(`[WS-AI] Step ${wsStepCount}: finishReason=${finishReason}, toolCalls=${toolCalls?.length || 0}, textLen=${text?.length || 0}`);
+        if (wsStepCount >= WS_MAX_STEPS) {
+          console.log(`[WS-AI] Step limit reached (${WS_MAX_STEPS}), aborting`);
+          wsStepAbortController.abort();
+        }
+      },
       telemetry: {
         isEnabled: true,
         functionId: 'workspace-chat-completion',
       },
-      abortSignal: request.signal,
+      abortSignal: wsCombinedSignal,
     });
 
     // 保存用户消息到 workspace_messages
