@@ -79,6 +79,19 @@ function parseContent(text: string): ContentSegment[] {
   // Remove EXEC_LOG from display
   text = text.replace(/\n\n<!--EXEC_LOG\n[\s\S]*?\n-->/, '');
   
+  // Remove DSML tool-call markup that model outputs as text when prepareStep disables tools
+  const hadDSML = text.includes('DSML') || text.includes('tool_calls') || text.includes('invoke name=');
+  text = text.replace(/<｜｜DSML｜｜[^>]*>[\s\S]*?(?=<｜｜DSML｜｜|$)/g, '');
+  text = text.replace(/<｜｜DSML｜｜[^>]*>/g, '');
+  // Clean up any remaining DSML-related artifacts
+  text = text.replace(/invoke name="[^"]*">/g, '');
+  text = text.replace(/parameter name="[^"]*"[^>]*>[^<]*/g, '');
+  text = text.replace(/<[^>]*DSML[^>]*>/g, '');
+  // If the entire text was just DSML markup, show a placeholder
+  if (text.trim().length === 0 && hadDSML) {
+    text = '正在生成分析报告，请稍候...';
+  }
+  
   const regex = /```(\w*)\n?([\s\S]*?)```/g;
   let lastIndex = 0;
   let match;

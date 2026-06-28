@@ -765,11 +765,11 @@ export async function POST(request: NextRequest) {
       // No need for a separate follow-up call - this is the proper way
       prepareStep: async ({ steps }) => {
         const toolOnlySteps = steps.filter((s: any) => s.toolCalls && s.toolCalls.length > 0 && (!s.text || s.text.length === 0)).length;
-        if (toolOnlySteps >= 8) {
+        if (toolOnlySteps >= 5) {
           console.log('[AI] prepareStep: ' + toolOnlySteps + ' tool-only steps, forcing text output');
           return {
             activeTools: [],
-            system: dynamicPrompt + '\n\n【紧急指令】你的工具已被临时禁用。现在你必须：\n1. 直接用纯文字撰写完整的分析报告\n2. 绝对禁止写任何DSML标签、XML标记、工具调用代码或DSML格式\n3. 绝对禁止写任何invoke、parameter、tool_calls等工具相关内容\n4. 只能写人类可读的分析文字，像写文章一样\n5. 立即开始写，不要犹豫'
+            system: dynamicPrompt + '\n\n【紧急指令 - 必须遵守】\n你的工具调用权限已被关闭。你现在唯一能做的就是用中文写一篇完整的分析报告。\n\n绝对禁止：\n- 写任何<｜｜DSML｜｜>标签、invoke、parameter、tool_calls\n- 写任何XML/HTML标签或代码\n- 尝试以任何形式调用工具\n\n你必须立即按以下格式输出纯文字报告：\n\n一、概述\n（简要总结你的发现）\n\n二、核心分析\n（详细分析各个要点）\n\n三、关键发现\n（列出最重要的发现）\n\n四、总结与建议\n（给出结论和建议）\n\n现在立即开始写，从"一、概述"开始。'
           };
         }
         return {};
@@ -860,10 +860,10 @@ export async function POST(request: NextRequest) {
             try {
               const followUpMessages = [
                 ...chatMessages.slice(0, -1),
-                { role: 'user' as const, content: '基于以上所有工具调用收集到的信息，请直接输出你的分析和总结结论。注意：你现在没有工具可用，必须直接用文字输出完整报告。' }
+                { role: 'user' as const, content: '基于以上所有工具调用收集到的信息，请按以下格式输出中文分析报告：\n\n一、概述\n二、核心分析\n三、关键发现\n四、总结与建议\n\n注意：你现在没有工具可用，必须直接用纯文字输出。' }
               ];
               const followUpResult = streamText({
-                system: dynamicPrompt + '\n\n【重要】你之前已经通过工具收集了足够的信息，现在必须直接输出文字总结。不要再请求任何工具，直接开始写分析报告。',
+                system: dynamicPrompt + '\n\n【重要】你之前已经通过工具收集了足够的信息。现在你必须用中文写一篇完整的分析报告。\n\n按以下格式输出：\n一、概述\n二、核心分析\n三、关键发现\n四、总结与建议\n\n绝对不要写任何DSML标签、工具调用代码或XML格式。只写纯文字分析。',
                 model: wrappedModel,
                 messages: followUpMessages as any,
                 temperature,
