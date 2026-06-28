@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import Link from 'next/link';
-import { Code2, MessageSquare, Palette, FolderOpen, X, File, Folder, ChevronRight, ChevronDown, Plus } from 'lucide-react';
+import { Code2, MessageSquare, Palette, FolderOpen, Image, X, File, Folder, ChevronRight, ChevronDown, Plus } from 'lucide-react';
 
 interface ProjectFile {
   id: string;
@@ -151,6 +151,11 @@ export default function HomePage() {
           </Link>
         </div>
         <nav className="flex items-center gap-1 md:gap-2">
+          <Link href="/design" className="flex items-center gap-1.5 px-2.5 py-2 text-xs md:text-sm font-medium rounded-md hover:bg-muted transition-colors"
+          >
+            <Palette className="w-4 h-4 shrink-0" />
+            <span className="hidden sm:inline">设计工坊</span>
+          </Link>
           <Link href="/image-gen" className="flex items-center gap-1.5 px-2.5 py-2 text-xs md:text-sm font-medium rounded-md hover:bg-muted transition-colors">
             <Palette className="w-4 h-4 shrink-0" />
             <span className="hidden sm:inline">图片生成</span>
