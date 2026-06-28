@@ -8,6 +8,7 @@ import { TelemetryPanel } from "@/components/admin/TelemetryPanel";
 import { McpServersPanel } from "@/components/admin/McpServersPanel";
 import { MemoryPanel } from "@/components/admin/MemoryPanel";
 import { ScheduledTasksPanel } from "@/components/admin/ScheduledTasksPanel";
+import { PatrolPanel } from '@/components/admin/PatrolPanel';
 import Link from 'next/link';
 import { useTheme } from '@/components/theme-provider';
 import type { ModelConfig, ApiKey, Conversation } from '@/lib/types';
@@ -16,7 +17,7 @@ import type { ModelConfig, ApiKey, Conversation } from '@/lib/types';
 import { MODELS as MODELS_IMPORT } from '@/lib/models';
 const MODELS_DATA = MODELS_IMPORT.map(m => ({ id: m.id, name: m.name, provider: m.provider, description: m.description || '' }));
 
-type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'imagegen' | 'telemetry' | 'mcp' | 'memory' | 'tasks';
+type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'imagegen' | 'telemetry' | 'mcp' | 'memory' | 'tasks' | 'patrol';
 
 // ============ Sidebar Navigation Structure ============
 interface SidebarGroup {
@@ -69,7 +70,10 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
     id: 'monitor',
     label: '监控',
     icon: <BarChart3 size={16} />,
-    items: [{ id: 'telemetry', label: 'AI监控', icon: <Activity size={14} /> }],
+    items: [
+      { id: 'telemetry', label: 'AI监控', icon: <Activity size={14} /> },
+      { id: 'patrol', label: '系统巡检', icon: <Shield size={14} /> },
+    ],
   },
   {
     id: 'account',
@@ -190,6 +194,7 @@ export default function AdminPage() {
           {activeTab === 'account' && <AccountPanel />}
           {activeTab === 'imagegen' && <ImageGenPanel />}
           {activeTab === 'telemetry' && <TelemetryPanel />}
+          {activeTab === 'patrol' && <PatrolPanel />}
           {activeTab === 'mcp' && <McpServersPanel />}
           {activeTab === 'memory' && <MemoryPanel />}
           {activeTab === 'tasks' && <ScheduledTasksPanel />}
