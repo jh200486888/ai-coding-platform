@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { streamText, isLoopFinished, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware } from 'ai';
+import { streamText, isLoopFinished, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware, createUIMessageStream, createUIMessageStreamResponse, toUIMessageStream } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig, getSetting, setConversationUserId } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
@@ -755,148 +755,143 @@ export async function POST(request: NextRequest) {
     // Step limit safety: prevent infinite tool-calling loops
     const stepAbortController = new AbortController();
     const combinedSignal = AbortSignal.any([request.signal, stepAbortController.signal]);
-    const result = streamText({
-      system: dynamicPrompt,
-      model: wrappedModel,
-      messages: chatMessages as any,
-      tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
-      stopWhen: isLoopFinished(),
-      // AI SDK native: force model to output text after N tool-only steps
-      // No need for a separate follow-up call - this is the proper way
-      prepareStep: async ({ steps, messages }) => {
-        const toolOnlySteps = steps.filter((s: any) => s.toolCalls && s.toolCalls.length > 0 && (!s.text || s.text.length === 0)).length;
-        if (toolOnlySteps >= 4) {
-          console.log('[AI] prepareStep: ' + toolOnlySteps + ' tool-only steps, forcing text output via message injection');
-          // Key insight: just disabling tools + system prompt doesn't work with DeepSeek
-          // It hallucinates DSML tool-call syntax as text. Instead, we inject a user message
-          // that explicitly asks for a report, making the model naturally respond with text.
-          return {
-            activeTools: [],
-            messages: [
-              ...messages,
-              {
-                role: 'user',
-                content: '请根据你刚才通过工具收集到的所有信息，现在直接写一篇完整的中文分析报告。按以下格式：\n\n一、概述\n二、核心分析\n三、关键发现\n四、总结与建议\n\n注意：直接用纯文字写，不要写任何代码或标签。'
-              }
-            ],
-          };
-        }
-        return {};
-      },
-      temperature,
-      maxOutputTokens,
-      maxRetries,
-      timeout: { totalMs: Math.max(timeoutTotalMs, maxSteps * 30000), stepMs: timeoutStepMs },
-      onStepFinish: ({ finishReason, toolCalls, text }) => {
-        stepCount++;
-        lastFinishReason = finishReason;
-        if (text && text.length > 0) hasProducedText = true;
-        console.log(`[AI] Step ${stepCount}: finishReason=${finishReason}, toolCalls=${toolCalls?.length || 0}, textLen=${text?.length || 0}`);
-        // Safety: abort when step count exceeds maxSteps to prevent infinite tool loops
-        if (stepCount >= maxSteps) {
-          console.log(`[AI] Step limit reached (${maxSteps}), aborting to prevent infinite tool loop`);
-          stepAbortController.abort();
-        }
-      },
-      ...(topP !== undefined && { topP }),
-      ...(presencePenalty !== undefined && { presencePenalty }),
-      ...(frequencyPenalty !== undefined && { frequencyPenalty }),
-      ...(seed !== undefined && { seed }),
-      telemetry: {
-        isEnabled: true,
-        functionId: 'chat-completion',
-      },
-      abortSignal: combinedSignal,
-    });
 
-    return result.toUIMessageStreamResponse({
-      sendReasoning: true,
-      // 通过 messageMetadata 将 conversation_id 传给前端
-      messageMetadata: ({ part }) => {
-        if (part.type === 'start' || part.type === 'finish') {
-          return { conversationId: convId } as any;
-        }
-        return undefined;
-      },
-      // 流结束后保存助手消息 + 遥测
-      async onEnd({ responseMessage: message, isAborted }) {
-        try {
-          let text = (message as any).text
-            || (message.parts || []).filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
-          // Detect DSML/tool-call markup: when prepareStep disables tools, DeepSeek may output
-          // tool calls as text in DSML format instead of actual analysis. Strip and treat as no-text.
-          const isDSMLText = text && (text.includes('DSML') || text.includes('tool_calls') || text.includes('invoke name='));
-          if (isDSMLText) {
-            console.log('[AI] Detected DSML/tool-call markup in text, treating as no-text:', text.slice(0, 200));
-            text = '';
-          }
-          // Log step limit info for debugging
-          if (stepCount >= maxSteps && !hasProducedText) {
-            console.log(`[AI] Step limit hit (${stepCount}/${maxSteps}) with no text output - model stuck in tool loop`);
-          }
-          if (isAborted) {
-            console.log(`[AI] Stream aborted at step ${stepCount}, lastFinishReason=${lastFinishReason}, hasText=${!!text}, textLen=${text?.length || 0}`);
-          }
-
-          // 从 message parts 提取工具执行记录
-          const allParts = message.parts || [];
-          console.log('[AI] onEnd parts count:', allParts.length, 'types:', allParts.map((p: any) => p.type).join(','));
-          const toolParts = allParts.filter(
-            (p: any) => p.type?.startsWith('tool-') && p.state === 'output-available'
-          );
-          console.log('[AI] toolParts found:', toolParts.length, 'of', allParts.length, 'total parts');
-          let savedContent = text;
-          const execLog = toolParts.length > 0 ? toolParts.map((tp: any, i: number) => {
-            const name = tp.toolName || tp.toolInvocation?.toolName || 'unknown';
-            const out = typeof tp.output === 'string' ? tp.output : JSON.stringify(tp.output);
-            return `${i + 1}. ${name}: ${out.startsWith('❌') ? '❌' : '✅'} ${out.slice(0, 100)}`;
-          }).join('\n') : '';
-          if (toolParts.length > 0) {
-            savedContent = text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
-          }
-          // prepareStep (activeTools:[]) is the primary mechanism for text output after tool loops
-          // This follow-up is a safety net only
-          if (text && toolParts.length > 0) {
-            // Normal: model produced text + tool results (via prepareStep or naturally)
-            const reportTitle = text.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '分析报告';
-            savedContent = text + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->';
-            await createMessage(convId!, 'assistant', savedContent, model_id);
-          } else if (text) {
-            await createMessage(convId!, 'assistant', savedContent, model_id);
-          } else if (!text && toolParts.length > 0) {
-            // Safety net: no text but has tools - make follow-up call WITHOUT tools
-            console.log('[AI] Safety net: making tool-free follow-up call...');
-            try {
-              const followUpMessages = [
-                ...chatMessages.slice(0, -1),
-                { role: 'user' as const, content: '基于以上所有工具调用收集到的信息，请按以下格式输出中文分析报告：\n\n一、概述\n二、核心分析\n三、关键发现\n四、总结与建议\n\n注意：你现在没有工具可用，必须直接用纯文字输出。' }
-              ];
-              const followUpResult = streamText({
-                system: dynamicPrompt + '\n\n【重要】你之前已经通过工具收集了足够的信息。现在你必须用中文写一篇完整的分析报告。\n\n按以下格式输出：\n一、概述\n二、核心分析\n三、关键发现\n四、总结与建议\n\n绝对不要写任何DSML标签、工具调用代码或XML格式。只写纯文字分析。',
-                model: wrappedModel,
-                messages: followUpMessages as any,
-                temperature,
-                maxOutputTokens,
-                maxRetries: 1,
-                timeout: { totalMs: 60000, stepMs: 30000 },
-              });
-              const followUpText = await followUpResult.text;
-              if (followUpText) {
-                const reportTitle = followUpText.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '分析报告';
-                const fullContent = followUpText + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->';
-                await createMessage(convId!, 'assistant', fullContent, model_id);
-                console.log(`[AI] Follow-up summary generated: ${followUpText.length} chars`);
-              }
-            } catch (e: any) {
-              console.error('[AI] Follow-up summary failed:', e.message);
-              const abortContent = '⚠️ 工具调用已达上限，请发送"总结"获取分析报告。\n\n' + savedContent;
-              await createMessage(convId!, 'assistant', abortContent, model_id);
+    // AI SDK v7: use createUIMessageStream to enable follow-up stream merging
+    // After primary stream ends with no text, we start a follow-up streamText
+    // and merge() it into the same UI stream - so report text reaches the frontend.
+    const uiStream = createUIMessageStream({
+      execute: async ({ writer }) => {
+        const result = streamText({
+          system: dynamicPrompt,
+          model: wrappedModel,
+          messages: chatMessages as any,
+          tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
+          stopWhen: isLoopFinished(),
+          // No prepareStep: DeepSeek outputs DSML markup when activeTools:[]
+          // Follow-up stream merge handles the "no text after tools" case instead
+          temperature,
+          maxOutputTokens,
+          maxRetries,
+          timeout: { totalMs: Math.max(timeoutTotalMs, maxSteps * 30000), stepMs: timeoutStepMs },
+          onStepFinish: ({ finishReason, toolCalls, text }) => {
+            stepCount++;
+            lastFinishReason = finishReason;
+            if (text && text.length > 0) hasProducedText = true;
+            console.log(`[AI] Step ${stepCount}: finishReason=${finishReason}, toolCalls=${toolCalls?.length || 0}, textLen=${text?.length || 0}`);
+            if (stepCount >= maxSteps) {
+              console.log(`[AI] Step limit reached (${maxSteps}), aborting to prevent infinite tool loop`);
+              stepAbortController.abort();
             }
-          } else if (!isAborted) {
-            await createMessage(convId!, 'assistant', savedContent, model_id);
-          }
-        } catch {}
+          },
+          ...(topP !== undefined && { topP }),
+          ...(presencePenalty !== undefined && { presencePenalty }),
+          ...(frequencyPenalty !== undefined && { frequencyPenalty }),
+          ...(seed !== undefined && { seed }),
+          telemetry: {
+            isEnabled: true,
+            functionId: 'chat-completion',
+          },
+          abortSignal: combinedSignal,
+        });
 
+        // Merge primary stream into the UI stream
+        writer.merge(result.toUIMessageStream({
+          sendReasoning: true,
+          messageMetadata: ({ part }) => {
+            if (part.type === 'start' || part.type === 'finish') {
+              return { conversationId: convId } as any;
+            }
+            return undefined;
+          },
+        }));
+
+        // Wait for primary stream to complete
+        const finalResult = await result;
+        let text = (await finalResult.text) || '';
+
+        // Detect DSML markup (DeepSeek bug: outputs tool calls as text)
+        const isDSMLText = text && (text.includes('DSML') || text.includes('tool_calls') || text.includes('invoke name='));
+        if (isDSMLText) {
+          console.log('[AI] Detected DSML markup in text, treating as no-text:', text.slice(0, 200));
+          text = '';
+        }
+
+        // Extract tool results from steps for follow-up context injection
+        const allToolResults: string[] = [];
+        for (const step of await finalResult.steps) {
+          for (const tc of step.toolCalls || []) {
+            const tr = step.toolResults?.find((r: any) => r.toolCallId === tc.toolCallId);
+            if (tr) {
+              const resultStr = typeof tr.output === 'string' ? tr.output : JSON.stringify(tr.output);
+              allToolResults.push(`[${tc.toolName}] ${resultStr.slice(0, 500)}`);
+            }
+          }
+        }
+
+        // Build EXEC_LOG from tool results
+        const toolPartsForLog: {name: string; output: string}[] = [];
+        for (const step of await finalResult.steps) {
+          for (const tc of step.toolCalls || []) {
+            const tr = step.toolResults?.find((r: any) => r.toolCallId === tc.toolCallId);
+            if (tr) {
+              const out = typeof tr.output === 'string' ? tr.output : JSON.stringify(tr.output);
+              toolPartsForLog.push({ name: tc.toolName, output: out });
+            }
+          }
+        }
+        const execLog = toolPartsForLog.length > 0 ? toolPartsForLog.map((tp, i) => {
+          return `${i + 1}. ${tp.name}: ${tp.output.startsWith('\u274c') ? '\u274c' : '\u2705'} ${tp.output.slice(0, 100)}`;
+        }).join('\n') : '';
+
+        // Save to DB and decide if follow-up is needed
+        if (text && toolPartsForLog.length > 0) {
+          // Normal: model produced text + tool results
+          const reportTitle = text.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '\u5206\u6790\u62a5\u544a';
+          const savedContent = text + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->';
+          await createMessage(convId!, 'assistant', savedContent, model_id);
+        } else if (text) {
+          const savedContent = toolPartsForLog.length > 0 ? text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->' : text;
+          await createMessage(convId!, 'assistant', savedContent, model_id);
+        } else if (!text && (toolPartsForLog.length > 0 || allToolResults.length > 0)) {
+          // No text but has tool results -> follow-up stream that merges to frontend
+          console.log('[AI] No text after tools, starting follow-up stream merge...');
+
+          // Build context from tool results
+          const toolContext = allToolResults.length > 0
+            ? '\n\n\u4ee5\u4e0b\u662f\u4e4b\u524d\u5de5\u5177\u8c03\u7528\u7684\u7ed3\u679c\u6458\u8981\uff1a\n' + allToolResults.map((r, i) => `${i + 1}. ${r}`).join('\n')
+            : '';
+
+          const followUpResult = streamText({
+            system: dynamicPrompt + '\n\n\u3010\u91cd\u8981\u3011\u4f60\u4e4b\u524d\u5df2\u7ecf\u901a\u8fc7\u5de5\u5177\u6536\u96c6\u4e86\u8db3\u591f\u7684\u4fe1\u606f\u3002\u73b0\u5728\u4f60\u5fc5\u987b\u7528\u4e2d\u6587\u5199\u4e00\u7bc7\u5b8c\u6574\u7684\u5206\u6790\u62a5\u544a\u3002\n\n\u8f93\u51fa\u8981\u6c42\uff1a\n1. \u7528 Markdown \u683c\u5f0f\u8f93\u51fa\n2. \u4f7f\u7528 ## \u4e8c\u7ea7\u6807\u9898\u5212\u5206\u7ae0\u8282\uff08\u6982\u8ff0\u3001\u6838\u5fc3\u5206\u6790\u3001\u5173\u952e\u53d1\u73b0\u3001\u603b\u7ed3\u4e0e\u5efa\u8bae\uff09\n3. \u6570\u636e\u5bf9\u6bd4\u7528 Markdown \u8868\u683c\uff08| \u52171 | \u52172 |\uff09\n4. \u8981\u70b9\u7528\u52a0\u7c97\u548c\u5217\u8868\u7a81\u51fa\u663e\u793a\n5. \u7981\u6b62\u8f93\u51fa\u4efb\u4f55DSML\u6807\u7b7e\u3001\u5de5\u5177\u8c03\u7528\u4ee3\u7801\u6216XML\u683c\u5f0f\uff0c\u53ea\u5199\u7eaf\u6587\u5b57\u5206\u6790',
+            model: wrappedModel,
+            messages: [
+              ...chatMessages,
+              { role: 'user' as const, content: '\u57fa\u4e8e\u4ee5\u4e0a\u6240\u6709\u5de5\u5177\u8c03\u7528\u6536\u96c6\u5230\u7684\u4fe1\u606f\uff0c\u8bf7\u7528 Markdown \u683c\u5f0f\u8f93\u51fa\u4e2d\u6587\u5206\u6790\u62a5\u544a\u3002\n\n\u8981\u6c42\uff1a\n- ## \u4e8c\u7ea7\u6807\u9898\u5212\u5206\u7ae0\u8282\uff08\u6982\u8ff0\u3001\u6838\u5fc3\u5206\u6790\u3001\u5173\u952e\u53d1\u73b0\u3001\u603b\u7ed3\u4e0e\u5efa\u8bae\uff09\n- \u6570\u636e\u5bf9\u6bd4\u7528 Markdown \u8868\u683c\n- \u91cd\u70b9\u7528 **\u52a0\u7c97**\n- \u6761\u76ee\u7528 - \u5217\u8868\n\n\u6ce8\u610f\uff1a\u4f60\u73b0\u5728\u6ca1\u6709\u5de5\u5177\u53ef\u7528\uff0c\u5fc5\u987b\u76f4\u63a5\u7528\u7eaf\u6587\u5b57\u8f93\u51fa\u3002' + toolContext }
+            ] as any,
+            temperature,
+            maxOutputTokens,
+            maxRetries: 1,
+            timeout: { totalMs: 60000, stepMs: 30000 },
+          });
+
+          // CRITICAL: merge follow-up stream so text reaches the frontend!
+          writer.merge(followUpResult.toUIMessageStream({
+            sendReasoning: true,
+          }));
+
+          const followUpText = await followUpResult.text;
+          if (followUpText) {
+            const reportTitle = followUpText.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '\u5206\u6790\u62a5\u544a';
+            const fullContent = followUpText + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->';
+            await createMessage(convId!, 'assistant', fullContent, model_id);
+            console.log(`[AI] Follow-up report generated and streamed: ${followUpText.length} chars`);
+          } else {
+            const abortContent = '\u26a0\ufe0f \u5de5\u5177\u8c03\u7528\u5df2\u5b8c\u6210\uff0c\u4f46\u751f\u6210\u62a5\u544a\u5931\u8d25\u3002\u8bf7\u53d1\u9001\u201c\u603b\u7ed3\u201d\u91cd\u8bd5\u3002';
+            await createMessage(convId!, 'assistant', abortContent, model_id);
+          }
+        }
+
+        // Telemetry
         try {
           const { telemetry } = await import('@/lib/ai-telemetry');
           telemetry.recordAICall({
@@ -905,7 +900,6 @@ export async function POST(request: NextRequest) {
           });
         } catch {}
 
-        // 记录到 telemetry_events 表（AI SDK 原生 Telemetry 补充）
         try {
           const { recordTelemetry } = await import('@/lib/telemetry');
           await recordTelemetry({
@@ -919,7 +913,13 @@ export async function POST(request: NextRequest) {
 
         try { const { mcpManager } = await import('@/lib/mcp-client'); await mcpManager.closeAll(); } catch {}
       },
+      onError: (error) => {
+        console.error('[AI] UI Stream error:', error);
+        return 'An error occurred during streaming.';
+      },
     });
+
+    return createUIMessageStreamResponse({ stream: uiStream });
   } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message || 'Internal server error' }), {
       status: 500,
