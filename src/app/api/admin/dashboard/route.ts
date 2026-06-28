@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
+import { isAdminAuthenticated } from '@/lib/auth';
 import { query, queryOne } from '@/lib/db';
 
 export async function GET() {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     // 1. Total conversations count
     const convCount = await queryOne('SELECT COUNT(*) as count FROM conversations');

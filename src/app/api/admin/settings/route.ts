@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isAdminAuthenticated } from '@/lib/auth';
 import { getAllSettings, getSetting, setSetting } from '@/lib/db';
 
 // GET /api/admin/settings - 获取所有设置
 export async function GET() {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const settings = await getAllSettings();
     return NextResponse.json({ success: true, data: settings });
@@ -14,6 +17,8 @@ export async function GET() {
 
 // PUT /api/admin/settings - 更新设置
 export async function PUT(request: NextRequest) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const body = await request.json();
     const { key, value } = body;
@@ -32,6 +37,8 @@ export async function PUT(request: NextRequest) {
 
 // POST /api/admin/settings - 更新单个设置 (兼容 { key, value } 格式)
 export async function POST(request: NextRequest) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const body = await request.json();
     

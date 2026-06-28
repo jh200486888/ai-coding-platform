@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { ToolLoopAgent, isStepCount, pruneMessages, streamText, tool, toUIMessageStream, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 // === 自主智能：SSH工具 + 技能系统 ===
 import { serverTools } from '@/lib/server-tools';
@@ -15,6 +15,7 @@ import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { createSubAgentTool } from '@/lib/sub-agents';
 import { describeImages } from '@/lib/vision-proxy';
+import { getCurrentUser } from '@/lib/auth';
 
 const execAsync = promisify(exec);
 
@@ -300,6 +301,8 @@ try {
 } catch {}
 
 export async function POST(request: NextRequest) {
+  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+
   try {
     const body = await request.json();
     const { messages: rawMessages, modelId, projectId, conversationId, mode: rawMode, enable_search } = body as {

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>简单动画</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background: #0f0f14;
+    font-family: system-ui, sans-serif;
+    overflow: hidden;
+  }
+
+  .container {
+    position: relative;
+    width: 400px;
+    height: 400px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* ===== 旋转圆环 ===== */
+  .ring {
+    position: absolute;
+    width: 280px;
+    height: 280px;
+    border-radius: 50%;
+    border: 3px solid transparent;
+    border-top-color: #7c3aed;
+    border-right-color: #a78bfa;
+    animation: spin 1.8s linear infinite;
+  }
+
+  .ring:nth-child(2) {
+    width: 220px;
+    height: 220px;
+    border-top-color: #3b82f6;
+    border-right-color: #60a5fa;
+    animation-duration: 2.4s;
+    animation-direction: reverse;
+  }
+
+  .ring:nth-child(3) {
+    width: 160px;
+    height: 160px;
+    border-top-color: #ec4899;
+    border-right-color: #f472b6;
+    animation-duration: 3s;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* ===== 中心光晕脉冲 ===== */
+  .glow {
+    position: absolute;
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #7c3aed 0%, #3b82f6 40%, transparent 70%);
+    opacity: 0.8;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.35); opacity: 0.4; }
+  }
+
+  /* ===== 浮游粒子 ===== */
+  .particle {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #a78bfa;
+    box-shadow: 0 0 8px #7c3aed;
+    animation: float 4s ease-in-out infinite;
+  }
+
+  .particle:nth-child(5) { left: 60px;  top: 60px;  animation-delay: 0s;  background: #60a5fa; }
+  .particle:nth-child(6) { right: 60px; top: 60px;  animation-delay: 1s;  background: #f472b6; }
+  .particle:nth-child(7) { left: 60px;  bottom: 60px; animation-delay: 2s; background: #34d399; }
+  .particle:nth-child(8) { right: 60px; bottom: 60px; animation-delay: 3s; background: #fbbf24; }
+
+  @keyframes float {
+    0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.6; }
+    25% { transform: translate(15px, -20px) scale(1.3); opacity: 1; }
+    50% { transform: translate(-10px, -40px) scale(0.8); opacity: 0.4; }
+    75% { transform: translate(-20px, -10px) scale(1.2); opacity: 0.9; }
+  }
+
+  /* ===== 底部文字 ===== */
+  .text {
+    position: absolute;
+    bottom: -60px;
+    color: rgba(255,255,255,0.25);
+    font-size: 14px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    animation: fadeText 3s ease-in-out infinite;
+  }
+
+  @keyframes fadeText {
+    0%, 100% { opacity: 0.2; }
+    50% { opacity: 0.8; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="ring"></div>
+  <div class="ring"></div>
+  <div class="ring"></div>
+  <div class="glow"></div>
+  <div class="particle"></div>
+  <div class="particle"></div>
+  <div class="particle"></div>
+  <div class="particle"></div>
+  <div class="text">✦ 加载中 ✦</div>
+</div>
+</body>
+</html>

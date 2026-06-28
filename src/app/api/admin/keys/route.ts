@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isAdminAuthenticated } from '@/lib/auth';
 import { listApiKeys, upsertApiKey, deleteApiKey } from '@/lib/db';
 
 // Simple encryption using base64 (in production, use proper encryption)
@@ -7,6 +8,8 @@ function simpleEncrypt(text: string): string {
 }
 
 export async function GET() {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const keys = await listApiKeys();
     // Mask the actual keys for security
@@ -24,6 +27,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const body = await request.json();
     const { provider, provider_name, api_key, base_url, is_active } = body;
@@ -57,6 +62,8 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');

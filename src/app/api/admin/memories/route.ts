@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isAdminAuthenticated } from '@/lib/auth';
 import { query, run } from '@/lib/db';
 
 export async function GET(request: NextRequest) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1');
@@ -32,6 +35,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const body = await request.json();
     const ids: string[] = body.ids || (body.id ? [body.id] : []);

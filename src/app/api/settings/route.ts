@@ -1,8 +1,11 @@
+import { isAdminAuthenticated } from '@/lib/auth';
 import { NextRequest, NextResponse } from "next/server";
 import { getSetting, setSetting } from "@/lib/db";
 
 // GET /api/settings?key=xxx - 获取单个设置
 export async function GET(request: NextRequest) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const { searchParams } = new URL(request.url);
     const key = searchParams.get("key");
@@ -19,6 +22,8 @@ export async function GET(request: NextRequest) {
 
 // POST /api/settings - 更新单个设置 { key, value }
 export async function POST(request: NextRequest) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const body = await request.json();
     const { key, value } = body;

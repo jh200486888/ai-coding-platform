@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isAdminAuthenticated } from '@/lib/auth';
 import { getSetting, setSetting } from '@/lib/db';
 
 const DEFAULT_CONFIG = {
@@ -62,6 +63,8 @@ const DEFAULT_CONFIG = {
 
 // GET - 获取图片生成配置
 export async function GET() {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const stored = await getSetting('image_gen_config');
     const config = stored ? JSON.parse(stored) : DEFAULT_CONFIG;
@@ -74,6 +77,8 @@ export async function GET() {
 
 // PUT - 更新图片生成配置
 export async function PUT(request: Request) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const body = await request.json();
     await setSetting('image_gen_config', JSON.stringify(body));

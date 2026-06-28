@@ -111,3 +111,30 @@ export async function createUser(email: string, name: string, password: string, 
   return { id, email, name: name || null, role };
 }
 
+// ============ Admin Authentication ============
+
+const ADMIN_SESSION_SECRET = "ai-coding-platform-admin-secret-2024";
+const ADMIN_SESSION_DURATION = 24 * 60 * 60 * 1000;
+
+function validateAdminSession(session: string): boolean {
+  try {
+    const decoded = atob(session);
+    const parts = decoded.split(":");
+    if (parts.length < 2 || parts[0] !== "admin") return false;
+    const timestamp = parseInt(parts[1], 10);
+    if (isNaN(timestamp)) return false;
+    return (Date.now() - timestamp) < ADMIN_SESSION_DURATION;
+  } catch {
+    return false;
+  }
+}
+
+export async function isAdminAuthenticated(): Promise<boolean> {
+  try {
+    const cookieStore = await cookies();
+    const session = cookieStore.get("admin_session")?.value;
+    return session ? validateAdminSession(session) : false;
+  } catch {
+    return false;
+  }
+}

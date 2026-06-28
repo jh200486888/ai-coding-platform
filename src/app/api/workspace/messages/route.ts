@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, run } from '@/lib/db';
+import { getCurrentUser } from '@/lib/auth';
 
 // GET /api/workspace/messages?conversationId=xxx - Get messages for a conversation
 export async function GET(request: NextRequest) {
+  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+
   try {
     const { searchParams } = new URL(request.url);
     const conversationId = searchParams.get('conversationId');

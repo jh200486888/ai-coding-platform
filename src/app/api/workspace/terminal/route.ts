@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { getCurrentUser } from '@/lib/auth';
 
 const execAsync = promisify(exec);
 
 // POST /api/workspace/terminal - 执行终端命令
 export async function POST(request: NextRequest) {
+  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+
   try {
     const body = await request.json();
     const { command, cwd } = body;

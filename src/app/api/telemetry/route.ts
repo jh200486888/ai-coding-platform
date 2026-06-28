@@ -1,8 +1,11 @@
+import { isAdminAuthenticated } from '@/lib/auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { getTelemetryStats, cleanupTelemetryEvents } from '@/lib/telemetry';
 
 // GET /api/telemetry — 查询遥测统计
 export async function GET(request: NextRequest) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const { searchParams } = new URL(request.url);
     const hours = parseInt(searchParams.get('hours') || '24', 10);
@@ -22,6 +25,8 @@ export async function GET(request: NextRequest) {
 
 // DELETE /api/telemetry — 清理过期遥测数据
 export async function DELETE(request: NextRequest) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const { searchParams } = new URL(request.url);
     const days = parseInt(searchParams.get('days') || '30', 10);

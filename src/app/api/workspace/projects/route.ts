@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { listProjects, createProject } from '@/lib/db';
+import { getCurrentUser } from '@/lib/auth';
 
 export async function GET() {
+  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+
   try {
     const projects = await listProjects();
     return NextResponse.json(projects);
@@ -12,6 +15,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+
   try {
     const body = await request.json();
     const { name, description } = body;

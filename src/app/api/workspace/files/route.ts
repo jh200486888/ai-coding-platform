@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, queryOne, run } from '@/lib/db';
+import { getCurrentUser } from '@/lib/auth';
 
 // GET /api/workspace/files - 获取项目文件
 export async function GET(request: NextRequest) {
+  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+
   try {
     const { searchParams } = new URL(request.url);
     const projectId = searchParams.get('projectId');
@@ -25,6 +28,8 @@ export async function GET(request: NextRequest) {
 
 // POST /api/workspace/files - 创建/更新文件
 export async function POST(request: NextRequest) {
+  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+
   try {
     const body = await request.json();
     const { projectId, path, content, name, language, type } = body;
@@ -64,6 +69,8 @@ export async function POST(request: NextRequest) {
 
 // DELETE /api/workspace/files - 删除文件
 export async function DELETE(request: NextRequest) {
+  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+
   try {
     const { searchParams } = new URL(request.url);
     const projectId = searchParams.get('projectId');

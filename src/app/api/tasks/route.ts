@@ -1,8 +1,11 @@
+import { getCurrentUser } from '@/lib/auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { query, queryOne, run } from '@/lib/db';
 
 // GET - list all scheduled tasks
 export async function GET() {
+  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+
   try {
     const rows = await query('SELECT * FROM scheduled_tasks ORDER BY \"createdAt\" DESC');
     return NextResponse.json({ data: rows });
@@ -13,6 +16,8 @@ export async function GET() {
 
 // POST - create a new scheduled task
 export async function POST(request: NextRequest) {
+  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+
   try {
     const { title, prompt, runIn } = await request.json() as {
       title: string;
@@ -52,6 +57,8 @@ export async function POST(request: NextRequest) {
 
 // DELETE - delete a task
 export async function DELETE(request: NextRequest) {
+  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -67,6 +74,8 @@ export async function DELETE(request: NextRequest) {
 
 // PATCH - toggle task active status
 export async function PATCH(request: NextRequest) {
+  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+
   try {
     const { id, isActive } = await request.json() as { id: string; isActive: boolean };
     if (!id) return NextResponse.json({ error: '缺少 id' }, { status: 400 });

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getCurrentUser } from '@/lib/auth';
 
 // POST /api/workspace/upload - 上传附件
 export async function POST(request: NextRequest) {
+  const user = await getCurrentUser(); if (!user) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File;

@@ -1,8 +1,11 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { isAdminAuthenticated } from '@/lib/auth';
 import { getTelemetryStats, getRecentTelemetry } from '@/lib/db';
 import { logger } from '@/lib/logger';
 
 export async function GET(request: NextRequest) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type') || 'stats';

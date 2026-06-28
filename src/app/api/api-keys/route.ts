@@ -1,9 +1,12 @@
+import { isAdminAuthenticated } from '@/lib/auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { listApiKeys, getApiKeyByProvider, upsertApiKey, deleteApiKey, query, queryOne, run } from '@/lib/db';
 import { encodeApiKey } from '@/lib/ai-providers';
 import { randomUUID } from 'crypto';
 
 export async function GET() {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const apiKeys = await listApiKeys();
     const safeApiKeys = apiKeys.map((key: any) => ({
@@ -18,6 +21,8 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const body = await request.json();
     const { provider, name, apiKey, baseUrl } = body;
@@ -34,6 +39,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');
@@ -46,6 +53,8 @@ export async function DELETE(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  if (!(await isAdminAuthenticated())) { return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); }
+
   try {
     const body = await request.json();
     const { id, provider, name, apiKey, baseUrl, isActive } = body;
