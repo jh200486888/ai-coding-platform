@@ -582,6 +582,13 @@ export async function POST(request: NextRequest) {
       temperature,
       maxOutputTokens: wsMaxOutputTokens,
       ...(wsTopP !== undefined && { topP: wsTopP }),
+      onToolExecutionStart: ({ toolCall }) => {
+        console.log(`[WS-AI] Tool executing: ${toolCall.toolName}`);
+      },
+      onToolExecutionEnd: ({ toolCall, toolOutput, toolExecutionMs }) => {
+        const status = toolOutput.type === 'tool-error' ? 'ERROR' : 'OK';
+        console.log(`[WS-AI] Tool completed: ${toolCall.toolName} [${status}] ${toolExecutionMs}ms`);
+      },
       telemetry: {
         isEnabled: true,
         functionId: 'workspace-chat-completion',
@@ -594,7 +601,7 @@ export async function POST(request: NextRequest) {
         const agentResult = await agent.stream({
           messages: userAssistantMessages as any,
           timeout: { totalMs: Math.max(300000, maxSteps * 30000), stepMs: 30000 },
-          onStepFinish: ({ finishReason, toolCalls, text }) => {
+          onStepEnd: ({ finishReason, toolCalls, text }) => {
             wsStepCount++;
             console.log(`[WS-AI] Step ${wsStepCount}: finishReason=${finishReason}, toolCalls=${toolCalls?.length || 0}, textLen=${text?.length || 0}`);
           },

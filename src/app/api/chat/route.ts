@@ -804,6 +804,13 @@ export async function POST(request: NextRequest) {
       temperature,
       maxOutputTokens,
       maxRetries,
+      onToolExecutionStart: ({ toolCall }) => {
+        console.log(`[AI] Tool executing: ${toolCall.toolName}`);
+      },
+      onToolExecutionEnd: ({ toolCall, toolOutput, toolExecutionMs }) => {
+        const status = toolOutput.type === 'tool-error' ? 'ERROR' : 'OK';
+        console.log(`[AI] Tool completed: ${toolCall.toolName} [${status}] ${toolExecutionMs}ms`);
+      },
       telemetry: {
         isEnabled: true,
         functionId: 'chat-completion',
@@ -821,7 +828,7 @@ export async function POST(request: NextRequest) {
         const agentResult = await agent.stream({
           messages: chatMessages as any,
           timeout: { totalMs: Math.max(timeoutTotalMs, maxSteps * 30000), stepMs: timeoutStepMs },
-          onStepFinish: ({ finishReason, toolCalls, text }) => {
+          onStepEnd: ({ finishReason, toolCalls, text }) => {
             stepCount++;
             lastFinishReason = finishReason;
             if (text && text.length > 0) hasProducedText = true;
