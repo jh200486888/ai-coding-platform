@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { ToolLoopAgent, isStepCount, pruneMessages, streamText, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
+import { streamText, isLoopFinished, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware, createUIMessageStream, createUIMessageStreamResponse, toUIMessageStream } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig, getSetting, setConversationUserId } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
@@ -756,60 +756,48 @@ export async function POST(request: NextRequest) {
     const stepAbortController = new AbortController();
     const combinedSignal = AbortSignal.any([request.signal, stepAbortController.signal]);
 
-    // AI SDK v7 ToolLoopAgent: official agent loop with stopWhen + prepareStep
-    const agent = new ToolLoopAgent({
-      model: wrappedModel,
-      instructions: dynamicPrompt,
-      tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
-      stopWhen: isStepCount(Math.max(maxSteps, 15)),
-      // prepareStep: context compression when conversation gets too long
-      prepareStep: async ({ messages, stepNumber }) => {
-        const estimatedTokens = JSON.stringify(messages).length / 4;
-        if (estimatedTokens > 100000) {
-          console.log(`[AI] Context compression at step ${stepNumber}: ${Math.round(estimatedTokens)} tokens, pruning...`);
-          return {
-            messages: pruneMessages({
-              messages,
-              reasoning: 'all',
-              toolCalls: 'before-last-3-messages',
-              emptyMessages: 'remove',
-            }),
-          };
-        }
-        return {};
-      },
-      temperature,
-      maxOutputTokens,
-      maxRetries,
-      telemetry: {
-        isEnabled: true,
-        functionId: 'chat-completion',
-      },
-      ...(topP !== undefined && { topP }),
-      ...(presencePenalty !== undefined && { presencePenalty }),
-      ...(frequencyPenalty !== undefined && { frequencyPenalty }),
-      ...(seed !== undefined && { seed }),
-    });
-
     // AI SDK v7: use createUIMessageStream to enable follow-up stream merging
+    // After primary stream ends with no text, we start a follow-up streamText
+    // and merge() it into the same UI stream - so report text reaches the frontend.
     const uiStream = createUIMessageStream({
       execute: async ({ writer }) => {
-        const result = agent.stream({
+        const result = streamText({
+          system: dynamicPrompt,
+          model: wrappedModel,
           messages: chatMessages as any,
+          tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
+          stopWhen: isLoopFinished(),
+          // No prepareStep: DeepSeek outputs DSML markup when activeTools:[]
+          // Follow-up stream merge handles the "no text after tools" case instead
+          temperature,
+          maxOutputTokens,
+          maxRetries,
           timeout: { totalMs: Math.max(timeoutTotalMs, maxSteps * 30000), stepMs: timeoutStepMs },
           onStepFinish: ({ finishReason, toolCalls, text }) => {
             stepCount++;
             lastFinishReason = finishReason;
             if (text && text.length > 0) hasProducedText = true;
             console.log(`[AI] Step ${stepCount}: finishReason=${finishReason}, toolCalls=${toolCalls?.length || 0}, textLen=${text?.length || 0}`);
+            if (stepCount >= maxSteps) {
+              console.log(`[AI] Step limit reached (${maxSteps}), aborting to prevent infinite tool loop`);
+              stepAbortController.abort();
+            }
+          },
+          ...(topP !== undefined && { topP }),
+          ...(presencePenalty !== undefined && { presencePenalty }),
+          ...(frequencyPenalty !== undefined && { frequencyPenalty }),
+          ...(seed !== undefined && { seed }),
+          telemetry: {
+            isEnabled: true,
+            functionId: 'chat-completion',
           },
           abortSignal: combinedSignal,
         });
 
         // Merge primary stream into the UI stream
-        writer.merge((result as any).toUIMessageStream({
+        writer.merge(result.toUIMessageStream({
           sendReasoning: true,
-          messageMetadata: ({ part }: any) => {
+          messageMetadata: ({ part }) => {
             if (part.type === 'start' || part.type === 'finish') {
               return { conversationId: convId } as any;
             }
