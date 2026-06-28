@@ -232,20 +232,32 @@ async function execSearchWeb(query: string): Promise<string> {
 }
 
 // ============ 持久记忆 ============
-async function getMemories(): Promise<string> {
+async function getMemories(userMessage?: string): Promise<string> {
   try {
     const db = await import('@/lib/db');
-    const rows = await db.query('SELECT category, content FROM user_memory ORDER BY "updatedAt" DESC');
+    const rows = await db.query('SELECT category, content, importance, keywords FROM user_memory ORDER BY importance DESC, "updatedAt" DESC');
     if (!rows || rows.length === 0) return '';
-    const grouped: Record<string, string[]> = {};
-    for (const r of rows) {
-      const cat = r.category || 'general';
-      if (!grouped[cat]) grouped[cat] = [];
-      grouped[cat].push(r.content);
-    }
     const parts: string[] = [];
-    for (const [cat, items] of Object.entries(grouped)) {
-      parts.push(cat + ': ' + items.join('; '));
+    let totalLen = 0;
+    const MAX_MEMORY_CHARS = 2000;
+    for (const r of rows) {
+      if (r.importance >= 5) {
+        const entry = r.category + ': ' + r.content;
+        if (totalLen + entry.length > MAX_MEMORY_CHARS) break;
+        parts.push(entry);
+        totalLen += entry.length;
+        continue;
+      }
+      if (userMessage && r.keywords) {
+        const kws = String(r.keywords).split(',').map((k: string) => k.trim()).filter(Boolean);
+        const msg = userMessage.toLowerCase();
+        if (kws.some(kw => msg.includes(kw.toLowerCase()))) {
+          const entry = r.category + ': ' + r.content;
+          if (totalLen + entry.length > MAX_MEMORY_CHARS) break;
+          parts.push(entry);
+          totalLen += entry.length;
+        }
+      }
     }
     return parts.join('\n');
   } catch { return ''; }
@@ -352,7 +364,7 @@ export async function POST(request: NextRequest) {
     // System prompt
     const identityName = MODEL_IDENTITY[modelConfig.provider] || modelConfig.provider;
     const systemPrompt = await loadSystemPrompt();
-    const memories = await getMemories();
+    const lastUserMsg = messages.filter((m: any) => m.role === 'user').pop()?.content || ''; const memories = await getMemories(typeof lastUserMsg === 'string' ? lastUserMsg : '');
     const memorySection = memories ? '\n\n【用户记忆】\n' + memories + '\n\n当用户提到与记忆相关的内容时，参考这些信息。用户说"记住"时，用 saveMemory 工具保存。' : '';
     const fullSystemPrompt = systemPrompt + memorySection + `\n\n【身份】你是 ${identityName} 的 ${modelId} 模型。当用户问你是谁时，如实回答。`;
 
