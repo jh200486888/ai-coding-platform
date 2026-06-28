@@ -531,7 +531,14 @@ export async function POST(request: NextRequest) {
     let presencePenalty: number | undefined = undefined;
     let frequencyPenalty: number | undefined = undefined;
     let seed: number | undefined = undefined;
-    let maxOutputTokens = 16384;
+    // Per-provider maxOutputTokens limits (some models reject values above their max)
+    const PROVIDER_MAX_TOKENS: Record<string, number> = {
+      deepseek: 8192,      // DeepSeek V4 Flash/Pro max is 8192
+      groq: 8192,          // Groq models typically max 8192
+      moonshot: 8192,      // Kimi/Moonshot max 8192
+      zhipu: 4096,         // GLM models typically 4096
+    };
+    let maxOutputTokens = PROVIDER_MAX_TOKENS[modelConfig.provider] || 16384;
 
     try {
       const advStr2 = await getSetting('advanced_config');
@@ -544,7 +551,7 @@ export async function POST(request: NextRequest) {
         if (adv2.presencePenalty !== undefined && adv2.presencePenalty !== 0) presencePenalty = adv2.presencePenalty;
         if (adv2.frequencyPenalty !== undefined && adv2.frequencyPenalty !== 0) frequencyPenalty = adv2.frequencyPenalty;
         if (adv2.seed !== undefined && adv2.seed !== -1) seed = adv2.seed;
-        if (adv2.max_output_tokens !== undefined) maxOutputTokens = adv2.max_output_tokens;
+        if (adv2.max_output_tokens !== undefined) maxOutputTokens = Math.min(adv2.max_output_tokens, PROVIDER_MAX_TOKENS[modelConfig.provider] || 65536);
       }
     } catch {}
 

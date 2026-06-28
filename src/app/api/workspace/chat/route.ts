@@ -411,7 +411,10 @@ export async function POST(request: NextRequest) {
 
     // 读取高级配置
     let maxSteps = 20;
-    let wsMaxOutputTokens = 16384;
+    const WS_PROVIDER_MAX_TOKENS: Record<string, number> = {
+      deepseek: 8192, groq: 8192, moonshot: 8192, zhipu: 4096,
+    };
+    let wsMaxOutputTokens = WS_PROVIDER_MAX_TOKENS[modelConfig.provider] || 16384;
     let wsTopP: number | undefined = undefined;
     let temperature: number | undefined = undefined;
 
@@ -420,7 +423,7 @@ export async function POST(request: NextRequest) {
       if (advStr) {
         const adv = JSON.parse(advStr);
         if (adv.max_steps !== undefined) maxSteps = adv.max_steps;
-        if (adv.max_output_tokens !== undefined) wsMaxOutputTokens = adv.max_output_tokens;
+        if (adv.max_output_tokens !== undefined) wsMaxOutputTokens = Math.min(adv.max_output_tokens, WS_PROVIDER_MAX_TOKENS[modelConfig.provider] || 65536);
         if (adv.topP !== undefined && adv.topP !== 0.9) wsTopP = adv.topP;
       }
     } catch {}
