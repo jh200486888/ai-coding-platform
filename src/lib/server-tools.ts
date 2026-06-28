@@ -279,7 +279,7 @@ export const healthCheckTool = tool({
 
       if (checks.includes('db')) {
         const port = server === 'production' ? 5432 : 5433;
-        const r = await sshPool.execute(server, `psql -h 127.0.0.1 -p ${port} -U agent -d agent -c "SELECT 1" 2>&1 | head -3`);
+        const r = await sshPool.execute(server, `PGPASSWORD=i3m8x5a2e8 psql -h 127.0.0.1 -p ${port} -U agent -d agent -c "SELECT 1" 2>&1 | head -3`);
         results.push(`数据库: ${r.stdout.includes('1 row') ? '✅ 连接正常' : '❌ ' + r.stdout.trim()}`);
       }
 

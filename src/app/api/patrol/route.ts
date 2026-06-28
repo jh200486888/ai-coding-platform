@@ -71,7 +71,7 @@ async function runChecks(): Promise<CheckResult[]> {
   });
 
   // 5. DB检查
-  const dbResult = await sshExec('psql -h 127.0.0.1 -U agent -d agent -c "SELECT 1" 2>&1 | head -1', 5000);
+  const dbResult = await sshExec('PGPASSWORD=i3m8x5a2e8 psql -h 127.0.0.1 -U agent -d agent -c "SELECT 1" 2>&1 | head -1', 5000);
   results.push({
     name: 'Database',
     healthy: dbResult.stdout.includes('1 row') || dbResult.stdout.includes('count'),
