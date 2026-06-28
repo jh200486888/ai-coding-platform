@@ -8,9 +8,6 @@ import { tool } from 'ai';
 import { createSubAgentTool } from '@/lib/sub-agents';
 
 import { describeImages } from '@/lib/vision-proxy';
-// === 自主智能：SSH工具 + 技能系统 ===
-import { serverTools } from '@/lib/server-tools';
-import { skillTools, generateSkillsCatalog } from '@/lib/skills';
 // ============ 日志中间件（AI SDK 原生 Middleware） ============
 const loggingMiddleware: LanguageModelMiddleware = {
   wrapGenerate: async ({ doGenerate, params, model }) => {
@@ -764,9 +761,6 @@ export async function POST(request: NextRequest) {
     // 子智能体工具（AI SDK 原生 ToolLoopAgent）- 委派任务给专门的子智能体
     if (baseToolNames.includes('delegate_task')) {
       activeTools.delegate_task = createSubAgentTool(model, activeTools);
-
-    // === 自主智能：SSH服务器工具 + 技能工具 ===
-    Object.assign(activeTools, serverTools, skillTools);
     }
 
     // ====== AI SDK v7 原生 Middleware + Telemetry ======
@@ -788,7 +782,7 @@ export async function POST(request: NextRequest) {
     // AI SDK v7 ToolLoopAgent: official agent loop with stopWhen + prepareStep
     const agent = new ToolLoopAgent({
       model: wrappedModel,
-      instructions: dynamicPrompt + (generateSkillsCatalog() ? "\n\n" + generateSkillsCatalog() : ""),
+      instructions: dynamicPrompt,
       tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
       stopWhen: isStepCount(Math.max(maxSteps, 15)),
       // prepareStep: context compression when conversation gets too long
