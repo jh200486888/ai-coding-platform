@@ -14,6 +14,8 @@ function getPool(): Pool {
       password: process.env.DB_PASSWORD || 'i3m8x5a2e8',
       database: process.env.DB_NAME || 'agent',
       max: 10,
+      idleTimeoutMillis: 30000,   // Close idle connections after 30s
+      connectionTimeoutMillis: 5000, // Wait max 5s for a connection
     });
   }
   return pool;
