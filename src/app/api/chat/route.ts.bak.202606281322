@@ -505,7 +505,6 @@ export async function POST(request: NextRequest) {
     if (userMessage && userMessage.role === 'user') {
       const userContent = userMessage.content ||
         (userMessage.parts || []).filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
-
       if (userContent) await createMessage(convId, 'user', userContent, model_id);
     }
 
@@ -769,7 +768,7 @@ export async function POST(request: NextRequest) {
           console.log('[AI] prepareStep: ' + toolOnlySteps + ' tool-only steps, forcing text output');
           return {
             activeTools: [],
-            system: dynamicPrompt + '\n\n【紧急指令】你的工具已被临时禁用。现在你必须：\n1. 直接用纯文字撰写完整的分析报告\n2. 绝对禁止写任何DSML标签、XML标记、工具调用代码或DSML格式\n3. 绝对禁止写任何invoke、parameter、tool_calls等工具相关内容\n4. 只能写人类可读的分析文字，像写文章一样\n5. 立即开始写，不要犹豫'
+            system: dynamicPrompt + '\n\n【重要】你已通过工具收集了足够的信息，现在必须直接输出完整的文字分析报告。你已没有工具可用，只能输出文字。立即开始写报告。'
           };
         }
         return {};
@@ -812,15 +811,8 @@ export async function POST(request: NextRequest) {
       // 流结束后保存助手消息 + 遥测
       async onEnd({ responseMessage: message, isAborted }) {
         try {
-          let text = (message as any).text
+          const text = (message as any).text
             || (message.parts || []).filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
-          // Detect DSML/tool-call markup: when prepareStep disables tools, DeepSeek may output
-          // tool calls as text in DSML format instead of actual analysis. Strip and treat as no-text.
-          const isDSMLText = text && (text.includes('DSML') || text.includes('tool_calls') || text.includes('invoke name='));
-          if (isDSMLText) {
-            console.log('[AI] Detected DSML/tool-call markup in text, treating as no-text:', text.slice(0, 200));
-            text = '';
-          }
           // Log step limit info for debugging
           if (stepCount >= maxSteps && !hasProducedText) {
             console.log(`[AI] Step limit hit (${stepCount}/${maxSteps}) with no text output - model stuck in tool loop`);
