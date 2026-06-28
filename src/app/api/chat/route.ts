@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { streamText, stepCountIs, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware } from 'ai';
+import { streamText, isLoopFinished, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig, getSetting, setConversationUserId } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
@@ -742,11 +742,11 @@ export async function POST(request: NextRequest) {
       model: wrappedModel,
       messages: chatMessages as any,
       tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
-      stopWhen: stepCountIs(maxSteps),
+      stopWhen: isLoopFinished(),
       temperature,
       maxOutputTokens,
       maxRetries,
-      timeout: { totalMs: timeoutTotalMs, stepMs: timeoutStepMs },
+      timeout: { totalMs: Math.max(timeoutTotalMs, maxSteps * 30000), stepMs: timeoutStepMs },
       onStepFinish: ({ finishReason, toolCalls, text }) => {
         stepCount++;
         console.log(`[AI] Step ${stepCount}: finishReason=${finishReason}, toolCalls=${toolCalls?.length || 0}, textLen=${text?.length || 0}`);

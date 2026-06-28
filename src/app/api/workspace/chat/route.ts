@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { streamText, stepCountIs, tool, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware } from 'ai';
+import { streamText, isLoopFinished, tool, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { z } from 'zod';
 import { query, queryOne, run, getSetting } from '@/lib/db';
@@ -548,7 +548,7 @@ export async function POST(request: NextRequest) {
       model: wrappedModel,
       messages: userAssistantMessages as any,
       tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
-      stopWhen: stepCountIs(maxSteps),
+      stopWhen: isLoopFinished(),
       temperature,
       maxOutputTokens: wsMaxOutputTokens,
       ...(wsTopP !== undefined && { topP: wsTopP }),
