@@ -218,7 +218,7 @@ function RenderedContent({ content, conversationId, isAssistant }: { content: st
         if (seg.type === 'code') return <CodeBlock key={i} content={seg.content} lang={seg.lang} />;
         if (seg.type === 'report-card') return <ReportCard key={i} title={seg.reportTitle || '分析报告'} conversationId={conversationId} />;
         if (seg.type === 'html-preview' && seg.htmlData) return <HtmlPreviewCard key={i} html={seg.htmlData.html} title={seg.htmlData.title} viewport={seg.htmlData.viewport as any} />;
-        if (isAssistant && seg.content.length > 100) {
+        if (isAssistant && seg.content.length > 20) {
           // Render longer assistant text as Markdown for proper formatting
           return (
             <div key={i} className="prose prose-invert prose-sm max-w-none

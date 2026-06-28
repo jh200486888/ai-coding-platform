@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@plugin '@tailwindcss/typography';
 
 /* ===== 亮色主题（默认，白天使用） ===== */
 @theme {
