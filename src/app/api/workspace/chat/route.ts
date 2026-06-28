@@ -586,6 +586,7 @@ export async function POST(request: NextRequest) {
         get_available_skills: 'approved',
         use_skill: 'approved',
         read_skill_file: 'approved',
+        diagnose_error: 'approved',
       },
       stopWhen: isStepCount(Math.max(maxSteps, 15)),
       prepareStep: async ({ messages, stepNumber }) => {
