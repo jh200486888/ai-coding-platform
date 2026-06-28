@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { 
   Palette, Plus, Search, Sparkles, Layout, Image, Type, 
   FileImage, Video, Presentation, ArrowRight, Clock,
-  MessageSquare, Code2
+  MessageSquare, Code2, Shapes, Upload, Layers
 } from 'lucide-react';
 
 interface DesignProject {
@@ -17,33 +17,58 @@ interface DesignProject {
   updatedAt: string;
 }
 
-const CATEGORIES = [
-  { id: 'all', name: '全部', icon: Sparkles },
-  { id: 'poster', name: '海报', icon: Image },
-  { id: 'social', name: '社媒', icon: Type },
-  { id: 'presentation', name: '演示', icon: Presentation },
-  { id: 'logo', name: 'Logo', icon: Layout },
-  { id: 'video', name: '视频', icon: Video },
-];
+interface Category {
+  id: string;
+  name: string;
+  icon: string;
+  sort_order: number;
+}
 
-const TEMPLATES = [
-  { id: 't1', name: '科技海报', category: 'poster', prompt: '生成一张科技感深色海报，主题为AI创新', thumbnail: '' },
-  { id: 't2', name: '产品宣传页', category: 'poster', prompt: '产品宣传落地页，现代简约风格', thumbnail: '' },
-  { id: 't3', name: '社交媒体封面', category: 'social', prompt: '社交媒体封面图，品牌配色', thumbnail: '' },
-  { id: 't4', name: 'PPT封面', category: 'presentation', prompt: '演示文稿封面页，专业商务风格', thumbnail: '' },
-  { id: 't5', name: 'Logo设计', category: 'logo', prompt: '设计一个简约现代的Logo', thumbnail: '' },
-  { id: 't6', name: '短视频封面', category: 'video', prompt: '短视频封面图，吸引眼球', thumbnail: '' },
-];
+interface Template {
+  id: string;
+  name: string;
+  category_id: string;
+  prompt: string;
+  thumbnail: string;
+  sort_order: number;
+}
+
+// Icon mapping - maps string icon names to components
+const ICON_MAP: Record<string, any> = {
+  Sparkles, Image, Type, Presentation, Layout, Video, Shapes, Upload, Layers,
+};
+
+function CategoryIcon({ name }: { name: string }) {
+  const IconComp = ICON_MAP[name] || Sparkles;
+  return <IconComp className="w-4 h-4" />;
+}
 
 export default function DesignPage() {
   const router = useRouter();
   const [input, setInput] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
   const [projects, setProjects] = useState<DesignProject[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [isCreating, setIsCreating] = useState(false);
+  const [configLoading, setConfigLoading] = useState(true);
 
+  // Load design config from API
   useEffect(() => {
-    // Load recent design projects
+    fetch('/api/design/config')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          setCategories(data.categories || []);
+          setTemplates(data.templates || []);
+        }
+        setConfigLoading(false);
+      })
+      .catch(() => setConfigLoading(false));
+  }, []);
+
+  // Load recent design projects
+  useEffect(() => {
     fetch('/api/design')
       .then(r => r.ok ? r.json() : { data: [] })
       .then(data => setProjects(Array.isArray(data.data) ? data.data : []))
@@ -73,8 +98,8 @@ export default function DesignPage() {
   };
 
   const filteredTemplates = activeCategory === 'all' 
-    ? TEMPLATES 
-    : TEMPLATES.filter(t => t.category === activeCategory);
+    ? templates 
+    : templates.filter(t => t.category_id === activeCategory);
 
   return (
     <div className="min-h-screen bg-[#0f0f14] text-[#f1f5f9]">
@@ -138,52 +163,60 @@ export default function DesignPage() {
           </div>
         </div>
 
-        {/* Category Tags */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-4 -mx-4 px-4 scrollbar-hide">
-          {CATEGORIES.map(cat => (
-            <button
-              key={cat.id}
-              onClick={() => setActiveCategory(cat.id)}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
-                activeCategory === cat.id
-                  ? 'bg-[#7c3aed] text-white shadow-lg shadow-[#7c3aed]/20'
-                  : 'bg-[#16161e] text-[#94a3b8] border border-[#1e293b] hover:border-[#7c3aed]/30 hover:text-[#a78bfa]'
-              }`}
-            >
-              <cat.icon className="w-4 h-4" />
-              {cat.name}
-            </button>
-          ))}
-        </div>
-
-        {/* Template Grid */}
-        <div className="py-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <FileImage className="w-5 h-5 text-[#a78bfa]" />
-            快速开始
-          </h2>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {filteredTemplates.map(template => (
+        {/* Category Tags - loaded from API */}
+        {!configLoading && categories.length > 0 && (
+          <div className="flex items-center gap-2 overflow-x-auto pb-4 -mx-4 px-4 scrollbar-hide">
+            {categories.map(cat => (
               <button
-                key={template.id}
-                onClick={() => handleCreate(template.prompt)}
-                className="group relative bg-[#16161e] border border-[#1e293b] hover:border-[#7c3aed]/40 rounded-xl p-4 text-left transition-all hover:shadow-lg hover:shadow-[#7c3aed]/5 hover:-translate-y-0.5"
+                key={cat.id}
+                onClick={() => setActiveCategory(cat.id)}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                  activeCategory === cat.id
+                    ? 'bg-[#7c3aed] text-white shadow-lg shadow-[#7c3aed]/20'
+                    : 'bg-[#16161e] text-[#94a3b8] border border-[#1e293b] hover:border-[#7c3aed]/30 hover:text-[#a78bfa]'
+                }`}
               >
-                {/* Placeholder thumbnail */}
-                <div className="aspect-[4/3] bg-gradient-to-br from-[#1e1e2a] to-[#16162a] rounded-lg mb-3 flex items-center justify-center">
-                  <Palette className="w-8 h-8 text-[#7c3aed]/30 group-hover:text-[#7c3aed]/50 transition-colors" />
-                </div>
-                <div className="font-medium text-sm">{template.name}</div>
-                <div className="text-xs text-[#64748b] mt-1 line-clamp-1">{template.prompt}</div>
-                <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <div className="w-7 h-7 rounded-full bg-[#7c3aed] flex items-center justify-center">
-                    <ArrowRight className="w-3.5 h-3.5 text-white" />
-                  </div>
-                </div>
+                <CategoryIcon name={cat.icon} />
+                {cat.name}
               </button>
             ))}
           </div>
-        </div>
+        )}
+
+        {/* Template Grid - loaded from API */}
+        {!configLoading && filteredTemplates.length > 0 && (
+          <div className="py-6">
+            <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <FileImage className="w-5 h-5 text-[#a78bfa]" />
+              快速开始
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {filteredTemplates.map(template => (
+                <button
+                  key={template.id}
+                  onClick={() => handleCreate(template.prompt)}
+                  className="group relative bg-[#16161e] border border-[#1e293b] hover:border-[#7c3aed]/40 rounded-xl p-4 text-left transition-all hover:shadow-lg hover:shadow-[#7c3aed]/5 hover:-translate-y-0.5"
+                >
+                  {/* Placeholder thumbnail */}
+                  <div className="aspect-[4/3] bg-gradient-to-br from-[#1e1e2a] to-[#16162a] rounded-lg mb-3 flex items-center justify-center">
+                    {template.thumbnail ? (
+                      <img src={template.thumbnail} alt={template.name} className="w-full h-full object-cover rounded-lg" />
+                    ) : (
+                      <Palette className="w-8 h-8 text-[#7c3aed]/30 group-hover:text-[#7c3aed]/50 transition-colors" />
+                    )}
+                  </div>
+                  <div className="font-medium text-sm">{template.name}</div>
+                  <div className="text-xs text-[#64748b] mt-1 line-clamp-1">{template.prompt}</div>
+                  <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="w-7 h-7 rounded-full bg-[#7c3aed] flex items-center justify-center">
+                      <ArrowRight className="w-3.5 h-3.5 text-white" />
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Recent Projects */}
         {projects.length > 0 && (

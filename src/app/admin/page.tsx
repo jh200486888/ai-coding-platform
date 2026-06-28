@@ -2,13 +2,14 @@
 import { toast } from 'sonner';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette, Activity, Plug, Brain, LayoutDashboard, ChevronDown, ChevronRight, Clock, Database, CheckCircle2, XCircle, Cpu, BarChart3, Shield } from 'lucide-react';
+import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette, Activity, Plug, Brain, LayoutDashboard, ChevronDown, ChevronRight, Clock, Database, CheckCircle2, XCircle, Cpu, BarChart3, Shield, Paintbrush } from 'lucide-react';
 import { ImageGenPanel } from "@/components/admin/ImageGenPanel";
 import { TelemetryPanel } from "@/components/admin/TelemetryPanel";
 import { McpServersPanel } from "@/components/admin/McpServersPanel";
 import { MemoryPanel } from "@/components/admin/MemoryPanel";
 import { ScheduledTasksPanel } from "@/components/admin/ScheduledTasksPanel";
 import { PatrolPanel } from '@/components/admin/PatrolPanel';
+import { DesignConfigPanel } from '@/components/admin/DesignConfigPanel';
 import Link from 'next/link';
 import { useTheme } from '@/components/theme-provider';
 import type { ModelConfig, ApiKey, Conversation } from '@/lib/types';
@@ -17,7 +18,7 @@ import type { ModelConfig, ApiKey, Conversation } from '@/lib/types';
 import { MODELS as MODELS_IMPORT } from '@/lib/models';
 const MODELS_DATA = MODELS_IMPORT.map(m => ({ id: m.id, name: m.name, provider: m.provider, description: m.description || '' }));
 
-type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'imagegen' | 'telemetry' | 'mcp' | 'memory' | 'tasks' | 'patrol';
+type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'imagegen' | 'telemetry' | 'mcp' | 'memory' | 'tasks' | 'patrol' | 'design';
 
 // ============ Sidebar Navigation Structure ============
 interface SidebarGroup {
@@ -64,6 +65,7 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
       { id: 'projects', label: '项目管理', icon: <Folder size={14} /> },
       { id: 'tasks', label: '定时任务', icon: <Clock size={14} /> },
       { id: 'imagegen', label: '图片生成', icon: <Palette size={14} /> },
+      { id: 'design', label: '设计配置', icon: <Paintbrush size={14} /> },
     ],
   },
   {
@@ -195,6 +197,7 @@ export default function AdminPage() {
           {activeTab === 'imagegen' && <ImageGenPanel />}
           {activeTab === 'telemetry' && <TelemetryPanel />}
           {activeTab === 'patrol' && <PatrolPanel />}
+              {activeTab === 'design' && <DesignConfigPanel />}
           {activeTab === 'mcp' && <McpServersPanel />}
           {activeTab === 'memory' && <MemoryPanel />}
           {activeTab === 'tasks' && <ScheduledTasksPanel />}
