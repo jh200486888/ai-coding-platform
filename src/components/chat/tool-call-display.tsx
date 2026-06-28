@@ -25,6 +25,7 @@ const toolNameMap: Record<string, string> = {
   read_skill_file: '读取技能文件',
   web_scrape: '网页抓取',
   web_search: '联网搜索',
+  preview_html: '页面预览',
   diagnose_error: '错误诊断',
 };
 

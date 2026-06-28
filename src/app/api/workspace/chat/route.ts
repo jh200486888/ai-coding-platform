@@ -4,6 +4,7 @@ import { ToolLoopAgent, isStepCount, pruneMessages, streamText, tool, toUIMessag
 import { serverTools } from '@/lib/server-tools';
 import { skillTools, generateSkillsCatalog } from '@/lib/skills';
 import { webTools } from '@/lib/web-scraper';
+import { previewTools } from '@/lib/preview-tool';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { z } from 'zod';
 import { query, queryOne, run, getSetting } from '@/lib/db';
@@ -559,7 +560,7 @@ export async function POST(request: NextRequest) {
     }
 
     // === 自主智能：SSH服务器工具 + 技能工具 ===
-    Object.assign(activeTools, serverTools, skillTools, webTools);
+    Object.assign(activeTools, serverTools, skillTools, webTools, previewTools);
 
     // ====== AI SDK v7 原生 Middleware + Telemetry ======
     const streamStartTime = Date.now();
@@ -602,6 +603,7 @@ export async function POST(request: NextRequest) {
         diagnose_error: 'approved',
         web_scrape: 'approved',
         web_search: 'approved',
+        preview_html: 'approved',
       },
       stopWhen: isStepCount(Math.max(maxSteps, 15)),
       prepareStep: async ({ messages, stepNumber }) => {

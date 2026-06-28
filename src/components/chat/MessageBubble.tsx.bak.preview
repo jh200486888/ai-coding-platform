@@ -3,7 +3,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { User, Bot, Image, FileText, Code, Copy, Check, Pencil, Volume2, Square, FileSearch } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import HtmlPreviewCard from './html-preview-card';
 import type { Message, Attachment } from '@/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -62,11 +61,10 @@ function stripMarkdown(text: string): string {
 }
 
 interface ContentSegment {
-  type: 'code' | 'text' | 'report-card' | 'html-preview';
+  type: 'code' | 'text' | 'report-card';
   content: string;
   lang?: string;
   reportTitle?: string;
-  htmlData?: { html: string; title: string; viewport: string };
 }
 
 function parseContent(text: string): ContentSegment[] {
@@ -82,26 +80,6 @@ function parseContent(text: string): ContentSegment[] {
   
   // Remove EXEC_LOG from display
   text = text.replace(/\n\n<!--EXEC_LOG\n[\s\S]*?\n-->/, '');
-
-  // Extract HTML_PREVIEW marker if present
-  let htmlPreviewData: { html: string; title: string; viewport: string } | undefined;
-  const htmlPreviewMatch = text.match(/<!--HTML_PREVIEW\n([\s\S]*?)\n-->/);
-  if (htmlPreviewMatch) {
-    const meta = htmlPreviewMatch[1];
-    const titleM = meta.match(/title:(.*)/);
-    const viewportM = meta.match(/viewport:(.*)/);
-    const htmlM = meta.match(/html:(.*)/);
-    if (htmlM) {
-      try {
-        htmlPreviewData = {
-          title: titleM ? titleM[1].trim() : 'Preview',
-          viewport: viewportM ? viewportM[1].trim() : 'desktop',
-          html: Buffer.from(htmlM[1].trim(), 'base64').toString('utf-8'),
-        };
-      } catch {}
-    }
-    text = text.replace(/<!--HTML_PREVIEW\n[\s\S]*?\n-->/, '');
-  }
   
   // Remove DSML tool-call markup that model outputs as text when prepareStep disables tools
   const hadDSML = text.includes('DSML') || text.includes('tool_calls') || text.includes('invoke name=');
@@ -217,7 +195,6 @@ function RenderedContent({ content, conversationId, isAssistant }: { content: st
       {segments.map((seg, i) => {
         if (seg.type === 'code') return <CodeBlock key={i} content={seg.content} lang={seg.lang} />;
         if (seg.type === 'report-card') return <ReportCard key={i} title={seg.reportTitle || '分析报告'} conversationId={conversationId} />;
-        if (seg.type === 'html-preview' && seg.htmlData) return <HtmlPreviewCard key={i} html={seg.htmlData.html} title={seg.htmlData.title} viewport={seg.htmlData.viewport as any} />;
         if (isAssistant && seg.content.length > 100) {
           // Render longer assistant text as Markdown for proper formatting
           return (

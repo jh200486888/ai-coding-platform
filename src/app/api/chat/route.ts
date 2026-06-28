@@ -12,6 +12,7 @@ import { describeImages } from '@/lib/vision-proxy';
 import { serverTools } from '@/lib/server-tools';
 import { skillTools, generateSkillsCatalog } from '@/lib/skills';
 import { webTools } from '@/lib/web-scraper';
+import { previewTools } from '@/lib/preview-tool';
 // ============ 日志中间件（AI SDK 原生 Middleware） ============
 const loggingMiddleware: LanguageModelMiddleware = {
   wrapGenerate: async ({ doGenerate, params, model }) => {
@@ -780,7 +781,7 @@ export async function POST(request: NextRequest) {
     }
 
     // === 自主智能：SSH服务器工具 + 技能工具 ===
-    Object.assign(activeTools, serverTools, skillTools, webTools);
+    Object.assign(activeTools, serverTools, skillTools, webTools, previewTools);
 
     // ====== AI SDK v7 原生 Middleware + Telemetry ======
     const streamStartTime = Date.now();
@@ -828,6 +829,7 @@ export async function POST(request: NextRequest) {
         diagnose_error: 'approved',
         web_scrape: 'approved',
         web_search: 'approved',
+        preview_html: 'approved',
       },
       stopWhen: isStepCount(Math.max(maxSteps, 15)),
       // prepareStep: context compression when conversation gets too long
