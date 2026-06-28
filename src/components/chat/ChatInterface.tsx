@@ -70,6 +70,7 @@ export function ChatInterface() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   const [isDragging, setIsDragging] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -550,13 +551,31 @@ export function ChatInterface() {
                   <polyline points="10 9 9 9 8 9" />
                 </svg>
               </button>
-              <button
-                onClick={() => handleExport('md')}
-                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors shrink-0"
-                title="导出MD"
-              >
-                <Download className="w-4 h-4" />
-              </button>
+              <div className="relative">
+                <button
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors shrink-0"
+                  title="导出"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+                {showExportMenu && (
+                  <div className="absolute right-0 top-full mt-1 bg-card border border-border rounded-lg shadow-lg py-1 z-50 min-w-[120px]">
+                    {[
+                      { fmt: 'md', label: 'Markdown (.md)' },
+                      { fmt: 'docx', label: 'Word (.docx)' },
+                      { fmt: 'pdf', label: 'PDF (打印)' },
+                      { fmt: 'html', label: 'HTML (.html)' },
+                      { fmt: 'txt', label: '纯文本 (.txt)' },
+                    ].map(item => (
+                      <button key={item.fmt} onClick={() => { handleExport(item.fmt); setShowExportMenu(false); }}
+                        className="w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors">
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button
                 onClick={handleNewChat}
                 className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors shrink-0"

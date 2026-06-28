@@ -114,6 +114,7 @@ export function ChatMessages({
       {messages.map(message => (
         <MessageBubble
           key={message.id}
+          conversationId={conversationId}
           message={message}
           isEditing={editingMessageId === message.id}
           editContent={editContent}

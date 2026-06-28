@@ -186,7 +186,7 @@ function ReportCard({ title, conversationId }: { title: string; conversationId?:
   const router = useRouter();
   const handleClick = () => {
     if (conversationId) {
-      router.push(`/preview/${conversationId}`);
+      window.open(`/preview/${conversationId}`, "_blank");
     }
   };
   return (
