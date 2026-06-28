@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft, Palette, Send, Loader2, Bot, User, Image,
-  Type, Shapes, Upload, Layers, Wand2, Download, RotateCcw,
-  Maximize2, Minimize2, MessageSquare, Code2, ChevronRight
+  Type, Shapes, Upload, Layers, Wand2, Download,
+  Maximize2, Minimize2, MessageSquare, Code2, Sparkles,
+  Presentation, Layout, Video
 } from 'lucide-react';
 
 interface ChatMessage {
@@ -16,14 +17,27 @@ interface ChatMessage {
   timestamp: Date;
 }
 
-const TOOLS = [
-  { id: 'templates', name: '模板', icon: Image },
-  { id: 'elements', name: '元素', icon: Shapes },
-  { id: 'text', name: '文字', icon: Type },
-  { id: 'images', name: '图片', icon: Image },
-  { id: 'upload', name: '上传', icon: Upload },
-  { id: 'layers', name: '图层', icon: Layers },
-];
+interface ToolItem {
+  id: string;
+  name: string;
+  icon: string;
+  sort_order: number;
+}
+
+interface SuggestionItem {
+  id: string;
+  text: string;
+  sort_order: number;
+}
+
+const ICON_MAP: Record<string, any> = {
+  Sparkles, Image, Type, Presentation, Layout, Video, Shapes, Upload, Layers,
+};
+
+function ToolIcon({ name }: { name: string }) {
+  const IconComp = ICON_MAP[name] || Shapes;
+  return <IconComp className="w-4 h-4" />;
+}
 
 export default function DesignEditorPage() {
   const params = useParams();
@@ -39,8 +53,23 @@ export default function DesignEditorPage() {
   const [canvasHtml, setCanvasHtml] = useState('');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [tools, setTools] = useState<ToolItem[]>([]);
+  const [suggestions, setSuggestions] = useState<SuggestionItem[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Load design config (tools + suggestions)
+  useEffect(() => {
+    fetch('/api/design/config')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          setTools(data.tools || []);
+          setSuggestions(data.suggestions || []);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Send initial prompt if provided
   useEffect(() => {
@@ -92,10 +121,7 @@ export default function DesignEditorPage() {
       const res = await fetch('/api/design/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: userMessage,
-          conversationId,
-        }),
+        body: JSON.stringify({ message: userMessage, conversationId }),
       });
 
       if (!res.ok) throw new Error('Request failed');
@@ -118,7 +144,6 @@ export default function DesignEditorPage() {
           if (done) break;
           const chunk = decoder.decode(value, { stream: true });
           
-          // Parse SSE stream
           const lines = chunk.split('\n');
           for (const line of lines) {
             if (line.startsWith('0:')) {
@@ -149,7 +174,6 @@ export default function DesignEditorPage() {
         }
       }
 
-      // Extract conversation ID from response headers or data
       const convIdHeader = res.headers.get('X-Conversation-Id');
       if (convIdHeader) setConversationId(convIdHeader);
 
@@ -197,9 +221,9 @@ export default function DesignEditorPage() {
 
       {/* Main 3-column layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Tools Panel */}
+        {/* Left: Tools Panel - from API */}
         <div className="w-14 md:w-16 border-r border-[#1e293b] bg-[#16161e] flex flex-col items-center py-2 gap-1 shrink-0">
-          {TOOLS.map(tool => (
+          {tools.map(tool => (
             <button
               key={tool.id}
               onClick={() => setActiveTool(tool.id)}
@@ -210,7 +234,7 @@ export default function DesignEditorPage() {
               }`}
               title={tool.name}
             >
-              <tool.icon className="w-4 h-4" />
+              <ToolIcon name={tool.icon} />
               <span className="text-[9px]">{tool.name}</span>
             </button>
           ))}
@@ -257,18 +281,15 @@ export default function DesignEditorPage() {
               <div className="text-center py-8">
                 <SparkleIcon />
                 <p className="text-xs text-[#64748b] mt-3">描述你想设计的内容</p>
+                {/* Suggestions from API */}
                 <div className="mt-3 space-y-1.5">
-                  {[
-                    '设计一张科技感海报',
-                    '生成一个产品落地页',
-                    '制作社交媒体封面图',
-                  ].map((suggestion, i) => (
+                  {suggestions.map((s, i) => (
                     <button
-                      key={i}
-                      onClick={() => sendMessage(suggestion)}
+                      key={s.id}
+                      onClick={() => sendMessage(s.text)}
                       className="block w-full text-left text-xs px-3 py-2 rounded-lg bg-[#1e1e2a] hover:bg-[#2a2a3a] text-[#94a3b8] hover:text-[#a78bfa] transition-colors"
                     >
-                      {suggestion}
+                      {s.text}
                     </button>
                   ))}
                 </div>

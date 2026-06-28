@@ -10,9 +10,15 @@ export async function GET() {
     const templates = await query(
       'SELECT id, name, category_id, prompt, thumbnail, sort_order FROM design_templates WHERE is_active = true ORDER BY sort_order'
     );
-    return NextResponse.json({ categories, templates });
+    const tools = await query(
+      'SELECT id, name, icon, sort_order FROM design_tools WHERE is_active = true ORDER BY sort_order'
+    );
+    const suggestions = await query(
+      'SELECT id, text, sort_order FROM design_suggestions WHERE is_active = true ORDER BY sort_order'
+    );
+    return NextResponse.json({ categories, templates, tools, suggestions });
   } catch (e: any) {
-    // Fallback to defaults if DB not ready
+    // Fallback defaults
     return NextResponse.json({
       categories: [
         { id: 'all', name: '全部', icon: 'Sparkles', sort_order: 0 },
@@ -30,7 +36,19 @@ export async function GET() {
         { id: 't5', name: 'Logo设计', category_id: 'logo', prompt: '设计一个简约现代的Logo', thumbnail: '', sort_order: 5 },
         { id: 't6', name: '短视频封面', category_id: 'video', prompt: '短视频封面图，吸引眼球', thumbnail: '', sort_order: 6 },
       ],
+      tools: [
+        { id: 'templates', name: '模板', icon: 'Image', sort_order: 1 },
+        { id: 'elements', name: '元素', icon: 'Shapes', sort_order: 2 },
+        { id: 'text', name: '文字', icon: 'Type', sort_order: 3 },
+        { id: 'images', name: '图片', icon: 'Image', sort_order: 4 },
+        { id: 'upload', name: '上传', icon: 'Upload', sort_order: 5 },
+        { id: 'layers', name: '图层', icon: 'Layers', sort_order: 6 },
+      ],
+      suggestions: [
+        { id: 's1', text: '设计一张科技感海报', sort_order: 1 },
+        { id: 's2', text: '生成一个产品落地页', sort_order: 2 },
+        { id: 's3', text: '制作社交媒体封面图', sort_order: 3 },
+      ],
     });
   }
 }
-
