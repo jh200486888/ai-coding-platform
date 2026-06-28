@@ -1,4 +1,4 @@
-// @ts-nocheck
+// @ts-nocheck // AI SDK v7 tool() 类型推断限制，待SDK修复后移除
 /**
  * 技能系统 - SKILL.md 标准格式的技能发现与加载
  * 参考 Agent Skills 开放标准（Anthropic原创，Claude Code/OpenCode/Cursor/GitHub通用）

@@ -1,11 +1,15 @@
-// @ts-nocheck
+// @ts-nocheck // AI SDK v7 tool() + needsApproval + execute 类型推断不兼容，待SDK修复后移除
 /**
  * 服务器操作工具 - AI SDK tool() 定义
  * 供 ToolLoopAgent 使用的SSH远程操作工具集
  */
 import { tool } from 'ai';
 import { z } from 'zod';
-import { sshPool } from './ssh-pool';
+import { sshPool, DANGEROUS_COMMANDS } from './ssh-pool';
+
+// Helper: 包装tool定义，解决AI SDK v7 needsApproval + execute 类型不兼容问题
+
+
 
 // ==================== SSH 执行命令 ====================
 export const sshExecuteTool = tool({
@@ -24,7 +28,7 @@ export const sshExecuteTool = tool({
     cwd: z.string().optional().describe('工作目录，默认为项目根目录'),
   }),
   needsApproval: true,
-  execute: async ({ command, server, timeout, cwd }: { command: string; server: string; timeout: number; cwd?: string }) => {
+  execute: async ({ command, server, timeout, cwd }: { command: string; server: 'production' | 'development'; timeout: number; cwd?: string }) => {
     // 安全检查：危险命令直接拒绝
     for (const pattern of DANGEROUS_COMMANDS) {
       if (pattern.test(command)) {
@@ -71,7 +75,7 @@ export const sshReadFileTool = tool({
     startLine: z.number().optional().describe('起始行号(从0开始)，大文件分段读取'),
     endLine: z.number().optional().describe('结束行号，默认读全部'),
   }),
-  execute: async ({ path, server, startLine, endLine }) => {
+  execute: async ({ path, server, startLine, endLine }: { path: string; server: 'production' | 'development'; startLine?: number; endLine?: number }) => {
     try {
       let content = await sshPool.readFile(server, path);
 
@@ -113,7 +117,7 @@ export const sshWriteFileTool = tool({
     backup: z.boolean().default(true).describe('是否备份原文件，默认true'),
   }),
   needsApproval: true,
-  execute: async ({ path, content, server, backup }) => {
+  execute: async ({ path, content, server, backup }: { path: string; content: string; server: 'production' | 'development'; backup?: boolean }) => {
     try {
       const result = await sshPool.writeFile(server, path, content, backup);
       let msg = `✅ 文件已写入: ${path}`;
@@ -137,7 +141,7 @@ export const buildProjectTool = tool({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
   }),
   needsApproval: true,
-  execute: async ({ server }) => {
+  execute: async ({ server }: { server: 'production' | 'development' }) => {
     try {
       const result = await sshPool.execute(server,
         'NODE_OPTIONS="--max-old-space-size=3072" pnpm build 2>&1 | tail -50',
@@ -167,9 +171,9 @@ export const deployServiceTool = tool({
   needsApproval: true,
   execute: async ({ server }) => {
     try {
-      const config = (sshPool as unknown as { getServerConfig: (s: string) => { pm2Service: string; appPort: number } }).getServerConfig?.(server);
-      const pm2Service = config?.pm2Service || 'ai-coding-platform';
-      const appPort = config?.appPort || 5000;
+      // Get server config for PM2 service name and port
+    const pm2Service = server === 'production' ? 'ai-coding-platform' : 'ai-coding-dev';
+    const appPort = server === 'production' ? 5000 : 5001;
 
       // 重启PM2
       const restartResult = await sshPool.execute(server, `pm2 restart ${pm2Service}`);
@@ -209,19 +213,19 @@ export const healthCheckTool = tool({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
     checks: z.array(z.enum(['http', 'pm2', 'disk', 'memory', 'db'])).default(['http', 'pm2', 'memory']).describe('要检查的项目'),
   }),
-  execute: async ({ server, checks }) => {
+  execute: async ({ server, checks }: { server: 'production' | 'development'; checks: Array<'http' | 'pm2' | 'disk' | 'memory' | 'db'> }) => {
     const results: string[] = [];
 
     try {
       if (checks.includes('http')) {
-        const appPort = server === 'production' ? 5000 : 5001;
-        const r = await sshPool.execute(server, `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:${appPort} --max-time 5`);
+        const port = server === 'production' ? 5000 : 5001;
+        const r = await sshPool.execute(server, `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:${port} --max-time 5`);
         results.push(`HTTP: ${r.stdout.trim() === '200' || r.stdout.trim() === '302' ? '✅' : '❌'} 状态码 ${r.stdout.trim()}`);
       }
 
       if (checks.includes('pm2')) {
-        const pm2Service = server === 'production' ? 'ai-coding-platform' : 'ai-coding-dev';
-        const r = await sshPool.execute(server, `pm2 show ${pm2Service} 2>/dev/null | grep -E "status|uptime|restarts" | head -3`);
+        const pm2Svc = server === 'production' ? 'ai-coding-platform' : 'ai-coding-dev';
+        const r = await sshPool.execute(server, `pm2 show ${pm2Svc} 2>/dev/null | grep -E "status|uptime|restarts" | head -3`);
         results.push(`PM2: ${r.stdout.trim() || '❌ 进程未找到'}`);
       }
 
@@ -258,7 +262,7 @@ export const gitCommitTool = tool({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
   }),
   needsApproval: true,
-  execute: async ({ message, server }) => {
+  execute: async ({ message, server }: { message: string; server: 'production' | 'development' }) => {
     try {
       // 先看状态
       const statusResult = await sshPool.execute(server, 'git status --short');
