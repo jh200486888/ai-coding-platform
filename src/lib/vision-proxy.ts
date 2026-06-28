@@ -11,6 +11,7 @@ import { getApiKeyByProvider, getModelConfig } from '@/lib/db';
 
 // 支持视觉输入的模型优先级（从便宜到贵）
 const VISION_MODEL_PRIORITY = [
+  { model_id: 'glm-5v-turbo', provider: 'zhipu' },
   { model_id: 'glm-4-flash', provider: 'zhipu' },
   { model_id: 'qwen-turbo', provider: 'qwen' },
   { model_id: 'gpt-4o-mini', provider: 'openai' },

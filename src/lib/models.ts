@@ -30,10 +30,11 @@ export const MODELS: AIModel[] = [
   { id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', provider: 'deepseek', description: '284B参数高效版' },
   { id: 'deepseek-reasoner', name: 'DeepSeek R1', provider: 'deepseek', description: '推理增强模型' },
 
-  // 智谱 AI (3个) - glm-4-flash和glm-4.5-flash免费可用，5.x收费需充值
+  // 智谱 AI (4个) - glm-4-flash和glm-4.5-flash免费可用，5.x收费需充值
   { id: 'glm-4.5-flash', name: 'GLM-4.5 Flash', provider: 'zhipu', description: '免费极速版' },
   { id: 'glm-4-flash', name: 'GLM-4 Flash', provider: 'zhipu', description: '免费轻量版' },
   { id: 'glm-5.2', name: 'GLM-5.2', provider: 'zhipu', description: '最新旗舰(需充值)' },
+  { id: 'glm-5v-turbo', name: 'GLM-5V Turbo', provider: 'zhipu', description: '视觉模型' },
 
   // 通义千问 (4个) - 已验证: qwen-max/qwen-plus/qwen-turbo/qwen-long
   { id: 'qwen-max', name: 'Qwen Max', provider: 'qwen', description: '通义千问旗舰' },
