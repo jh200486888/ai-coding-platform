@@ -1,6 +1,29 @@
 import { useState, useRef, useCallback } from 'react';
 import type { Attachment } from '@/types';
 
+// PDF text extraction (lazy loaded)
+let pdfjsLib: any = null;
+async function extractPdfText(file: File): Promise<string> {
+  try {
+    if (!pdfjsLib) {
+      pdfjsLib = await import('pdfjs-dist');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer, useSystemFonts: true }).promise;
+    const textParts: string[] = [];
+    for (let i = 1; i <= Math.min(pdf.numPages, 50); i++) {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      if (pageText.trim()) textParts.push(`[Page ${i}] ${pageText}`);
+    }
+    return textParts.join('\n');
+  } catch (e: any) {
+    return `[PDF解析失败: ${e.message || '未知错误'}]`;
+  }
+}
+
 /** Maximum file size: 5MB */
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
@@ -55,9 +78,21 @@ export function useFileUpload(options: UseFileUploadOptions = {}) {
           url,
         };
         
-        // For text/code files, also read content
+        // Extract text content for AI to understand
         if (attachment.type === 'code' || file.type.startsWith('text/')) {
           attachment.content = await file.text();
+        } else if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
+          attachment.content = await extractPdfText(file);
+        } else if (file.type === 'application/json' || file.name.endsWith('.json')) {
+          attachment.content = await file.text();
+        } else if (file.type.startsWith('application/') && file.size < 500000) {
+          // Try reading as text for other small application files (csv, xml, etc.)
+          try {
+            const text = await file.text();
+            if (text && !text.includes('\x00') && text.length > 10) {
+              attachment.content = text;
+            }
+          } catch {}
         }
         
         validFiles.push(attachment);

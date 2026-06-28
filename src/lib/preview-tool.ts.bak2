@@ -17,7 +17,7 @@ Do NOT use this for markdown or plain text - only for actual HTML that should be
   execute: async ({ html, title, viewport = 'desktop' }) => {
     try {
       const encodedHtml = Buffer.from(html).toString('base64');
-      const result = '<!--HTML_PREVIEW\ntitle:' + (title || 'Preview') + '\nviewport:' + viewport + '\nhtml:' + encodedHtml + '\n-->';
+      const result = \`<!--HTML_PREVIEW\ntitle:\${title || 'Preview'}\nviewport:\${viewport}\nhtml:\${encodedHtml}\n-->\`;
       console.log('[preview_html] Success, output length:', result.length);
       return result;
     } catch (e: any) {

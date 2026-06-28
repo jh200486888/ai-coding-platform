@@ -861,7 +861,8 @@ export async function POST(request: NextRequest) {
       },
       onToolExecutionEnd: ({ toolCall, toolOutput, toolExecutionMs }) => {
         const status = toolOutput.type === 'tool-error' ? 'ERROR' : 'OK';
-        console.log(`[AI] Tool completed: ${toolCall.toolName} [${status}] ${toolExecutionMs}ms`);
+        const errorDetail = toolOutput.type === 'tool-error' ? ` error: ${JSON.stringify(toolOutput.error)?.slice(0, 200)}` : '';
+        console.log(`[AI] Tool completed: ${toolCall.toolName} [${status}] ${toolExecutionMs}ms${errorDetail}`);
       },
       telemetry: {
         isEnabled: true,

@@ -96,7 +96,7 @@ function parseContent(text: string): ContentSegment[] {
         htmlPreviewData = {
           title: titleM ? titleM[1].trim() : 'Preview',
           viewport: viewportM ? viewportM[1].trim() : 'desktop',
-          html: Buffer.from(htmlM[1].trim(), 'base64').toString('utf-8'),
+          html: (() => { try { return decodeURIComponent(escape(atob(htmlM[1].trim()))); } catch { return atob(htmlM[1].trim()); } })(),
         };
       } catch {}
     }
