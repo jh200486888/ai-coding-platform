@@ -1,5 +1,4 @@
 'use client';
-import ExportButton from '@/components/ExportButton';
 import { toast } from 'sonner';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Paperclip, X, FileText, Brain, Loader2 } from 'lucide-react';
@@ -322,7 +321,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
                   )}
 
                   {textContent && (
-                    <div><div className="text-sm whitespace-pre-wrap break-words">{textContent}</div><ExportButton content={textContent} title="AI报告" className="mt-1" /></div>
+                    <div className="text-sm whitespace-pre-wrap break-words">{textContent}</div>
                   )}
                 </div>
               </div>

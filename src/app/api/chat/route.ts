@@ -493,7 +493,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ====== 从 settings 读取可配置参数 ======
-    let maxSteps = 5;
+    let maxSteps = 10;
     let temperature: number | undefined = undefined;
 
     try {
@@ -503,6 +503,9 @@ export async function POST(request: NextRequest) {
         if (adv.max_steps !== undefined) maxSteps = adv.max_steps;
       }
     } catch {}
+    // Reasoning models (DeepSeek V4 Pro, etc.) need more steps for tool calls
+    const isReasoningModel = model_id.includes('deepseek-v4-pro') || model_id.includes('o3') || model_id.includes('o4');
+    if (isReasoningModel && maxSteps < 15) maxSteps = 15;
 
     try {
       const tempStr = await getSetting('mode_temperatures');

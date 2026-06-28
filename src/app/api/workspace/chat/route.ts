@@ -410,7 +410,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 读取高级配置
-    let maxSteps = 5;
+    let maxSteps = 10;
     let wsMaxOutputTokens = 16384;
     let wsTopP: number | undefined = undefined;
     let temperature: number | undefined = undefined;
@@ -424,6 +424,9 @@ export async function POST(request: NextRequest) {
         if (adv.topP !== undefined && adv.topP !== 0.9) wsTopP = adv.topP;
       }
     } catch {}
+    // Reasoning models need more steps
+    const isReasoningModel = modelId.includes('deepseek-v4-pro') || modelId.includes('o3') || modelId.includes('o4');
+    if (isReasoningModel && maxSteps < 15) maxSteps = 15;
 
     try {
       const tempStr = await getSetting('mode_temperatures');
