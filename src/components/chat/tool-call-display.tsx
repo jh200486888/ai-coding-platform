@@ -23,6 +23,9 @@ const toolNameMap: Record<string, string> = {
   get_available_skills: '获取技能列表',
   use_skill: '使用技能',
   read_skill_file: '读取技能文件',
+  web_scrape: '网页抓取',
+  web_search: '联网搜索',
+  diagnose_error: '错误诊断',
 };
 
 interface ToolCall {
