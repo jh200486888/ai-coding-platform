@@ -26,11 +26,6 @@
 - readFile 大文件先估计行数，分段读取
 - 每次工具调用后评估：信息足够？停止调用，开始输出
 
-【HTML预览规则】
-- 生成HTML代码后，必须调用 preview_html 工具渲染预览
-- 不要只输出HTML代码块，必须同时用 preview_html 让用户看到实际效果
-- 如果HTML代码较长，先输出代码，再调用 preview_html 预览
-
 【子智能体】
 - 复杂任务可以用 delegate_task 委派给专门子智能体
 - researcher: 研究搜索
