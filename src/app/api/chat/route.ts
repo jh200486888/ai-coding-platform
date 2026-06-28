@@ -497,7 +497,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ====== 从 settings 读取可配置参数 ======
-    let maxSteps = 10;
+    let maxSteps = 20;
     let temperature: number | undefined = undefined;
 
     try {
@@ -507,9 +507,7 @@ export async function POST(request: NextRequest) {
         if (adv.max_steps !== undefined) maxSteps = adv.max_steps;
       }
     } catch {}
-    // Reasoning models (DeepSeek V4 Pro, etc.) need more steps for tool calls
-    const isReasoningModel = model_id.includes('deepseek-v4-pro') || model_id.includes('o3') || model_id.includes('o4');
-    if (isReasoningModel && maxSteps < 15) maxSteps = 15;
+    // All models unified: 20 steps is enough for tool calls + summary output
 
     try {
       const tempStr = await getSetting('mode_temperatures');
@@ -731,6 +729,7 @@ export async function POST(request: NextRequest) {
         extractReasoningMiddleware({ tagName: 'think' }),
       ],
     });
+    let stepCount = 0;
     const result = streamText({
       system: dynamicPrompt,
       model: wrappedModel,
@@ -741,6 +740,10 @@ export async function POST(request: NextRequest) {
       maxOutputTokens,
       maxRetries,
       timeout: { totalMs: timeoutTotalMs, stepMs: timeoutStepMs },
+      onStepFinish: ({ finishReason, toolCalls, text }) => {
+        stepCount++;
+        console.log(`[AI] Step ${stepCount}: finishReason=${finishReason}, toolCalls=${toolCalls?.length || 0}, textLen=${text?.length || 0}`);
+      },
       ...(topP !== undefined && { topP }),
       ...(presencePenalty !== undefined && { presencePenalty }),
       ...(frequencyPenalty !== undefined && { frequencyPenalty }),

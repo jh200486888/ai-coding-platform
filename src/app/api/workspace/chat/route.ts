@@ -410,7 +410,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 读取高级配置
-    let maxSteps = 10;
+    let maxSteps = 20;
     let wsMaxOutputTokens = 16384;
     let wsTopP: number | undefined = undefined;
     let temperature: number | undefined = undefined;
