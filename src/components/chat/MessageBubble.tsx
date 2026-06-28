@@ -1,4 +1,5 @@
 'use client';
+import ExportButton from '@/components/ExportButton';
 
 import { useState, useCallback, useRef } from 'react';
 import { User, Bot, Image, FileText, Code, Copy, Check, Pencil, Volume2, Square } from 'lucide-react';
@@ -221,6 +222,8 @@ export function MessageBubble({ message, isEditing, editContent, onEdit, onEditC
               </button>
             )}
             {/* AI消息显示朗读按钮 */}
+            <ExportButton content={message.content || ""} title="AI报告" className="mt-1 mr-2" />
+
             {!isUser && message.content && (
               <button
                 onClick={handleTTS}

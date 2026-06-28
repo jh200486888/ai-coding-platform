@@ -573,7 +573,7 @@ export async function POST(request: NextRequest) {
     }));
 
     // Build messages with multi-modal support (images, PDFs, files, body attachments)
-    const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; data?: string; mediaType?: string; image_url?: { url: string }; image?: any }> }>= [];
+    const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; data?: string; mediaType?: string; image?: any }> }>= [];
       // Process messages with async support for vision proxy
       for (let msgIdx = 0; msgIdx < userAssistantMessages.length; msgIdx++) {
         const m = userAssistantMessages[msgIdx];
@@ -595,7 +595,7 @@ export async function POST(request: NextRequest) {
         const hasBodyAttachments = isLastUserMsg && bodyAttachments && bodyAttachments.length > 0;
         
         if (m.role === 'user' && (hasAttachments || hasBodyAttachments)) {
-          const parts: Array<{ type: string; text?: string; data?: string; mediaType?: string; image_url?: { url: string }; image?: any }> = [];
+          const parts: Array<{ type: string; text?: string; data?: string; mediaType?: string; image?: any }> = [];
           // Extract text: from native parts or from content with markers removed
           let textContent = '';
           if (nativeParts.length > 0) {

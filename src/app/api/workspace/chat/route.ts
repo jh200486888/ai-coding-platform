@@ -9,6 +9,7 @@ import { promisify } from 'util';
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { createSubAgentTool } from '@/lib/sub-agents';
+import { describeImages } from '@/lib/vision-proxy';
 
 const execAsync = promisify(exec);
 
@@ -349,10 +350,64 @@ export async function POST(request: NextRequest) {
     const userAssistantMessages = messages.filter((m: any) => {
       const role = String(m.role || '').toLowerCase().trim();
       return role !== 'system' && role !== 'developer' && role !== 'tool';
-    }).map((m: any) => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content || '',
-    }));
+    }).map((m: any) => {
+      // Extract text content from parts if available (AI SDK multimodal)
+      const parts = m.parts || [];
+      const imageParts = parts.filter((p: any) => p.type === 'file' && p.data);
+      const textParts = parts.filter((p: any) => p.type === 'text');
+      
+      let textContent = '';
+      if (textParts.length > 0) {
+        textContent = textParts.map((p: any) => p.text || '').join('');
+      } else {
+        textContent = typeof m.content === 'string' ? m.content : '';
+      }
+      
+      // Strip any [image:...] markers from text
+      textContent = textContent.replace(/\[image:[\s\S]*?\]/g, '').trim();
+      
+      return {
+        role: m.role === 'assistant' ? 'assistant' as const : 'user' as const,
+        content: textContent || '',
+        _imageParts: imageParts,
+      } as any;
+    });
+
+        // Process images from messages (vision proxy for non-multimodal models)
+    const MULTIMODAL_PROVIDERS = ['openai', 'anthropic', 'google', 'qwen', 'zhipu'];
+    const MULTIMODAL_MODEL_ORDER = ['gpt-4o', 'gpt-4.1', 'gemini-2.5-pro', 'gemini-2.5-flash', 'qwen-max', 'qwen-plus', 'claude-sonnet-4-5', 'glm-4.5-flash', 'glm-5.2'];
+    const supportsMultimodal = MULTIMODAL_PROVIDERS.includes(modelConfig.provider) || MULTIMODAL_MODEL_ORDER.some(m => modelId.includes(m));
+    
+    for (const msg of userAssistantMessages) {
+      if (msg._imageParts && msg._imageParts.length > 0) {
+        if (supportsMultimodal) {
+          // For multimodal models, convert to file parts
+          const fileParts = msg._imageParts.map((p: any) => ({
+            type: 'file' as const,
+            data: p.data,
+            mediaType: p.mediaType || 'image/png',
+          }));
+          msg.content = [
+            { type: 'text' as const, text: msg.content },
+            ...fileParts,
+          ];
+        } else {
+          // For non-multimodal models, use vision proxy to describe images
+          try {
+            const images = msg._imageParts.map((p: any) => ({
+              base64Data: p.data,
+              mediaType: p.mediaType || 'image/png',
+            }));
+            const description = await describeImages(images, msg.content || undefined);
+            msg.content = msg.content ? msg.content + '\n\n' + description : description;
+          } catch (e: any) {
+            msg.content = msg.content ? msg.content + '\n\n[图片识别失败: ' + e.message + ']' : '[图片识别失败]';
+          }
+        }
+      }
+      // Remove internal property before sending to AI
+      delete msg._imageParts;
+    }
 
     // 读取高级配置
     let maxSteps = 5;
