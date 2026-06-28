@@ -775,7 +775,7 @@ export async function POST(request: NextRequest) {
     let stepCount = 0;
     let lastFinishReason = '';
     let hasProducedText = false;
-    // Step limit safety: prevent infinite tool-calling loops
+    // Combined signal: user cancel + manual abort propagation
     const stepAbortController = new AbortController();
     const combinedSignal = AbortSignal.any([request.signal, stepAbortController.signal]);
 
@@ -856,25 +856,15 @@ export async function POST(request: NextRequest) {
           text = '';
         }
 
-        // Extract tool results from steps for follow-up context injection
+        // Extract tool results from steps (single traversal)
         const allToolResults: string[] = [];
-        for (const step of await agentResult.steps) {
-          for (const tc of step.toolCalls || []) {
-            const tr = step.toolResults?.find((r: any) => r.toolCallId === tc.toolCallId);
-            if (tr) {
-              const resultStr = typeof tr.output === 'string' ? tr.output : JSON.stringify(tr.output);
-              allToolResults.push(`[${tc.toolName}] ${resultStr.slice(0, 500)}`);
-            }
-          }
-        }
-
-        // Build EXEC_LOG from tool results
         const toolPartsForLog: {name: string; output: string}[] = [];
         for (const step of await agentResult.steps) {
           for (const tc of step.toolCalls || []) {
             const tr = step.toolResults?.find((r: any) => r.toolCallId === tc.toolCallId);
             if (tr) {
               const out = typeof tr.output === 'string' ? tr.output : JSON.stringify(tr.output);
+              allToolResults.push(`[${tc.toolName}] ${out.slice(0, 500)}`);
               toolPartsForLog.push({ name: tc.toolName, output: out });
             }
           }

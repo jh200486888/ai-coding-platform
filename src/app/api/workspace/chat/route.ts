@@ -553,7 +553,6 @@ export async function POST(request: NextRequest) {
     });
 
     // Step limit safety: prevent infinite tool-calling loops
-    const WS_MAX_STEPS = 20;
     let wsStepCount = 0;
     const wsStepAbortController = new AbortController();
     const wsCombinedSignal = AbortSignal.any([request.signal, wsStepAbortController.signal]);
@@ -677,6 +676,7 @@ export async function POST(request: NextRequest) {
             maxOutputTokens: wsMaxOutputTokens,
             maxRetries: 1,
             timeout: { totalMs: 60000, stepMs: 30000 },
+            abortSignal: wsCombinedSignal,
           });
 
           writer.merge(followUpResult.toUIMessageStream({
