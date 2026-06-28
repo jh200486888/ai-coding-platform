@@ -91,34 +91,6 @@ export function useChatLogic(options: {
     async onFinish({ message }) {
       const convId = (message.metadata as any)?.conversationId;
       if (convId) onConversationCreated(convId);
-
-      // Auto-follow-up: if AI only called tools without producing text, ask for summary
-      try {
-        const parts = (message as any).parts || [];
-        const hasToolInvocations = parts.some((p: any) => p.type?.startsWith('tool-'));
-        const textParts = parts.filter((p: any) => p.type === 'text');
-        const textContent = textParts.map((p: any) => p.text || '').join('').trim();
-        // If there are tool results but no meaningful text (empty or just the abort marker)
-        if (hasToolInvocations && (!textContent || textContent.startsWith('[TOOL_LOOP_ABORTED]'))) {
-          console.log('[useChatLogic] Auto-follow-up: tool results but no text, requesting summary');
-          // Delay slightly to let the stream fully settle
-          setTimeout(() => {
-            chat.sendMessage(
-              { text: '请根据以上工具调用收集的信息，给出完整的总结分析报告。不要再调用任何工具，直接输出你的分析结论。' },
-              {
-                body: {
-                  conversation_id: currentConvIdRef.current || undefined,
-                  mode: selectedMode,
-                  model_id: selectedModel,
-                  enable_search: enableSearch,
-                },
-              }
-            );
-          }, 500);
-        }
-      } catch (e) {
-        console.error('[useChatLogic] Auto-follow-up error:', e);
-      }
     },
     onError(error) {
       toast.error('AI 响应出错，请重试');

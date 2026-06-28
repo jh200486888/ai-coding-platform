@@ -516,10 +516,10 @@ export async function POST(request: NextRequest) {
       const advStr = await getSetting('advanced_config');
       if (advStr) {
         const adv = JSON.parse(advStr);
-        if (adv.max_steps !== undefined) maxSteps = adv.max_steps;
+        if (adv.max_steps !== undefined) maxSteps = Math.max(adv.max_steps, 10); // Never allow less than 10
       }
     } catch {}
-    // All models unified: 20 steps is enough for tool calls + summary output
+    // All models unified: minimum 10 steps for tool calls + summary output
 
     try {
       const tempStr = await getSetting('mode_temperatures');
@@ -813,20 +813,47 @@ export async function POST(request: NextRequest) {
             (p: any) => p.type?.startsWith('tool-') && p.toolInvocation?.state === 'output-available'
           );
           let savedContent = text;
+          const execLog = toolParts.length > 0 ? toolParts.map((tp: any, i: number) => {
+            const name = tp.toolName || 'unknown';
+            const out = typeof tp.toolInvocation.output === 'string' ? tp.toolInvocation.output : JSON.stringify(tp.toolInvocation.output);
+            return `${i + 1}. ${name}: ${out.startsWith('❌') ? '❌' : '✅'} ${out.slice(0, 100)}`;
+          }).join('\n') : '';
           if (toolParts.length > 0) {
-            const execLog = toolParts.map((tp: any, i: number) => {
-              const name = tp.toolName || 'unknown';
-              const out = typeof tp.toolInvocation.output === 'string' ? tp.toolInvocation.output : JSON.stringify(tp.toolInvocation.output);
-              return `${i + 1}. ${name}: ${out.startsWith('❌') ? '❌' : '✅'} ${out.slice(0, 100)}`;
-            }).join('\n');
             savedContent = text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
           }
           // Save message even if aborted (step limit) - tool results are valuable
           // If no text but has tool results, save with a marker for frontend follow-up
+          // When step limit reached with no text: make a follow-up call WITHOUT tools
+          // to force the model to produce a text summary
           if (isAborted && !text && toolParts.length > 0) {
-            // Step limit reached with no text: save tool results with marker
-            const abortContent = '[TOOL_LOOP_ABORTED] 工具调用已达上限，请发送"继续"获取总结分析。\n\n' + savedContent;
-            await createMessage(convId!, 'assistant', abortContent, model_id);
+            console.log('[AI] Making tool-free follow-up call for summary...');
+            try {
+              const followUpMessages = [
+                ...chatMessages.slice(0, -1),
+                { role: 'user' as const, content: '基于以上所有工具调用收集到的信息，请直接输出你的分析和总结结论。注意：你现在没有工具可用，必须直接用文字输出完整报告。' }
+              ];
+              const followUpResult = streamText({
+                system: dynamicPrompt + '\n\n【重要】你之前已经通过工具收集了足够的信息，现在必须直接输出文字总结。不要再请求任何工具，直接开始写分析报告。',
+                model: wrappedModel,
+                messages: followUpMessages as any,
+                // NO tools - force text output
+                temperature,
+                maxOutputTokens,
+                maxRetries: 1,
+                timeout: { totalMs: 60000, stepMs: 30000 },
+              });
+              const followUpText = await followUpResult.text;
+              if (followUpText) {
+                const fullContent = followUpText + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
+                await createMessage(convId!, 'assistant', fullContent, model_id);
+                console.log(`[AI] Follow-up summary generated: ${followUpText.length} chars`);
+              }
+            } catch (e: any) {
+              console.error('[AI] Follow-up summary failed:', e.message);
+              // Fallback: save marker if follow-up also failed
+              const abortContent = '⚠️ 工具调用已达上限，请发送"总结"获取分析报告。\n\n' + savedContent;
+              await createMessage(convId!, 'assistant', abortContent, model_id);
+            }
           } else if (text) {
             await createMessage(convId!, 'assistant', savedContent, model_id);
           } else if (!isAborted) {
