@@ -46,8 +46,8 @@ export async function POST(req: NextRequest) {
     const PROVIDER_URLS = {
       openai: 'https://api.openai.com/v1',
       anthropic: 'https://api.anthropic.com/v1',
-      google: 'https://generativelanguage.googleapis.com/v1beta',
-      deepseek: 'https://api.deepseek.com',
+      google: 'https://generativelanguage.googleapis.com/v1beta/openai',
+      deepseek: 'https://api.deepseek.com/v1',
       zhipu: 'https://open.bigmodel.cn/api/paas/v4',
       qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       moonshot: 'https://api.moonshot.cn/v1',
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
       'openai-image': 'https://api.openai.com/v1',
     };
 
-    const apiUrl = baseUrl || PROVIDER_URLS[provider] || 'https://api.deepseek.com';
+    const apiUrl = baseUrl || PROVIDER_URLS[provider] || 'https://api.deepseek.com/v1';
 
     const model = createOpenAICompatible({
       name: provider,
