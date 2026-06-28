@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { streamText, isLoopFinished, tool, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware } from 'ai';
+import { ToolLoopAgent, isStepCount, pruneMessages, streamText, tool, toUIMessageStream, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { z } from 'zod';
 import { query, queryOne, run, getSetting } from '@/lib/db';
@@ -549,29 +549,154 @@ export async function POST(request: NextRequest) {
     const wsStepAbortController = new AbortController();
     const wsCombinedSignal = AbortSignal.any([request.signal, wsStepAbortController.signal]);
 
-    const result = streamText({
-      system: fullSystemPrompt,
+    // AI SDK v7 ToolLoopAgent: official agent loop with stopWhen + prepareStep
+    const agent = new ToolLoopAgent({
       model: wrappedModel,
-      messages: userAssistantMessages as any,
+      instructions: fullSystemPrompt,
       tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
-      stopWhen: isLoopFinished(),
+      stopWhen: isStepCount(Math.max(maxSteps, 15)),
+      prepareStep: async ({ messages, stepNumber }) => {
+        const estimatedTokens = JSON.stringify(messages).length / 4;
+        if (estimatedTokens > 100000) {
+          console.log(`[WS-AI] Context compression at step ${stepNumber}: ${Math.round(estimatedTokens)} tokens, pruning...`);
+          return {
+            messages: pruneMessages({
+              messages,
+              reasoning: 'all',
+              toolCalls: 'before-last-3-messages',
+              emptyMessages: 'remove',
+            }),
+          };
+        }
+        return {};
+      },
       temperature,
       maxOutputTokens: wsMaxOutputTokens,
       ...(wsTopP !== undefined && { topP: wsTopP }),
-      onStepFinish: ({ finishReason, toolCalls, text }) => {
-        wsStepCount++;
-        console.log(`[WS-AI] Step ${wsStepCount}: finishReason=${finishReason}, toolCalls=${toolCalls?.length || 0}, textLen=${text?.length || 0}`);
-        if (wsStepCount >= WS_MAX_STEPS) {
-          console.log(`[WS-AI] Step limit reached (${WS_MAX_STEPS}), aborting`);
-          wsStepAbortController.abort();
-        }
-      },
       telemetry: {
         isEnabled: true,
         functionId: 'workspace-chat-completion',
       },
-      abortSignal: wsCombinedSignal,
     });
+
+    // AI SDK v7: createUIMessageStream for follow-up stream merging
+    const uiStream = createUIMessageStream({
+      execute: async ({ writer }) => {
+        const agentResult = await agent.stream({
+          messages: userAssistantMessages as any,
+          timeout: { totalMs: Math.max(300000, maxSteps * 30000), stepMs: 30000 },
+          onStepFinish: ({ finishReason, toolCalls, text }) => {
+            wsStepCount++;
+            console.log(`[WS-AI] Step ${wsStepCount}: finishReason=${finishReason}, toolCalls=${toolCalls?.length || 0}, textLen=${text?.length || 0}`);
+          },
+          abortSignal: wsCombinedSignal,
+        });
+
+        writer.merge(agentResult.toUIMessageStream({
+          sendReasoning: true,
+          messageMetadata: ({ part }: any) => {
+            if (part.type === 'start' || part.type === 'finish') {
+              return { conversationId: conversationId || projectId } as any;
+            }
+            return undefined;
+          },
+        }));
+
+        const text = (await agentResult.text) || '';
+        const isDSMLText = text && (text.includes('DSML') || text.includes('tool_calls') || text.includes('invoke name='));
+        const effectiveText = isDSMLText ? '' : text;
+        if (isDSMLText) {
+          console.log('[WS-AI] Detected DSML markup, treating as no-text:', text.slice(0, 200));
+        }
+
+        // Extract tool results from steps
+        const allToolResults: string[] = [];
+        const toolPartsForLog: {name: string; output: string}[] = [];
+        for (const step of await agentResult.steps) {
+          for (const tc of step.toolCalls || []) {
+            const tr = step.toolResults?.find((r: any) => r.toolCallId === tc.toolCallId);
+            if (tr) {
+              const out = typeof tr.output === 'string' ? tr.output : JSON.stringify(tr.output);
+              allToolResults.push(`[${tc.toolName}] ${out.slice(0, 500)}`);
+              toolPartsForLog.push({ name: tc.toolName, output: out });
+            }
+          }
+        }
+        const execLog = toolPartsForLog.length > 0 ? toolPartsForLog.map((tp, i) => {
+          return `${i + 1}. ${tp.name}: ${tp.output.startsWith('\u274c') ? '\u274c' : '\u2705'} ${tp.output.slice(0, 100)}`;
+        }).join('\n') : '';
+
+        if (effectiveText && projectId) {
+          let savedContent = effectiveText;
+          if (toolPartsForLog.length > 0) {
+            const reportTitle = effectiveText.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '\u5206\u6790\u62a5\u544a';
+            savedContent = effectiveText + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->';
+          } else {
+            savedContent = effectiveText + (execLog ? '\n\n<!--EXEC_LOG\n' + execLog + '\n-->' : '');
+          }
+          try {
+            const { randomUUID } = await import('crypto');
+            const msgId = randomUUID();
+            await run(
+              'INSERT INTO workspace_messages (id, "conversationId", role, content, "modelId", "createdAt") VALUES ($1, $2, $3, $4, $5, NOW())',
+              [msgId, projectId, 'assistant', savedContent, modelId]
+            );
+          } catch (e) {
+            console.error('[WS-AI] Save assistant message error:', e);
+          }
+        } else if (!effectiveText && (toolPartsForLog.length > 0 || allToolResults.length > 0)) {
+          console.log('[WS-AI] No text after tools, starting follow-up stream merge...');
+          const toolContext = allToolResults.length > 0
+            ? '\n\n以下是之前工具调用的结果摘要：\n' + allToolResults.map((r, i) => `${i + 1}. ${r}`).join('\n')
+            : '';
+
+          const followUpResult = streamText({
+            system: fullSystemPrompt + '\n\n【重要】你之前已经通过工具收集了足够的信息。现在你必须用中文写一篇完整的分析报告。\n\n输出要求：\n1. 用 Markdown 格式输出\n2. 使用 ## 二级标题划分章节\n3. 数据对比用 Markdown 表格\n4. 要点用加粗和列表突出显示\n5. 禁止输出任何DSML标签、工具调用代码或XML格式',
+            model: wrappedModel,
+            messages: [
+              ...userAssistantMessages,
+              { role: 'user' as const, content: '基于以上所有工具调用收集到的信息，请用 Markdown 格式输出中文分析报告。\n\n要求：\n- ## 二级标题划分章节\n- 数据对比用 Markdown 表格\n- 重点用 **加粗**\n- 条目用 - 列表\n\n注意：你现在没有工具可用，必须直接用纯文字输出。' + toolContext }
+            ] as any,
+            temperature,
+            maxOutputTokens: wsMaxOutputTokens,
+            maxRetries: 1,
+            timeout: { totalMs: 60000, stepMs: 30000 },
+          });
+
+          writer.merge(followUpResult.toUIMessageStream({
+            sendReasoning: true,
+          }));
+
+          const followUpText = await followUpResult.text;
+          if (followUpText) {
+            const reportTitle = followUpText.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '\u5206\u6790\u62a5\u544a';
+            const fullContent = followUpText + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->';
+            try {
+              const { randomUUID } = await import('crypto');
+              const msgId = randomUUID();
+              await run(
+                'INSERT INTO workspace_messages (id, "conversationId", role, content, "modelId", "createdAt") VALUES ($1, $2, $3, $4, $5, NOW())',
+                [msgId, projectId, 'assistant', fullContent, modelId]
+              );
+              console.log(`[WS-AI] Follow-up report generated: ${followUpText.length} chars`);
+            } catch (e) {
+              console.error('[WS-AI] Save follow-up error:', e);
+            }
+          } else {
+            try {
+              const { randomUUID } = await import('crypto');
+              const msgId = randomUUID();
+              await run(
+                'INSERT INTO workspace_messages (id, "conversationId", role, content, "modelId", "createdAt") VALUES ($1, $2, $3, $4, $5, NOW())',
+                [msgId, projectId, 'assistant', '\u26a0\ufe0f 工具调用已完成，但生成报告失败。请发送"总结"重试。', modelId]
+              );
+            } catch {}
+          }
+        }
+      },
+    });
+
+    return createUIMessageStreamResponse({ stream: uiStream });
 
     // 保存用户消息到 workspace_messages
     if (projectId) {
@@ -592,72 +717,7 @@ export async function POST(request: NextRequest) {
       } catch {}
     }
 
-    return result.toUIMessageStreamResponse({
-      sendReasoning: true,
-      // 通过 messageMetadata 将 projectId 传给前端
-      messageMetadata: ({ part }) => {
-        if (part.type === 'start' || part.type === 'finish') {
-          return { conversationId: conversationId || projectId } as any;
-        }
-        return undefined;
-      },
-      // 流结束后保存助手消息 + 触发文件刷新
-      async onEnd({ responseMessage: message, isAborted }) {
-        try {
-          const text = (message as any).text
-            || (message.parts || []).filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
-
-          // 从 message parts 提取工具执行记录
-          const toolParts = (message.parts || []).filter(
-            (p: any) => p.type?.startsWith('tool-') && p.state === 'output-available'
-          );
-          let savedContent = text;
-          if (toolParts.length > 0) {
-            const execLog = toolParts.map((tp: any, i: number) => {
-              const name = tp.toolName || 'unknown';
-              const out = typeof tp.output === 'string' ? tp.output : JSON.stringify(tp.output);
-              return `${i + 1}. ${name}: ${out.startsWith('❌') ? '❌' : '✅'} ${out.slice(0, 100)}`;
-            }).join('\n');
-            savedContent = text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
-          }
-
-          if (text && !isAborted && projectId) {
-            const { randomUUID } = await import('crypto');
-            const msgId = randomUUID();
-            await run(
-              'INSERT INTO workspace_messages (id, "conversationId", role, content, "modelId", "createdAt") VALUES ($1, $2, $3, $4, $5, NOW())',
-              [msgId, projectId, 'assistant', savedContent, modelId]
-            );
-          }
-        } catch (e) {
-          console.error('[workspace/chat onEnd] save error:', e);
-        }
-
-        // Telemetry (ai_telemetry 表)
-        try {
-          const { telemetry } = await import('@/lib/ai-telemetry');
-          telemetry.recordAICall({
-            provider: modelConfig.provider, model: modelId,
-            operation: 'workspace_chat_stream', durationMs: Date.now() - streamStartTime, success: true,
-          });
-        } catch {}
-
-        // 记录到 telemetry_events 表（AI SDK 原生 Telemetry 补充）
-        try {
-          const { recordTelemetry } = await import('@/lib/telemetry');
-          await recordTelemetry({
-            functionId: 'workspace-chat-completion',
-            model: modelId,
-            mode: mode,
-            durationMs: Date.now() - streamStartTime,
-            status: 'success',
-          });
-        } catch {}
-
-        // Close MCP
-        try { const { mcpManager } = await import('@/lib/mcp-client'); await mcpManager.closeAll(); } catch {}
-      },
-    });
+    
   } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message || '服务器内部错误' }), {
       status: 500, headers: { 'Content-Type': 'application/json' },
