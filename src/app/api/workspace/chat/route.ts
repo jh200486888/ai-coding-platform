@@ -568,13 +568,24 @@ export async function POST(request: NextRequest) {
       model: wrappedModel,
       instructions: fullSystemPrompt + (generateSkillsCatalog() ? "\n\n" + generateSkillsCatalog() : ""),
       tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
-      // AI SDK official toolApproval - requires user confirmation for dangerous tools
+      // AI SDK official toolApproval - dynamic approval based on tool input
       toolApproval: {
-        ssh_execute: 'user-approval',
+        ssh_execute: async (input: any) => {
+          const cmd = String(input.command || '').trim();
+          if (/^(ls|cat|head|tail|find|grep|pwd|whoami|echo|stat|df|du|free|uptime|ps|netstat|curl|wget|git status|git log|git diff|git branch|node -v|npm -v|pnpm -v|which|type|file|wc)/.test(cmd)) {
+            return 'approved';
+          }
+          return 'user-approval';
+        },
         ssh_write_file: 'user-approval',
         build_project: 'user-approval',
         deploy_service: 'user-approval',
         git_commit: 'user-approval',
+        ssh_read_file: 'approved',
+        health_check: 'approved',
+        get_available_skills: 'approved',
+        use_skill: 'approved',
+        read_skill_file: 'approved',
       },
       stopWhen: isStepCount(Math.max(maxSteps, 15)),
       prepareStep: async ({ messages, stepNumber }) => {
