@@ -60,12 +60,8 @@ async function execDeleteFile(path: string): Promise<string> {
 async function execReadFile(path: string): Promise<string> {
   const fs = await import('fs/promises');
   const filePath = `${PROJECT_DIR}/${path}`;
-  try {
-    const content = await fs.readFile(filePath, 'utf-8');
-    return content.slice(0, 50000);
-  } catch (e: any) {
-    return `❌ 读取文件失败: ${path} - ${e.message || '文件不存在或无法读取'}`;
-  }
+  const content = await fs.readFile(filePath, 'utf-8');
+  return content.slice(0, 50000);
 }
 
 async function execRunCommand(command: string): Promise<string> {

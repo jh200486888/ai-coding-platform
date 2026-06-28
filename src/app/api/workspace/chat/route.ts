@@ -187,7 +187,7 @@ async function execReadFile(path: string): Promise<string> {
     const content = await fs.readFile(filePath, 'utf-8');
     return content.slice(0, 50000);
   } catch (e: any) {
-    return `❌ 读取文件失败: ${e.message || '文件不存在或无法读取'}`;
+    return `❌ 读取文件失败: ${path} - ${e.message || '文件不存在或无法读取'}`;
   }
 }
 
