@@ -1,4 +1,4 @@
-import { getApiKeyByProvider, getModelConfig, getSetting, query } from '@/lib/db';
+import { getApiKeyByProvider, getModelConfig, getSetting } from '@/lib/db';
 
 // ============ Intent Classification ============
 const DESIGN_KEYWORDS = ['设计', '海报', 'logo', '封面', 'UI', '界面', '配色', '排版', '布局', '图片', '图标', '插画', 'design', 'poster', 'banner', 'thumbnail'];
@@ -9,15 +9,12 @@ export type IntentType = 'design' | 'code' | 'image' | 'chat';
 
 export function classifyIntent(message: string): IntentType {
   const lower = message.toLowerCase();
-  
   if (IMAGE_KEYWORDS.some(kw => lower.includes(kw))) return 'image';
   if (DESIGN_KEYWORDS.some(kw => lower.includes(kw))) return 'design';
   if (CODE_KEYWORDS.some(kw => lower.includes(kw))) return 'code';
   return 'chat';
 }
 
-// ============ Model Capability Mapping ============
-// Each intent maps to preferred providers in priority order
 const INTENT_MODEL_MAP: Record<IntentType, { provider: string; model: string }[]> = {
   design: [
     { provider: 'deepseek', model: 'deepseek-chat' },
@@ -40,7 +37,6 @@ const INTENT_MODEL_MAP: Record<IntentType, { provider: string; model: string }[]
   ],
 };
 
-// ============ Smart Model Router ============
 export interface ModelRouteResult {
   provider: string;
   model: string;
@@ -50,11 +46,18 @@ export interface ModelRouteResult {
   routingReason: string;
 }
 
+function decodeApiKey(encoded: string): string {
+  try {
+    return Buffer.from(encoded, 'base64').toString('utf-8');
+  } catch {
+    return encoded;
+  }
+}
+
 export async function routeModel(message: string, forceIntent?: IntentType): Promise<ModelRouteResult | null> {
-  // 1. Classify intent
   const intent = forceIntent || classifyIntent(message);
   
-  // 2. Check for design-specific model override in settings
+  // Check for design-specific model override
   try {
     const designModel = await getSetting('design_model');
     if (designModel && intent === 'design') {
@@ -63,37 +66,32 @@ export async function routeModel(message: string, forceIntent?: IntentType): Pro
         const keyData = await getApiKeyByProvider(config.provider);
         if (keyData?.api_key_encrypted) {
           return {
-            provider: config.provider,
-            model: designModel,
-            apiKey: keyData.api_key_encrypted,
-            baseUrl: keyData.base_url,
-            intent,
-            routingReason: `设计专用模型: ${designModel}`,
+            provider: config.provider, model: designModel,
+            apiKey: decodeApiKey(keyData.api_key_encrypted),
+            baseUrl: keyData.base_url, intent,
+            routingReason: `design model: ${designModel}`,
           };
         }
       }
     }
   } catch {}
 
-  // 3. Try intent-preferred models in order
-  const preferredModels = INTENT_MODEL_MAP[intent];
-  for (const preferred of preferredModels) {
+  // Try intent-preferred models
+  for (const preferred of INTENT_MODEL_MAP[intent]) {
     try {
       const keyData = await getApiKeyByProvider(preferred.provider);
       if (keyData?.api_key_encrypted) {
         return {
-          provider: preferred.provider,
-          model: preferred.model,
-          apiKey: keyData.api_key_encrypted,
-          baseUrl: keyData.base_url,
-          intent,
-          routingReason: `意图[${intent}] → ${preferred.provider}/${preferred.model}`,
+          provider: preferred.provider, model: preferred.model,
+          apiKey: decodeApiKey(keyData.api_key_encrypted),
+          baseUrl: keyData.base_url, intent,
+          routingReason: `intent[${intent}] -> ${preferred.provider}/${preferred.model}`,
         };
       }
     } catch {}
   }
 
-  // 4. Fallback: try default model from settings
+  // Fallback: default model from settings
   try {
     const defaultModel = await getSetting('default_model');
     if (defaultModel) {
@@ -102,30 +100,26 @@ export async function routeModel(message: string, forceIntent?: IntentType): Pro
         const keyData = await getApiKeyByProvider(config.provider);
         if (keyData?.api_key_encrypted) {
           return {
-            provider: config.provider,
-            model: defaultModel,
-            apiKey: keyData.api_key_encrypted,
-            baseUrl: keyData.base_url,
-            intent,
-            routingReason: `默认模型: ${defaultModel}`,
+            provider: config.provider, model: defaultModel,
+            apiKey: decodeApiKey(keyData.api_key_encrypted),
+            baseUrl: keyData.base_url, intent,
+            routingReason: `default: ${defaultModel}`,
           };
         }
       }
     }
   } catch {}
 
-  // 5. Last resort: try any available provider
-  for (const fallbackProvider of ['deepseek', 'zhipu', 'qwen', 'openai', 'moonshot', 'doubao']) {
+  // Last resort: any available provider
+  for (const fb of ['deepseek', 'zhipu', 'qwen', 'openai', 'moonshot', 'doubao']) {
     try {
-      const keyData = await getApiKeyByProvider(fallbackProvider);
+      const keyData = await getApiKeyByProvider(fb);
       if (keyData?.api_key_encrypted) {
         return {
-          provider: fallbackProvider,
-          model: 'auto',
-          apiKey: keyData.api_key_encrypted,
-          baseUrl: keyData.base_url,
-          intent,
-          routingReason: `兜底: ${fallbackProvider}`,
+          provider: fb, model: 'auto',
+          apiKey: decodeApiKey(keyData.api_key_encrypted),
+          baseUrl: keyData.base_url, intent,
+          routingReason: `fallback: ${fb}`,
         };
       }
     } catch {}

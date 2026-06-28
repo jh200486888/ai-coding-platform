@@ -5,29 +5,29 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { routeModel } from '@/lib/model-router';
 import { z } from 'zod';
 
-const DESIGN_SYSTEM_PROMPT = `你是一个专业的设计助手，擅长根据用户描述生成精美的HTML/CSS设计稿。
+const DESIGN_SYSTEM_PROMPT = `You are a professional design assistant that creates beautiful HTML/CSS designs based on user descriptions.
 
-【核心能力】
-- 生成完整的HTML页面设计（包含内联CSS和JS）
-- 支持海报、社媒封面、PPT、Logo、产品页等多种设计类型
-- 输出的HTML会在iframe中实时预览
+[Core Abilities]
+- Generate complete HTML page designs (with inline CSS and JS)
+- Support posters, social media covers, PPT, Logo, product pages and more
+- Output HTML is previewed in a sandboxed iframe
 
-【设计规范】
-- 设计要现代、专业、有视觉冲击力
-- 优先使用渐变、毛玻璃、阴影等现代CSS效果
-- 字体使用系统字体栈，不需要外部引入
-- 所有样式必须内联在<style>标签中
-- 响应式设计，适配不同屏幕
+[Design Standards]
+- Modern, professional, visually striking designs
+- Use gradients, glassmorphism, shadows and other modern CSS effects
+- Use system font stacks, no external imports needed
+- All styles must be inline in <style> tags
+- Responsive design for different screens
 
-【输出格式】
-1. 先用1-2句话描述你将要生成的设计
-2. 然后直接调用 preview_html 工具展示设计结果
-3. 如果用户要求修改，基于上一次设计调整后重新调用 preview_html
+[Output Format]
+1. Briefly describe the design you will create (1-2 sentences)
+2. Call the preview_html tool to show the design
+3. If user requests changes, adjust and call preview_html again
 
-【禁止】
-- 不要只输出代码文本，必须调用 preview_html 工具
-- 不要使用外部图片URL（除非用户提供）
-- 不要输出markdown代码块包裹的HTML`;
+[Prohibited]
+- Do NOT output code text without calling preview_html tool
+- Do NOT use external image URLs (unless provided by user)
+- Do NOT wrap HTML in markdown code blocks`;
 
 export async function POST(req: NextRequest) {
   try {
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
     const routeResult = await routeModel(message, 'design');
     if (!routeResult) {
-      return NextResponse.json({ error: 'No API key configured. Please add an API key in settings.' }, { status: 500 });
+      return NextResponse.json({ error: 'No API key configured' }, { status: 500 });
     }
 
     const { provider, model: modelId, apiKey, baseUrl } = routeResult;
@@ -75,9 +75,9 @@ export async function POST(req: NextRequest) {
       execute: async ({ html, title, viewport = 'desktop' }) => {
         try {
           const encodedHtml = Buffer.from(html).toString('base64');
-          return `<!--HTML_PREVIEW\ntitle:${title || 'Design Preview'}\nviewport:${viewport}\nhtml:${encodedHtml}\n-->`;
+          return '<!--HTML_PREVIEW\ntitle:' + (title || 'Design Preview') + '\nviewport:' + viewport + '\nhtml:' + encodedHtml + '\n-->';
         } catch (e) {
-          return 'HTML预览生成失败';
+          return 'HTML preview generation failed';
         }
       },
     });
@@ -101,6 +101,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     console.error('[Design Chat] Error:', e);
-    return NextResponse.json({ error: e.message || 'Internal error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
