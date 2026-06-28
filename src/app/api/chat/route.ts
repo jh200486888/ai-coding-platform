@@ -763,13 +763,22 @@ export async function POST(request: NextRequest) {
       stopWhen: isLoopFinished(),
       // AI SDK native: force model to output text after N tool-only steps
       // No need for a separate follow-up call - this is the proper way
-      prepareStep: async ({ steps }) => {
+      prepareStep: async ({ steps, messages }) => {
         const toolOnlySteps = steps.filter((s: any) => s.toolCalls && s.toolCalls.length > 0 && (!s.text || s.text.length === 0)).length;
-        if (toolOnlySteps >= 5) {
-          console.log('[AI] prepareStep: ' + toolOnlySteps + ' tool-only steps, forcing text output');
+        if (toolOnlySteps >= 4) {
+          console.log('[AI] prepareStep: ' + toolOnlySteps + ' tool-only steps, forcing text output via message injection');
+          // Key insight: just disabling tools + system prompt doesn't work with DeepSeek
+          // It hallucinates DSML tool-call syntax as text. Instead, we inject a user message
+          // that explicitly asks for a report, making the model naturally respond with text.
           return {
             activeTools: [],
-            system: dynamicPrompt + '\n\n【紧急指令 - 必须遵守】\n你的工具调用权限已被关闭。你现在唯一能做的就是用中文写一篇完整的分析报告。\n\n绝对禁止：\n- 写任何<｜｜DSML｜｜>标签、invoke、parameter、tool_calls\n- 写任何XML/HTML标签或代码\n- 尝试以任何形式调用工具\n\n你必须立即按以下格式输出纯文字报告：\n\n一、概述\n（简要总结你的发现）\n\n二、核心分析\n（详细分析各个要点）\n\n三、关键发现\n（列出最重要的发现）\n\n四、总结与建议\n（给出结论和建议）\n\n现在立即开始写，从"一、概述"开始。'
+            messages: [
+              ...messages,
+              {
+                role: 'user',
+                content: '请根据你刚才通过工具收集到的所有信息，现在直接写一篇完整的中文分析报告。按以下格式：\n\n一、概述\n二、核心分析\n三、关键发现\n四、总结与建议\n\n注意：直接用纯文字写，不要写任何代码或标签。'
+              }
+            ],
           };
         }
         return {};
