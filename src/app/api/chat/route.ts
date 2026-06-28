@@ -764,10 +764,10 @@ export async function POST(request: NextRequest) {
     // 子智能体工具（AI SDK 原生 ToolLoopAgent）- 委派任务给专门的子智能体
     if (baseToolNames.includes('delegate_task')) {
       activeTools.delegate_task = createSubAgentTool(model, activeTools);
+    }
 
     // === 自主智能：SSH服务器工具 + 技能工具 ===
     Object.assign(activeTools, serverTools, skillTools);
-    }
 
     // ====== AI SDK v7 原生 Middleware + Telemetry ======
     const streamStartTime = Date.now();
