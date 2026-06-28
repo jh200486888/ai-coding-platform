@@ -923,8 +923,14 @@ export async function POST(request: NextRequest) {
         // Save to DB and decide if follow-up is needed
         if (text && toolPartsForLog.length > 0) {
           // Normal: model produced text + tool results
+          // Only add REPORT_CARD for structured reports (has headings + substantial length)
+          const hasMarkdownHeading = /^#{1,6}\s+/m.test(text);
+          const isLongEnough = text.length > 300;
+          const isReportLike = hasMarkdownHeading && isLongEnough;
           const reportTitle = text.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '\u5206\u6790\u62a5\u544a';
-          const savedContent = text + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->';
+          const savedContent = isReportLike 
+            ? text + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->'
+            : text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
           await createMessage(convId!, 'assistant', savedContent, model_id);
         } else if (text) {
           const savedContent = toolPartsForLog.length > 0 ? text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->' : text;
