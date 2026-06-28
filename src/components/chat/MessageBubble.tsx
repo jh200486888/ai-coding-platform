@@ -4,6 +4,8 @@ import { useState, useCallback, useRef } from 'react';
 import { User, Bot, Image, FileText, Code, Copy, Check, Pencil, Volume2, Square, FileSearch } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { Message, Attachment } from '@/types';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 // Clean attachment markers from message content for display
 function cleanAttachmentMarkers(text: string): string {
@@ -186,13 +188,30 @@ function ReportCard({ title, conversationId }: { title: string; conversationId?:
   );
 }
 
-function RenderedContent({ content, conversationId }: { content: string; conversationId?: string }) {
+function RenderedContent({ content, conversationId, isAssistant }: { content: string; conversationId?: string; isAssistant?: boolean }) {
   const segments = parseContent(content);
   return (
     <>
       {segments.map((seg, i) => {
         if (seg.type === 'code') return <CodeBlock key={i} content={seg.content} lang={seg.lang} />;
         if (seg.type === 'report-card') return <ReportCard key={i} title={seg.reportTitle || '分析报告'} conversationId={conversationId} />;
+        if (isAssistant && seg.content.length > 100) {
+          // Render longer assistant text as Markdown for proper formatting
+          return (
+            <div key={i} className="prose prose-invert prose-sm max-w-none
+              prose-headings:text-[#e2e8f0] prose-h1:text-lg prose-h2:text-base prose-h2:text-[#a78bfa] prose-h3:text-sm prose-h3:text-[#8b5cf6]
+              prose-p:text-[#cbd5e1] prose-p:leading-relaxed prose-p:my-1
+              prose-strong:text-[#a78bfa]
+              prose-code:text-[#06b6d4] prose-code:bg-[#1e1e2a] prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
+              prose-li:text-[#cbd5e1] prose-li:my-0.5
+              prose-table:text-sm prose-table:border prose-table:border-[#2a2a3a]
+              prose-th:bg-[#7c3aed] prose-th:text-white prose-th:px-2 prose-th:py-1
+              prose-td:text-[#cbd5e1] prose-td:border-[#2a2a3a] prose-td:px-2 prose-td:py-1
+              prose-blockquote:border-[#7c3aed] prose-blockquote:text-[#94a3b8]">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{seg.content}</ReactMarkdown>
+            </div>
+          );
+        }
         return <span key={i} className="whitespace-pre-wrap break-words">{stripMarkdown(seg.content)}</span>;
       })}
     </>
@@ -268,7 +287,7 @@ export function MessageBubble({ message, isEditing, editContent, onEdit, onEditC
                 {isUser ? (
                   <span className="whitespace-pre-wrap break-words">{cleanAttachmentMarkers(message.content)}</span>
                 ) : (
-                  <RenderedContent content={message.content} conversationId={conversationId} />
+                  <RenderedContent content={message.content} conversationId={conversationId} isAssistant={true} />
                 )}
               </div>
             )}
