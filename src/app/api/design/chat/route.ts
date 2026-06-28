@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { streamText, tool } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { getApiKeyByProvider, getModelConfig, getSetting } from '@/lib/db';
+import { routeModel } from '@/lib/model-router';
 import { z } from 'zod';
 
 const DESIGN_SYSTEM_PROMPT = `你是一个专业的设计助手，擅长根据用户描述生成精美的HTML/CSS设计稿。
@@ -36,48 +36,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Message required' }, { status: 400 });
     }
 
-    // Get model config - use default or first available
-    let provider = 'deepseek';
-    let modelId = 'deepseek-v4-flash';
-    try {
-      const defaultModel = await getSetting('default_model');
-      if (defaultModel) modelId = defaultModel;
-      const config = await getModelConfig(modelId);
-      if (config) provider = config.provider;
-    } catch {}
-
-    // Get API key
-    let apiKey: string | null = null;
-    let baseUrl: string | null = null;
-    try {
-      const keyData = await getApiKeyByProvider(provider);
-      if (keyData) {
-        apiKey = keyData.api_key_encrypted;
-        baseUrl = keyData.base_url;
-      }
-    } catch {}
-
-    if (!apiKey) {
-      // Try fallback providers
-      for (const fallback of ['deepseek', 'zhipu', 'qwen']) {
-        try {
-          const fallbackKey = await getApiKeyByProvider(fallback);
-          if (fallbackKey?.api_key_encrypted) {
-            apiKey = fallbackKey.api_key_encrypted;
-            baseUrl = fallbackKey.base_url;
-            provider = fallback;
-            break;
-          }
-        } catch {}
-      }
-    }
-
-    if (!apiKey) {
+    const routeResult = await routeModel(message, 'design');
+    if (!routeResult) {
       return NextResponse.json({ error: 'No API key configured. Please add an API key in settings.' }, { status: 500 });
     }
 
-    // Provider URL mapping
-    const PROVIDER_URLS: Record<string, string> = {
+    const { provider, model: modelId, apiKey, baseUrl } = routeResult;
+
+    const PROVIDER_URLS = {
       openai: 'https://api.openai.com/v1',
       anthropic: 'https://api.anthropic.com/v1',
       google: 'https://generativelanguage.googleapis.com/v1beta',
@@ -99,7 +65,6 @@ export async function POST(req: NextRequest) {
       apiKey: apiKey,
     }).languageModel(modelId);
 
-    // Define preview_html tool for design
     const previewHtmlTool = tool({
       description: 'Preview HTML design in a sandboxed iframe. Use this to show your design to the user. Always call this after generating HTML code.',
       inputSchema: z.object({
@@ -111,8 +76,8 @@ export async function POST(req: NextRequest) {
         try {
           const encodedHtml = Buffer.from(html).toString('base64');
           return `<!--HTML_PREVIEW\ntitle:${title || 'Design Preview'}\nviewport:${viewport}\nhtml:${encodedHtml}\n-->`;
-        } catch (e: any) {
-          return '❌ HTML预览生成失败: ' + (e.message || '未知错误');
+        } catch (e) {
+          return 'HTML预览生成失败';
         }
       },
     });
@@ -131,9 +96,10 @@ export async function POST(req: NextRequest) {
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
         'X-Conversation-Id': conversationId || '',
+        'X-Model-Route': routeResult.routingReason,
       },
     });
-  } catch (e: any) {
+  } catch (e) {
     console.error('[Design Chat] Error:', e);
     return NextResponse.json({ error: e.message || 'Internal error' }, { status: 500 });
   }
