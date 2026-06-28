@@ -25,6 +25,10 @@ const TOOL_DISPLAY: Record<string, { name: string; risk: 'high' | 'medium' | 'lo
   health_check: { name: '健康检查', risk: 'low', reason: '只读检查，不影响服务' },
   git_commit: { name: 'Git提交', risk: 'medium', reason: '将提交代码变更' },
   ssh_read_file: { name: '读取服务器文件', risk: 'low', reason: '只读操作，不影响服务器' },
+  web_scrape: { name: '网页抓取', risk: 'low', reason: '读取网页内容，不影响服务器' },
+  web_search: { name: '联网搜索', risk: 'low', reason: '搜索互联网信息' },
+  preview_html: { name: '页面预览', risk: 'low', reason: '在沙盒中预览HTML' },
+  diagnose_error: { name: '错误诊断', risk: 'low', reason: '只读诊断，不影响服务' },
 };
 
 const RISK_STYLE = {
@@ -52,7 +56,7 @@ export function ToolApprovalCard({
   toolName, args, state, approvalId, isAutomatic, approved, reason, output,
   onApprove, onDeny,
 }: ToolApprovalCardProps) {
-  const [expanded, setExpanded] = useState(state === 'approval-requested');
+  const [expanded, setExpanded] = useState(state === 'approval-requested' && !isAutomatic);
 
   const info = TOOL_DISPLAY[toolName] || { name: toolName, risk: 'low' as const, reason: '需要确认后执行' };
   const style = RISK_STYLE[info.risk];

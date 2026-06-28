@@ -213,7 +213,7 @@ export function ChatInterface() {
       for (const p of parts) {
         const state = String(p.state || "").toLowerCase();
         if (['approval-requested', 'approval-responded', 'output-denied'].includes(state) ||
-            (state === 'output-available' && p.approval)) {
+            (state === 'output-available' && p.approval && !p.approval?.isAutomatic)) {
           cards.push({
             toolName: p.toolName || (p.type || "").replace("tool-", ""),
             args: p.input || p.args || {},
