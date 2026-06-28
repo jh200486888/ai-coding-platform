@@ -76,7 +76,14 @@ async function execReadFile(path: string, offset?: number, limit?: number): Prom
     const header = `[文件: ${path} | 共${totalLines}行 | 显示${startLine + 1}-${endLine}行]`;
     return header + '\n' + result;
   } catch (e: any) {
-    return `❌ 读取文件失败: ${path} - ${e.message || '文件不存在或无法读取'}`;
+    const dir = path.substring(0, path.lastIndexOf('/'));
+      let suggestion = '';
+      try {
+        const { execSync: ex } = require('child_process');
+        const ls = ex(`ls ${PROJECT_DIR}/${dir} 2>/dev/null | head -20`, { encoding: 'utf-8' });
+        if (ls.trim()) suggestion = '\n💡 该目录下的文件:\n' + ls.trim();
+      } catch {}
+      return `❌ 读取文件失败: ${path} - ${e.message || '文件不存在'}${suggestion}`;
   }
 }
 

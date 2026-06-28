@@ -282,7 +282,7 @@ export function MessageBubble({ message, isEditing, editContent, onEdit, onEditC
       <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isUser ? 'bg-primary' : 'bg-muted'}`}>
         {isUser ? <User className="w-4 h-4 text-primary-foreground" /> : <Bot className="w-4 h-4 text-muted-foreground" />}
       </div>
-      <div className={`flex-1 max-w-[80%] rounded-lg px-4 py-3 ${isUser ? 'bg-primary text-primary-foreground' : 'bg-card border border-border'}`}>
+      <div className={`flex-1 ${isUser ? 'max-w-[80%]' : 'max-w-[95%]'} rounded-lg px-4 py-3 ${isUser ? 'bg-primary text-primary-foreground' : 'bg-card border border-border'}`}>
         {hasAttachments && (
           <div className={`flex flex-wrap gap-2 mb-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
             {message.attachments!.map(att => <AttachmentItem key={att.id} attachment={att} />)}

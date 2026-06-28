@@ -9,7 +9,7 @@ export const preview_html = tool({
 The content will be rendered in a secure sandboxed iframe with device viewport options (desktop/tablet/mobile).
 Always call this after generating complete HTML code so the user can see the result immediately.
 Do NOT use this for markdown or plain text - only for actual HTML that should be rendered as a web page.`,
-  parameters: z.object({
+  inputSchema: z.object({
     html: z.string().describe('The complete HTML content to preview (must include <!DOCTYPE html> or <html> tag)'),
     title: z.string().optional().describe('Title for the preview (e.g. "Login Page", "Dashboard Layout")'),
     viewport: z.enum(['desktop', 'tablet', 'mobile']).default('desktop').describe('Viewport size: desktop(100%), tablet(768px), mobile(375px)'),
