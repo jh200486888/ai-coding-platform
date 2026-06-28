@@ -18,6 +18,7 @@ import { useFileUpload } from './hooks/use-file-upload';
 import { ConversationSidebar } from './ConversationSidebar';
 import { useAuth } from '@/lib/auth-provider';
 import { ChatMessages } from './ChatMessages';
+import { ToolApprovalCard } from './tool-approval-card';
 import { ChatInput } from './ChatInput';
 import { ModelSelector } from './ModelSelector';
 
@@ -125,6 +126,7 @@ export function ChatInterface() {
     handleStop,
     loadConversation,
     startNewChat,
+    addToolApprovalResponse,
     chat,
   } = useChatLogic({
     currentConvId,
@@ -154,6 +156,8 @@ export function ChatInterface() {
           const isPreliminary = p.preliminary === true;
           const isStreaming = state === "output-available" && isPreliminary;
           const isError = state === "output-error" || (state === "output-available" && !isPreliminary && p.errorText) || (state === "output-available" && typeof p.output === "string" && p.output.startsWith("❌"));
+          const isApproval = state === "approval-requested";
+          const isDenied = state === "output-denied";
           const isDone = ((state === "output-available" && !isPreliminary) || (p.output !== undefined && !isPreliminary)) && !isError;
           const toolName = p.toolName || (p.type === "dynamic-tool" ? p.toolName : (p.type || "").replace("tool-", ""));
           
@@ -166,6 +170,10 @@ export function ChatInterface() {
             summary = output.slice(0, 100) || "完成";
           } else if (isError) {
             summary = (p.errorText || output).slice(0, 100);
+          } else if (isApproval) {
+            summary = "等待审批...";
+          } else if (isDenied) {
+            summary = "用户已拒绝";
           } else if (state === "call" || state === "input-streaming" || state === "input-available") {
             summary = "执行中...";
           }
@@ -173,7 +181,9 @@ export function ChatInterface() {
           return {
             callId: p.toolCallId || p.type,
             toolName,
-            status: isError ? "error" : isDone ? "done" : "running",
+            status: isApproval ? "approval" : isDenied ? "denied" : isError ? "error" : isDone ? "done" : "running",
+            approvalId: p.approval?.id,
+            args: p.input || p.args || {},
             summary,
             isSubAgent: toolName === "delegate_task",
             subAgentOutput: toolName === "delegate_task" && isStreaming ? output : undefined,
@@ -183,6 +193,35 @@ export function ChatInterface() {
     }
     return allToolCalls;
   })();
+
+  // 从parts中提取审批请求卡片
+  const approvalCards = (() => {
+    const cards: Array<{ toolName: string; args: Record<string, unknown>; approvalId: string; callId: string }> = [];
+    for (const msg of messages) {
+      if (msg.role !== "assistant") continue;
+      const parts = (msg as any).parts || [];
+      for (const p of parts) {
+        const state = String(p.state || "").toLowerCase();
+        if (state === "approval-requested" && p.approval?.id) {
+          cards.push({
+            toolName: p.toolName || (p.type || "").replace("tool-", ""),
+            args: p.input || p.args || {},
+            approvalId: p.approval.id,
+            callId: p.toolCallId || p.type,
+          });
+        }
+      }
+    }
+    return cards;
+  })();
+
+  // 审批回调
+  const handleApprove = (approvalId: string) => {
+    addToolApprovalResponse({ id: approvalId, approved: true });
+  };
+  const handleDeny = (approvalId: string) => {
+    addToolApprovalResponse({ id: approvalId, approved: false });
+  };
 
   // Load conversations on mount
   useEffect(() => {
@@ -535,6 +574,22 @@ export function ChatInterface() {
           isDragging={isDragging}
           CHAT_MODES={CHAT_MODES}
         />
+
+        {/* Tool Approval Cards */}
+        {approvalCards.length > 0 && (
+          <div className="px-3 md:px-4">
+            {approvalCards.map((card) => (
+              <ToolApprovalCard
+                key={card.callId}
+                toolName={card.toolName}
+                args={card.args}
+                approvalId={card.approvalId}
+                onApprove={handleApprove}
+                onDeny={handleDeny}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Input */}
         <ChatInput

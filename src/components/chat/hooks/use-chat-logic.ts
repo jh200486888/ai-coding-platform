@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport } from 'ai';
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from 'ai';
 import { z } from 'zod';
 import type { UIMessage } from 'ai';
 import { toast } from 'sonner';
@@ -88,6 +88,7 @@ export function useChatLogic(options: {
   const chat = useChat({
     transport: new DefaultChatTransport({ api: '/api/chat' }),
     messageMetadataSchema: z.object({ conversationId: z.string().optional() }).optional(),
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     async onFinish({ message }) {
       const convId = (message.metadata as any)?.conversationId;
       if (convId) onConversationCreated(convId);
@@ -195,6 +196,7 @@ export function useChatLogic(options: {
     handleStop,
     loadConversation,
     startNewChat,
+    addToolApprovalResponse: chat.addToolApprovalResponse,
     chat,
   };
 }

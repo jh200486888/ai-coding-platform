@@ -13,6 +13,16 @@ const toolNameMap: Record<string, string> = {
   searchWeb: '联网搜索',
   saveMemory: '保存记忆',
   delegate_task: '委派子智能体',
+  ssh_execute: '执行SSH命令',
+  ssh_read_file: '读取服务器文件',
+  ssh_write_file: '写入服务器文件',
+  build_project: '构建项目',
+  deploy_service: '部署服务',
+  health_check: '健康检查',
+  git_commit: 'Git提交',
+  get_available_skills: '获取技能列表',
+  use_skill: '使用技能',
+  read_skill_file: '读取技能文件',
 };
 
 interface ToolCall {
