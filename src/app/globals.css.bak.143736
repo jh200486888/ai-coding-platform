@@ -135,24 +135,3 @@ code {
 .animate-blink {
   animation: blink 1s infinite;
 }
-
-/* 移动端防水平溢出 */
-html, body {
-  overflow-x: hidden !important;
-}
-
-/* 长URL/代码自动换行，防溢出 */
-.prose a, .prose code, .markdown-content a, .markdown-content code {
-  word-break: break-all;
-  overflow-wrap: break-word;
-}
-
-/* prose链接颜色 - 确保可见 */
-.prose a, .markdown-content a {
-  color: var(--color-primary) !important;
-  text-decoration: underline;
-}
-
-.prose a:hover, .markdown-content a:hover {
-  color: var(--color-accent) !important;
-}

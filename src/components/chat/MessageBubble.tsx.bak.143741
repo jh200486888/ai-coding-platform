@@ -255,7 +255,7 @@ function RenderedContent({ content, conversationId, isAssistant }: { content: st
               prose-table:text-sm prose-table:border prose-table:border-border
               prose-th:bg-primary prose-th:text-primary-foreground prose-th:px-2 prose-th:py-1
               prose-td:text-foreground prose-td:border-border prose-td:px-2 prose-td:py-1
-              prose-a:text-primary prose-a:underline hover:prose-a:text-accent prose-blockquote:border-primary prose-blockquote:text-muted-foreground overflow-x-hidden">
+              prose-blockquote:border-primary prose-blockquote:text-muted-foreground">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{seg.content}</ReactMarkdown>
             </div>
           );
@@ -335,7 +335,7 @@ export function MessageBubble({ message, isEditing, editContent, onEdit, onEditC
       <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isUser ? 'bg-primary' : 'bg-muted'}`}>
         {isUser ? <User className="w-4 h-4 text-primary-foreground" /> : <Bot className="w-4 h-4 text-muted-foreground" />}
       </div>
-      <div className={`flex-1 ${isUser ? 'max-w-[80%]' : 'max-w-[95%]'} rounded-lg px-4 py-3 ${isUser ? 'bg-primary text-primary-foreground' : 'bg-card border border-border overflow-hidden'}`}>
+      <div className={`flex-1 ${isUser ? 'max-w-[80%]' : 'max-w-[95%]'} rounded-lg px-4 py-3 ${isUser ? 'bg-primary text-primary-foreground' : 'bg-card border border-border'}`}>
         {hasAttachments && (
           <div className={`flex flex-wrap gap-2 mb-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
             {message.attachments!.map(att => <AttachmentItem key={att.id} attachment={att} />)}

@@ -287,7 +287,7 @@ function DesignPageInner() {
 
             {/* Central Input Box */}
             <div className="max-w-2xl mx-auto relative">
-              <div className="bg-[#16161e] border border-[#1e293b] rounded-2xl focus-within:border-[#7c3aed]/50 focus-within:shadow-lg focus-within:shadow-[#7c3aed]/10 transition-all overflow-hidden">
+              <div className="bg-[#16161e] border border-[#1e293b] rounded-2xl focus-within:border-[#7c3aed]/50 focus-within:shadow-lg focus-within:shadow-[#7c3aed]/10 transition-all">
                 {referenceImage && (
                   <div className="px-4 pt-3 flex items-center gap-2">
                     <div className="relative group">

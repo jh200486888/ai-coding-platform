@@ -11,6 +11,7 @@ interface ModelConfig {
   supportsEdit: boolean;
   dashScopeModel?: string;
   editModel?: string;
+  apiType?: 'text2image' | 'multimodal' | 'openai-edit';
 }
 
 // Hardcoded fallback configs (used when DB is unavailable)
@@ -18,32 +19,32 @@ const FALLBACK_MODEL_CONFIGS: Record<string, ModelConfig> = {
   'gpt-image-2': {
     provider: 'openai',
     sizes: { '1k': ['1024x1024', '1536x1024', '1024x1536'], '2k': ['2048x2048', '2048x1536', '1536x2048', '2048x1152', '1152x2048'] },
-    defaultSize: '1024x1024', maxN: 10, supportsEdit: true,
+    defaultSize: '1024x1024', maxN: 10, supportsEdit: true, apiType: 'openai-edit',
   },
   'qwen-image-2.0': {
     provider: 'qwen', dashScopeModel: 'wanx2.1-t2i-turbo',
     sizes: { '1k': ['1024*1024', '720*1280', '1280*720'] },
-    defaultSize: '1024*1024', maxN: 4, supportsEdit: false,
+    defaultSize: '1024*1024', maxN: 4, supportsEdit: true, apiType: 'text2image',
   },
   'qwen-image-2.0-pro': {
     provider: 'qwen', dashScopeModel: 'wanx2.1-t2i-plus',
     sizes: { '1k': ['1024*1024', '720*1280', '1280*720'], '2k': ['2048*2048', '1440*2560', '2560*1440'] },
-    defaultSize: '1024*1024', maxN: 4, supportsEdit: false,
+    defaultSize: '1024*1024', maxN: 4, supportsEdit: true, apiType: 'text2image',
   },
   'wan2.6-t2i': {
     provider: 'qwen', dashScopeModel: 'wanx-v1',
     sizes: { '1k': ['1280*1280', '720*1280', '1280*720'], '2k': ['1440*1440', '1024*1440', '1440*1024'] },
-    defaultSize: '1280*1280', maxN: 4, supportsEdit: false,
+    defaultSize: '1280*1280', maxN: 4, supportsEdit: true, apiType: 'multimodal',
   },
   'wanx-v1-edit': {
     provider: 'qwen', dashScopeModel: 'wanx-v1',
     sizes: { '1k': ['1024*1024', '720*1280', '1280*720'] },
-    defaultSize: '1024*1024', maxN: 4, supportsEdit: true,
+    defaultSize: '1024*1024', maxN: 4, supportsEdit: true, apiType: 'text2image',
   },
   'SeedDream-3.0': {
     provider: 'volcengine',
     sizes: { '1k': ['1024x1024', '768x1024', '1024x768', '576x1024', '1024x576'], '2k': ['2048x2048', '1536x2048', '2048x1536'] },
-    defaultSize: '1024x1024', maxN: 4, supportsEdit: false,
+    defaultSize: '1024x1024', maxN: 4, supportsEdit: false, apiType: 'openai-edit',
   },
 };
 
@@ -138,6 +139,119 @@ async function getApiKey(provider: string): Promise<{ key: string; baseUrl: stri
   return null;
 }
 
+// ============ 万相2.7/2.6 Multimodal Generation 图生图 ============
+// 使用 multimodal-generation 端点，content数组同时传text和image
+async function generateWanMultimodal(
+  apiKey: string, model: string, prompt: string,
+  size: string, n: number, referenceImage: string
+): Promise<{ images: Array<{ id: string; url: string; revised_prompt: string }> }> {
+  // 构建content数组 - 这是图生图的核心
+  const content: Array<Record<string, string>> = [
+    { text: prompt },
+    { image: referenceImage },
+  ];
+
+  const requestBody = {
+    model,
+    input: {
+      messages: [{
+        role: 'user',
+        content,
+      }],
+    },
+    parameters: {
+      size: resolveDashScopeSizeToLabel(size),
+      n: Math.min(n, 4),
+    },
+  };
+
+  console.log(`[ImageGen] Wan Multimodal: model=${model}, size=${size}, n=${n}, hasRefImage=true`);
+
+  const submitResponse = await fetch(
+    'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'X-DashScope-Async': 'enable',
+      },
+      body: JSON.stringify(requestBody),
+    }
+  );
+
+  if (!submitResponse.ok) {
+    const errorData = await submitResponse.json().catch(() => ({}));
+    const errorMsg = (errorData as Record<string, Record<string, string>>)?.message || `HTTP ${submitResponse.status}`;
+    throw new Error(`万相Multimodal API 提交失败: ${errorMsg}`);
+  }
+
+  const submitData = await submitResponse.json();
+  const taskId = submitData?.output?.task_id;
+  if (!taskId) throw new Error('万相Multimodal API 未返回任务 ID');
+
+  console.log(`[ImageGen] Wan Multimodal task submitted: ${taskId}`);
+
+  // 轮询等待结果
+  const maxAttempts = 60;
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    const pollResponse = await fetch(
+      `https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`,
+      { headers: { 'Authorization': `Bearer ${apiKey}` } }
+    );
+
+    if (!pollResponse.ok) continue;
+    const pollData = await pollResponse.json();
+    const status = pollData?.output?.task_status;
+
+    if (status === 'SUCCEEDED') {
+      // 万相2.7返回格式：output.choices[0].message.content[0].image
+      const choices = pollData?.output?.choices || [];
+      const images: Array<{ id: string; url: string; revised_prompt: string }> = [];
+      for (const choice of choices) {
+        const contents = choice?.message?.content || [];
+        for (const c of contents) {
+          if (c.type === 'image' && c.image) {
+            images.push({
+              id: `${Date.now()}-${images.length}`,
+              url: c.image,
+              revised_prompt: prompt,
+            });
+          }
+        }
+      }
+      // 兼容老格式 output.results
+      if (images.length === 0) {
+        const results = pollData?.output?.results || [];
+        for (const item of results) {
+          images.push({
+            id: `${Date.now()}-${images.length}`,
+            url: item.url || '',
+            revised_prompt: item.actual_prompt || prompt,
+          });
+        }
+      }
+      if (images.length === 0) throw new Error('万相返回成功但无图片数据');
+      return { images };
+    }
+
+    if (status === 'FAILED') {
+      const msg = pollData?.output?.message || pollData?.message || '图片生成失败';
+      throw new Error(`万相图片生成失败: ${msg}`);
+    }
+  }
+
+  throw new Error('万相图片生成超时，请稍后重试');
+}
+
+// 将像素尺寸转换为万相2.7的size标签（1K/2K/4K）
+function resolveDashScopeSizeToLabel(pixelSize: string): string {
+  if (pixelSize.includes('2048') || pixelSize.includes('2560') || pixelSize.includes('1440*1440')) return '2K';
+  return '1K';
+}
+
 // OpenAI-compatible image generation
 async function generateOpenAICompatible(
   baseUrl: string, apiKey: string, model: string, prompt: string,
@@ -170,7 +284,7 @@ async function generateOpenAICompatible(
   return { images };
 }
 
-// DashScope async image generation (qwen/通义千问 models)
+// DashScope async image generation (qwen/通义千问 text2image)
 async function generateDashScopeAsync(
   apiKey: string, dashScopeModel: string, prompt: string,
   size: string, n: number, referenceImage?: string
@@ -305,51 +419,10 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // If reference image provided, find a model that supports editing
-    let effectiveModel = model;
-    let effectiveConfig = modelConfig;
-    
-    if (referenceImage) {
-      if (!modelConfig.supportsEdit) {
-        effectiveModel = 'wanx-v1-edit';
-        effectiveConfig = MODEL_CONFIGS['wanx-v1-edit'];
-      }
-      
-      const refKeyData = await getApiKey(effectiveConfig.provider);
-      if (!refKeyData) {
-        const providerNames: Record<string, string> = {
-          openai: 'OpenAI', qwen: '通义千问', volcengine: '火山引擎',
-        };
-        return new Response(
-          JSON.stringify({ error: `图生图需要 ${providerNames[effectiveConfig.provider] || effectiveConfig.provider} 的 API Key，请先在后台添加` }),
-          { status: 400, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-      const apiKey = refKeyData.key;
-
-      if (effectiveConfig.provider === 'openai') {
-        const actualSize = resolveOpenAISize(effectiveModel, size, resolution, MODEL_CONFIGS);
-        const editBaseUrl = refKeyData?.baseUrl || 'https://api.openai.com/v1';
-        return handleOpenAIEdit(apiKey, prompt, referenceImage, actualSize, output_format, editBaseUrl);
-      }
-
-      if (effectiveConfig.provider === 'qwen') {
-        const actualSize = resolveDashScopeSize(effectiveModel, size, resolution, MODEL_CONFIGS);
-        const dashScopeModel = effectiveConfig.dashScopeModel || effectiveModel;
-        const result = await generateDashScopeAsync(
-          refKeyData.key, dashScopeModel, prompt, actualSize, Math.min(n, effectiveConfig.maxN), referenceImage
-        );
-        return new Response(JSON.stringify({
-          success: true, images: result.images, model: effectiveModel, size: actualSize,
-        }), { headers: { 'Content-Type': 'application/json' } });
-      }
-    }
-
-    // Text-to-image flow
     const keyData = await getApiKey(modelConfig.provider);
     if (!keyData) {
       const providerNames: Record<string, string> = {
-        openai: 'OpenAI', qwen: '通义千问', volcengine: '火山引擎',
+        openai: 'OpenAI', qwen: '通义千问', qwenimage: '通义千问', volcengine: '火山引擎',
       };
       return new Response(
         JSON.stringify({ error: `未配置 ${providerNames[modelConfig.provider] || modelConfig.provider} 的 API Key，请先在后台添加` }),
@@ -358,6 +431,52 @@ export async function POST(request: NextRequest) {
     }
     const apiKey = keyData.key;
 
+    // ============ 图生图流程 ============
+    if (referenceImage) {
+      const apiType = modelConfig.apiType || 'text2image';
+      console.log(`[ImageGen] Image-to-Image: model=${model}, apiType=${apiType}, hasRefImage=true`);
+
+      // 万相2.6/2.7 multimodal-generation 端点
+      if (apiType === 'multimodal') {
+        const actualSize = resolveDashScopeSize(model, size, resolution, MODEL_CONFIGS);
+        const result = await generateWanMultimodal(
+          apiKey, modelConfig.dashScopeModel || model, prompt, actualSize, n, referenceImage
+        );
+        return new Response(JSON.stringify({
+          success: true, images: result.images, model, size: actualSize,
+        }), { headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // OpenAI gpt-image-2 edits 端点
+      if (apiType === 'openai-edit' || modelConfig.provider === 'openai') {
+        const actualSize = resolveOpenAISize(model, size, resolution, MODEL_CONFIGS);
+        const editBaseUrl = keyData?.baseUrl || 'https://api.openai.com/v1';
+        return handleOpenAIEdit(apiKey, prompt, referenceImage, actualSize, output_format, editBaseUrl);
+      }
+
+      // 百炼 text2image 端点（wanx-v1等老模型）
+      if (apiType === 'text2image' && modelConfig.provider === 'qwen') {
+        const actualSize = resolveDashScopeSize(model, size, resolution, MODEL_CONFIGS);
+        const dashScopeModel = modelConfig.dashScopeModel || model;
+        const result = await generateDashScopeAsync(
+          apiKey, dashScopeModel, prompt, actualSize, Math.min(n, modelConfig.maxN), referenceImage
+        );
+        return new Response(JSON.stringify({
+          success: true, images: result.images, model, size: actualSize,
+        }), { headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // fallback: 尝试multimodal
+      const actualSize = resolveDashScopeSize(model, size, resolution, MODEL_CONFIGS);
+      const result = await generateWanMultimodal(
+        apiKey, modelConfig.dashScopeModel || model, prompt, actualSize, n, referenceImage
+      );
+      return new Response(JSON.stringify({
+        success: true, images: result.images, model, size: actualSize,
+      }), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    // ============ 文生图流程 ============
     const imageCount = Math.min(Math.max(1, n), modelConfig.maxN);
     const quality = (explicitQuality as string) || resolveQuality(resolution);
 
@@ -377,9 +496,20 @@ export async function POST(request: NextRequest) {
       case 'qwen': {
         actualSize = resolveDashScopeSize(model, size, resolution, MODEL_CONFIGS);
         const dashScopeModel = modelConfig.dashScopeModel || model;
-        result = await generateDashScopeAsync(
-          apiKey, dashScopeModel, prompt, actualSize, imageCount
-        );
+        const apiType = modelConfig.apiType || 'text2image';
+        
+        // 万相2.6/2.7文生图也走multimodal端点
+        if (apiType === 'multimodal') {
+          result = await generateWanMultimodal(
+            apiKey, dashScopeModel, prompt, actualSize, imageCount, ''
+          );
+          // 如果没传参考图但用multimodal，降级到text2image
+          // generateWanMultimodal传空参考图时只发text
+        } else {
+          result = await generateDashScopeAsync(
+            apiKey, dashScopeModel, prompt, actualSize, imageCount
+          );
+        }
         break;
       }
       case 'volcengine': {
