@@ -155,10 +155,13 @@ function DesignPageInner() {
     fetch("/api/models")
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (data?.models) {
-          setModels(data.models.map((m: any) => ({
-            modelId: m.modelId || m.id, name: m.name || m.modelId,
-            provider: m.provider, type: m.provider?.includes("image") ? "image" : "text",
+        const modelList = data?.data || data?.models || [];
+        if (modelList.length > 0) {
+          setModels(modelList.map((m: any) => ({
+            modelId: m.model_id || m.modelId || m.id,
+            name: m.display_name || m.name || m.model_id || m.modelId,
+            provider: m.provider,
+            type: m.provider?.includes("image") ? "image" : "text",
           })));
         }
       })

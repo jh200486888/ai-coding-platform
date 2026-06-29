@@ -1018,6 +1018,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [form, setForm] = useState({
     system_prompt: '',
+    design_system_prompt: '',
     site_title: '',
     site_description: '',
     default_model: '',
@@ -1067,6 +1068,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
         setSettings(data.data);
         setForm({
           system_prompt: data.data.system_prompt || '',
+          design_system_prompt: data.data.design_system_prompt || '',
           site_title: data.data.site_title || '',
           site_description: data.data.site_description || '',
           default_model: data.data.default_model || '',
@@ -1091,6 +1093,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
     try {
       await Promise.all([
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'system_prompt', value: form.system_prompt }) }),
+        fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'design_system_prompt', value: form.design_system_prompt }) }),
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'site_title', value: form.site_title }) }),
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'site_description', value: form.site_description }) }),
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'default_model', value: form.default_model }) }),

@@ -92,10 +92,10 @@ export default function DesignEditorPage() {
     fetch("/api/models")
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (data?.models) {
+        if (data?.data || data?.models) {
           setModels(data.models.map((m: any) => ({
-            modelId: m.modelId || m.id,
-            name: m.name || m.modelId,
+            modelId: m.model_id || m.modelId || m.id,
+            name: m.display_name || m.name || m.model_id || m.modelId,
             provider: m.provider,
           })));
         }
