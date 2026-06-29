@@ -12,7 +12,7 @@ export function classifyIntent(message: string): IntentType {
 
 const INTENT_PROVIDER_PRIORITY: Record<IntentType, string[]> = {
   design: ['deepseek', 'zhipu', 'qwen', 'openai'],
-  code: ['deepseek', 'openai', 'zhipu'],
+  code: ['deepseek', 'zhipu', 'openai'],
   image: ['openai-image'],
   chat: ['deepseek', 'zhipu', 'qwen'],
 };
