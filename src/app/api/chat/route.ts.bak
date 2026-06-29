@@ -1,13 +1,19 @@
 import { NextRequest } from 'next/server';
-import { streamText, stepCountIs, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware } from 'ai';
+import { ToolLoopAgent, isStepCount, pruneMessages, streamText, toUIMessageStream, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig, getSetting, setConversationUserId } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 import { z } from 'zod';
 import { tool } from 'ai';
 import { createSubAgentTool } from '@/lib/sub-agents';
+import { routeModel, markProviderFailed } from '@/lib/model-router';
 
 import { describeImages } from '@/lib/vision-proxy';
+// === 自主智能：SSH工具 + 技能系统 ===
+import { serverTools } from '@/lib/server-tools';
+import { skillTools, generateSkillsCatalog } from '@/lib/skills';
+import { webTools } from '@/lib/web-scraper';
+import { previewTools } from '@/lib/preview-tool';
 // ============ 日志中间件（AI SDK 原生 Middleware） ============
 const loggingMiddleware: LanguageModelMiddleware = {
   wrapGenerate: async ({ doGenerate, params, model }) => {
@@ -57,11 +63,29 @@ async function execDeleteFile(path: string): Promise<string> {
   } catch (e: any) { return `❌ 删除失败: ${e.message || '文件不存在'}`; }
 }
 
-async function execReadFile(path: string): Promise<string> {
+async function execReadFile(path: string, offset?: number, limit?: number): Promise<string> {
   const fs = await import('fs/promises');
   const filePath = `${PROJECT_DIR}/${path}`;
-  const content = await fs.readFile(filePath, 'utf-8');
-  return content.slice(0, 50000);
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.split('\n');
+    const totalLines = lines.length;
+    const startLine = Math.max(1, offset || 1) - 1;
+    const endLine = limit ? Math.min(startLine + limit, totalLines) : totalLines;
+    const selectedLines = lines.slice(startLine, endLine);
+    const result = selectedLines.map((line, i) => `${startLine + i + 1}\t${line}`).join('\n');
+    const header = `[文件: ${path} | 共${totalLines}行 | 显示${startLine + 1}-${endLine}行]`;
+    return header + '\n' + result;
+  } catch (e: any) {
+    const dir = path.substring(0, path.lastIndexOf('/'));
+      let suggestion = '';
+      try {
+        const { execSync: ex } = require('child_process');
+        const ls = ex(`ls ${PROJECT_DIR}/${dir} 2>/dev/null | head -20`, { encoding: 'utf-8' });
+        if (ls.trim()) suggestion = '\n💡 该目录下的文件:\n' + ls.trim();
+      } catch {}
+      return `❌ 读取文件失败: ${path} - ${e.message || '文件不存在'}${suggestion}`;
+  }
 }
 
 async function execRunCommand(command: string): Promise<string> {
@@ -129,20 +153,32 @@ async function execSearchWeb(query: string): Promise<string> {
 }
 
 // ============ 持久记忆 ============
-async function getMemories(): Promise<string> {
+async function getMemories(userMessage?: string): Promise<string> {
   try {
     const db = await import('@/lib/db');
-    const rows = await db.query('SELECT category, content FROM user_memory ORDER BY "updatedAt" DESC');
+    const rows = await db.query('SELECT category, content, importance, keywords FROM user_memory ORDER BY importance DESC, "updatedAt" DESC');
     if (!rows || rows.length === 0) return '';
-    const grouped: Record<string, string[]> = {};
-    for (const r of rows) {
-      const cat = r.category || 'general';
-      if (!grouped[cat]) grouped[cat] = [];
-      grouped[cat].push(r.content);
-    }
     const parts: string[] = [];
-    for (const [cat, items] of Object.entries(grouped)) {
-      parts.push(cat + ': ' + items.join('; '));
+    let totalLen = 0;
+    const MAX_MEMORY_CHARS = 2000;
+    for (const r of rows) {
+      if (r.importance >= 5) {
+        const entry = r.category + ': ' + r.content;
+        if (totalLen + entry.length > MAX_MEMORY_CHARS) break;
+        parts.push(entry);
+        totalLen += entry.length;
+        continue;
+      }
+      if (userMessage && r.keywords) {
+        const kws = String(r.keywords).split(',').map((k: string) => k.trim()).filter(Boolean);
+        const msg = userMessage.toLowerCase();
+        if (kws.some(kw => msg.includes(kw.toLowerCase()))) {
+          const entry = r.category + ': ' + r.content;
+          if (totalLen + entry.length > MAX_MEMORY_CHARS) break;
+          parts.push(entry);
+          totalLen += entry.length;
+        }
+      }
     }
     return parts.join('\n');
   } catch { return ''; }
@@ -162,7 +198,7 @@ async function execSaveMemory(category: string, content: string): Promise<string
 // ============ 工具定义（AI SDK v7 格式） ============
 const tools = {
   createFile: tool({
-    description: '在项目目录创建文件。必须提供完整文件路径和文件内容。',
+    description: '创建新文件。优先用于创建完整的新文件，文件路径相对于项目根目录。修改已有文件时优先用 editFile 而非覆盖整个文件。',
     inputSchema: z.object({
       path: z.string().describe('文件相对路径，如 src/app/page.tsx'),
       content: z.string().describe('文件完整内容'),
@@ -170,7 +206,7 @@ const tools = {
     execute: async ({ path, content }) => execCreateFile(path, content),
   }),
   editFile: tool({
-    description: '修改已有文件。提供旧文本和新文本进行替换。',
+    description: '精确替换文件中的文本。提供要替换的旧文本（必须完全匹配）和新文本。适合小范围修改。如果改动超过文件50%，用 createFile 覆盖更安全。替换前先用 readFile 确认当前内容。',
     inputSchema: z.object({
       path: z.string().describe('文件相对路径'),
       oldText: z.string().describe('要替换的原始文本'),
@@ -186,35 +222,37 @@ const tools = {
     execute: async ({ path }) => execDeleteFile(path),
   }),
   readFile: tool({
-    description: '读取项目中的文件内容。',
+    description: '读取文件内容。大文件用 offset 和 limit 参数分段读取，避免超长输出。修改代码前务必先 readFile 了解当前内容，不要猜测。',
     inputSchema: z.object({
       path: z.string().describe('文件相对路径'),
+      offset: z.number().optional().describe('起始行号，从1开始。默认1'),
+      limit: z.number().optional().describe('读取行数。默认全部，建议大文件每次100-200行'),
     }),
-    execute: async ({ path }) => execReadFile(path),
+    execute: async ({ path, offset, limit }) => execReadFile(path, offset, limit),
   }),
   runCommand: tool({
-    description: '在项目目录执行 shell 命令。用于安装依赖、构建、部署等。',
+    description: '执行 shell 命令。可用场景：安装依赖(pnpm install)、构建(pnpm build)、部署(pm2 restart)、查看进程(pm2 list)、检查端口(ss -tlnp)、查看日志(pm2 logs --lines 50)。多个命令用 && 连接。命令超时120秒。',
     inputSchema: z.object({
       command: z.string().describe('要执行的命令，如 pnpm install, pnpm build, pm2 restart'),
     }),
     execute: async ({ command }) => execRunCommand(command),
   }),
   deploy: tool({
-    description: '部署项目：执行 pnpm install + pnpm build + pm2 restart。',
+    description: '一键部署：自动执行 pnpm install → pnpm build → pm2 restart。修改代码后用此工具快速上线。如果构建失败，先用 readFile 查看报错再修复。',
     inputSchema: z.object({
       confirm: z.boolean().describe('确认部署'),
     }),
     execute: async () => execDeploy(),
   }),
   searchWeb: tool({
-    description: "搜索互联网获取实时信息。用于查询最新新闻、价格、技术文档等。",
+    description: '搜索互联网获取实时信息。适合查询：最新技术动态、API文档用法、错误信息解决方案、价格数据、新闻事件。搜索关键词要简洁精准，2-5个词。',
     inputSchema: z.object({
       query: z.string().describe("搜索关键词"),
     }),
     execute: async ({ query }) => execSearchWeb(query),
   }),
   saveMemory: tool({
-    description: '保存记忆到长期存储。当用户说记住或提到重要偏好、项目信息时使用。',
+    description: '保存重要信息到长期记忆。触发场景：用户说"记住/记一下"，用户提到偏好/习惯/项目配置/关键决策。分类：preference(偏好)、project(项目)、fact(事实)、note(备注)。',
     inputSchema: z.object({
       category: z.string().describe("分类：preference/project/fact/note"),
       content: z.string().describe("要记住的内容"),
@@ -243,19 +281,65 @@ import { PROVIDER_URLS } from '@/lib/models';
 // ============ 系统提示词 ============
 const SYSTEM_PROMPT = `你是一个专业的AI编程助手，运行在服务器上，可以直接操作文件和执行命令。
 
-【绝对规则】
-1. 创建文件时必须用 createFile 工具，不要在对话中粘贴长代码让用户自己复制
-2. 禁止说明部署步骤！必须用 deploy 工具部署
-3. 禁止使用"我来帮你"、"让我看看"等引导性语言
-4. 禁止使用 ** 加粗或 Markdown 格式化
-5. 禁止说"我无法访问/执行"——你已经在服务器上
-6. 禁止说"无法访问外部链接"——用 runCommand 执行 curl
+【核心原则】
+1. 直接行动，不要犹豫——你真实运行在服务器上，不是模拟
+2. 修完必须验证——代码改动后用 runCommand 执行构建和重启，确认结果
+3. 出错自动修复——构建失败时读取错误，修复后重新构建，最多重试2次
+4. 信息足够就输出——每步工具调用后评估，信息够了立即停止调用
 
-【工作流】
-收到需求 → 思考方案 → 调用工具执行 → 确认结果 → 简洁回复
+【行为规范】
+- 禁止说"我无法访问/执行"——你已经在服务器上
+- 禁止说"无法访问外部链接"——用 runCommand 执行 curl 或 searchWeb 搜索
+- 禁止只说明步骤让用户自己操作——必须用工具直接执行
+- 禁止输出DSML标签、XML格式的工具调用代码
+- 完成后用1-3句话总结做了什么、结果如何
 
-你是真实运行在服务器上的，不是在模拟。直接行动，不要犹豫。
-- 完成后用1-2句话总结做了什么、结果如何。`;
+【编码工作流】
+1. 理解需求 → 先用 readFile 查看相关代码
+2. 方案设计 → 思考改动点，不要盲目修改
+3. 执行修改 → 用 createFile/editFile 工具
+4. 验证结果 → runCommand 执行 pnpm build，确认无报错
+5. 部署生效 → 用 deploy 工具或 runCommand 执行 pm2 restart
+6. 总结回复 → 简洁说明改了什么、结果如何
+
+【自主闭环工作流——必须严格执行】
+当收到编程/修复/部署任务时，你必须自主完成全流程，不中途停下来问用户：
+1. 写代码 → 用 createFile/editFile 直接修改，不要只说方案
+2. 找Bug → 构建失败时，读错误日志定位问题，自动修复，最多重试3次
+3. 提交 → 修复确认后，用 runCommand 执行 git add . && git commit -m '描述'
+4. 修复 → 如果构建/部署失败，分析错误原因，修改代码，重新构建
+5. 部署 → 用 runCommand 执行 pm2 restart ai-coding-platform，然后用 runCommand 执行 curl -s -o /dev/null -w '%{http_code}' http://localhost:5000 确认返回200
+6. 失败继续 → 部署失败时，读PM2日志(pm2 logs --lines 30)，找根因，修复后重新部署
+7. 直到成功 → HTTP 200且功能正常才算完成，否则继续排查修复
+- 禁止在失败时说请手动检查——你必须自己排查到底
+- 禁止在构建报错时停下来——必须自动修复错误并重新构建
+- 每次修复后必须重新构建验证，不能跳过验证步骤
+
+【失败策略切换——重试3次仍失败时必须换策略】
+当同一问题连续修复3次仍然失败时，禁止继续用相同方法重试，必须切换策略：
+1. 换思路 → 如果改某文件失败，尝试重写整个文件而非局部修改
+2. 换工具 → 如果editFile失败，改用createFile覆盖；如果heredoc注入失败，改用Python脚本写入
+3. 降级验证 → 如果完整build失败，先只验证语法(tsx --noEmit)定位类型错误
+4. 拆分问题 → 如果大面积修改失败，拆成多个小修改逐步验证
+5. 换文件格式 → 如果写入TS代码转义冲突，改用Python脚本或base64编码写入
+6. 回滚重来 → 如果改坏到无法修复，用git checkout恢复文件，从更小的改动重新开始
+策略切换时，先说明之前的策略为什么失败，再说明新策略是什么
+
+【输出格式】
+- 代码相关：用代码块 + 简要说明
+- 分析报告：用 Markdown 格式，## 标题分章节，表格对比数据，**加粗**重点
+- 日常对话：简洁自然，不需要格式化
+
+【工具使用策略】
+- 工具调用控制在15步以内
+- 多个独立操作可以合并为一条 runCommand（用 && 连接）
+- readFile 大文件时先估计行数，分段读取
+- 每次工具调用后评估：信息是否足够？足够则停止，开始输出文字
+
+【HTML预览规则】
+- 生成HTML代码后，必须调用 preview_html 工具渲染预览
+- 不要只输出HTML代码块，必须同时用 preview_html 让用户看到实际效果
+- 如果HTML代码较长，先输出代码，再调用 preview_html 预览`;
 
 // ============ 模式系统提示词 ============
 const MODE_PROMPTS: Record<string, string> = {
@@ -270,7 +354,6 @@ const MODE_PROMPTS: Record<string, string> = {
 
 【规则】
 - 直接给出内容，不要说"我来帮你写"
-- 不要使用 Markdown 格式化（不加粗、不标题号）
 - 根据场景调整语气：活泼/正式/专业/幽默
 - 如果用户没指定风格，给出2-3个版本供选择
 - 完成后用1-2句话总结你做了什么`,
@@ -283,12 +366,23 @@ const MODE_PROMPTS: Record<string, string> = {
 - 问题诊断、方案设计、决策支持
 - 报告撰写、要点提炼、逻辑梳理
 
-【规则】
+【输出格式】
+- 用 Markdown 格式输出结构化报告
+- ## 二级标题划分章节（概述、核心分析、关键发现、总结与建议）
+- 数据对比用 Markdown 表格（| 列1 | 列2 |）
+- 重点用 **加粗** 突出，条目用 - 列表
 - 结构清晰，先给结论再展开
-- 不要使用 Markdown 格式化
+
+【规则】
 - 有数据支撑时注明来源或标注"估算"
 - 不确定的内容明确说明，不要编造
-- 完成后用1-2句话总结核心结论`,
+- 完成后用1-2句话总结核心结论
+
+【工具使用规则】
+- 使用工具收集信息后，必须输出完整的文字分析报告
+- 工具调用控制在10-15次以内，收集到足够信息后立即输出分析
+- 禁止无限制地调用工具而不输出文字内容
+- 每次工具调用后评估：信息是否足够？足够则停止调用，开始撰写分析`,
 
   design: `你是一个UI/UX设计顾问，擅长界面设计和视觉方案。
 
@@ -300,7 +394,6 @@ const MODE_PROMPTS: Record<string, string> = {
 
 【规则】
 - 描述要具体可执行，给出数值（如间距16px、圆角8px）
-- 不要使用 Markdown 格式化
 - 可以推荐参考设计趋势或竞品
 - 理解用户需求后给出完整方案，不要一步步追问
 - 完成后用1-2句话总结方案要点`,
@@ -309,7 +402,6 @@ const MODE_PROMPTS: Record<string, string> = {
 
 【规则】
 - 回答简洁自然，像朋友聊天
-- 不要使用 Markdown 格式化
 - 有问有答，主动但不啰嗦
 - 不确定的说"我不太确定"，不要编造
 - 长回答最后用1句话总结要点`,
@@ -403,20 +495,36 @@ export async function POST(request: NextRequest) {
     // Multimodal model candidates (preferred order)
     const MULTIMODAL_MODEL_ORDER = ['gpt-4o', 'gpt-4.1', 'gemini-2.5-pro', 'gemini-2.5-flash', 'qwen-max', 'qwen-plus', 'claude-sonnet-4-5', 'glm-4.5-flash', 'glm-5.2'];
 
-    // Auto model selection: pick first available model with active API key
+    // === Smart Model Router Integration ===
+    // Use routeModel for intelligent model selection with automatic fallback
+    let routingResult: any = null;
     if (model_id === 'auto') {
-      const preferredOrder = ['deepseek-v4-flash', 'gpt-4.1', 'claude-sonnet-4-5', 'qwen-max', 'glm-4.5-flash'];
-      for (const candidate of preferredOrder) {
-        const cfg = await getModelConfig(candidate);
-        if (cfg) {
-          const keyData = await getApiKeyByProvider(cfg.provider);
-          if (keyData && keyData.is_active) {
-            model_id = candidate;
-            break;
+      try {
+        const { routeModel } = await import('@/lib/model-router');
+        const userMsg = messages.filter((m: any) => m.role === 'user').map((m: any) => typeof m.content === 'string' ? m.content : '').join(' ');
+        routingResult = await routeModel(userMsg);
+        if (routingResult) {
+          model_id = routingResult.model;
+          console.log(`[Router] Auto: ${routingResult.routingReason}`);
+        }
+      } catch (e: any) {
+        console.log(`[Router] routeModel failed: ${e.message}`);
+      }
+      // Fallback to old logic if router fails
+      if (model_id === 'auto') {
+        const preferredOrder = ['deepseek-v4-flash', 'gpt-4.1', 'qwen-max', 'glm-4.5-flash'];
+        for (const candidate of preferredOrder) {
+          const cfg = await getModelConfig(candidate);
+          if (cfg) {
+            const keyData = await getApiKeyByProvider(cfg.provider);
+            if (keyData && keyData.is_active) {
+              model_id = candidate;
+              break;
+            }
           }
         }
+        if (model_id === 'auto') { const dm = await getSetting('default_model'); model_id = dm || 'deepseek-v4-flash'; }
       }
-      if (model_id === 'auto') { const dm = await getSetting('default_model'); model_id = dm || 'deepseek-v4-flash'; }
     }
 
     if (!messages || messages.length === 0) {
@@ -489,23 +597,22 @@ export async function POST(request: NextRequest) {
     if (userMessage && userMessage.role === 'user') {
       const userContent = userMessage.content ||
         (userMessage.parts || []).filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
+
       if (userContent) await createMessage(convId, 'user', userContent, model_id);
     }
 
     // ====== 从 settings 读取可配置参数 ======
-    let maxSteps = 10;
+    let maxSteps = 20;
     let temperature: number | undefined = undefined;
 
     try {
       const advStr = await getSetting('advanced_config');
       if (advStr) {
         const adv = JSON.parse(advStr);
-        if (adv.max_steps !== undefined) maxSteps = adv.max_steps;
+        if (adv.max_steps !== undefined) maxSteps = Math.max(adv.max_steps, 10); // Never allow less than 10
       }
     } catch {}
-    // Reasoning models (DeepSeek V4 Pro, etc.) need more steps for tool calls
-    const isReasoningModel = model_id.includes('deepseek-v4-pro') || model_id.includes('o3') || model_id.includes('o4');
-    if (isReasoningModel && maxSteps < 15) maxSteps = 15;
+    // All models unified: minimum 10 steps for tool calls + summary output
 
     try {
       const tempStr = await getSetting('mode_temperatures');
@@ -529,7 +636,14 @@ export async function POST(request: NextRequest) {
     let presencePenalty: number | undefined = undefined;
     let frequencyPenalty: number | undefined = undefined;
     let seed: number | undefined = undefined;
-    let maxOutputTokens = 16384;
+    // Per-provider maxOutputTokens limits (some models reject values above their max)
+    const PROVIDER_MAX_TOKENS: Record<string, number> = {
+      deepseek: 8192,      // DeepSeek V4 Flash/Pro max is 8192
+      groq: 8192,          // Groq models typically max 8192
+      moonshot: 8192,      // Kimi/Moonshot max 8192
+      zhipu: 4096,         // GLM models typically 4096
+    };
+    let maxOutputTokens = PROVIDER_MAX_TOKENS[modelConfig.provider] || 16384;
 
     try {
       const advStr2 = await getSetting('advanced_config');
@@ -542,7 +656,7 @@ export async function POST(request: NextRequest) {
         if (adv2.presencePenalty !== undefined && adv2.presencePenalty !== 0) presencePenalty = adv2.presencePenalty;
         if (adv2.frequencyPenalty !== undefined && adv2.frequencyPenalty !== 0) frequencyPenalty = adv2.frequencyPenalty;
         if (adv2.seed !== undefined && adv2.seed !== -1) seed = adv2.seed;
-        if (adv2.max_output_tokens !== undefined) maxOutputTokens = adv2.max_output_tokens;
+        if (adv2.max_output_tokens !== undefined) maxOutputTokens = Math.min(adv2.max_output_tokens, PROVIDER_MAX_TOKENS[modelConfig.provider] || 65536);
       }
     } catch {}
 
@@ -559,10 +673,29 @@ export async function POST(request: NextRequest) {
     const supportsMultimodal = MULTIMODAL_PROVIDERS.includes(modelConfig.provider) || 
       MULTIMODAL_MODEL_ORDER.some(m => model_id.includes(m));
 
-    // 构建系统提示词
+    // 构建系统提示词 — 优先读后台设置，fallback到硬编码
     const identityName = MODEL_IDENTITY[modelConfig.provider] || modelConfig.provider;
-    const modePrompt = MODE_PROMPTS[mode] || SYSTEM_PROMPT;
-    const memories = await getMemories();
+    let modePrompt = MODE_PROMPTS[mode] || SYSTEM_PROMPT; // fallback default
+    try {
+      // Try DB system_prompt first
+      const dbSystemPrompt = await getSetting('system_prompt');
+      if (dbSystemPrompt && dbSystemPrompt.trim().length > 20) {
+        // Use DB as base for all modes
+        const dbModePrompts = await getSetting('mode_prompts');
+        if (dbModePrompts) {
+          const parsed = JSON.parse(dbModePrompts);
+          if (parsed[mode] && parsed[mode].trim().length > 20) {
+            modePrompt = parsed[mode];
+          } else if (parsed['coding'] && parsed['coding'].trim().length > 20) {
+            // coding mode prompt in DB is the full system prompt, use as fallback for all modes
+            modePrompt = mode === 'coding' ? parsed['coding'] : (parsed[mode] || parsed['coding']);
+          }
+        }
+      }
+    } catch (e) {
+      console.log('[Prompt] Failed to read DB prompts, using hardcoded:', (e as any)?.message);
+    }
+    const lastUserMsg = messages.filter((m: any) => m.role === 'user').pop()?.content || ''; const memories = await getMemories(typeof lastUserMsg === 'string' ? lastUserMsg : '');
     const memorySection = memories ? '\n\n【用户记忆】\n' + memories + '\n\n当用户提到与记忆相关的内容时，参考这些信息。用户说"记住"时，用 saveMemory 工具保存。' : '';
     const dynamicPrompt = modePrompt + memorySection + `\n\n【身份】你是 ${identityName} 的 ${model_id} 模型。当用户问你是谁时，如实回答。`;
 
@@ -718,6 +851,9 @@ export async function POST(request: NextRequest) {
       activeTools.delegate_task = createSubAgentTool(model, activeTools);
     }
 
+    // === 自主智能：SSH服务器工具 + 技能工具 ===
+    Object.assign(activeTools, serverTools, skillTools, webTools, previewTools);
+
     // ====== AI SDK v7 原生 Middleware + Telemetry ======
     const streamStartTime = Date.now();
     const wrappedModel = wrapLanguageModel({
@@ -727,58 +863,213 @@ export async function POST(request: NextRequest) {
         extractReasoningMiddleware({ tagName: 'think' }),
       ],
     });
-    const result = streamText({
-      system: dynamicPrompt,
+    let stepCount = 0;
+    let lastFinishReason = '';
+    let hasProducedText = false;
+    // Combined signal: user cancel + manual abort propagation
+    const stepAbortController = new AbortController();
+    const combinedSignal = AbortSignal.any([request.signal, stepAbortController.signal]);
+
+    // AI SDK v7 ToolLoopAgent: official agent loop with stopWhen + prepareStep
+    const agent = new ToolLoopAgent({
       model: wrappedModel,
-      messages: chatMessages as any,
+      instructions: dynamicPrompt + (generateSkillsCatalog() ? "\n\n" + generateSkillsCatalog() : ""),
       tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
-      stopWhen: stepCountIs(maxSteps),
+      // AI SDK official toolApproval - dynamic approval based on tool input
+      toolApproval: {
+        // SSH execute: dangerous commands need approval, safe reads auto-approve
+        ssh_execute: async (input: any) => {
+          const cmd = String(input.command || '').trim();
+          // Auto-approve safe read-only commands
+          if (/^(ls|cat|head|tail|find|grep|pwd|whoami|echo|stat|df|du|free|uptime|ps|netstat|curl|wget|git status|git log|git diff|git branch|node -v|npm -v|pnpm -v|which|type|file|wc)/.test(cmd)) {
+            return 'approved';
+          }
+          return 'user-approval';
+        },
+        // Write operations always need approval
+        ssh_write_file: 'user-approval',
+        build_project: 'user-approval',
+        deploy_service: 'user-approval',
+        git_commit: 'user-approval',
+        // Read-only operations auto-approve
+        ssh_read_file: 'approved',
+        health_check: 'approved',
+        get_available_skills: 'approved',
+        use_skill: 'approved',
+        read_skill_file: 'approved',
+        diagnose_error: 'approved',
+        web_scrape: 'approved',
+        web_search: 'approved',
+        preview_html: 'approved',
+      },
+      stopWhen: isStepCount(Math.max(maxSteps, 15)),
+      // prepareStep: context compression when conversation gets too long
+      prepareStep: async ({ messages, stepNumber }) => {
+        const estimatedTokens = JSON.stringify(messages).length / 4;
+        if (estimatedTokens > 100000) {
+          console.log(`[AI] Context compression at step ${stepNumber}: ${Math.round(estimatedTokens)} tokens, pruning...`);
+          return {
+            messages: pruneMessages({
+              messages,
+              reasoning: 'all',
+              toolCalls: 'before-last-3-messages',
+              emptyMessages: 'remove',
+            }),
+          };
+        }
+        return {};
+      },
       temperature,
       maxOutputTokens,
       maxRetries,
-      timeout: { totalMs: timeoutTotalMs, stepMs: timeoutStepMs },
-      ...(topP !== undefined && { topP }),
-      ...(presencePenalty !== undefined && { presencePenalty }),
-      ...(frequencyPenalty !== undefined && { frequencyPenalty }),
-      ...(seed !== undefined && { seed }),
+      onToolExecutionStart: ({ toolCall }) => {
+        console.log(`[AI] Tool executing: ${toolCall.toolName}`);
+      },
+      onToolExecutionEnd: ({ toolCall, toolOutput, toolExecutionMs }) => {
+        const status = toolOutput.type === 'tool-error' ? 'ERROR' : 'OK';
+        const errorDetail = toolOutput.type === 'tool-error' ? ` error: ${JSON.stringify(toolOutput.error)?.slice(0, 200)}` : '';
+        console.log(`[AI] Tool completed: ${toolCall.toolName} [${status}] ${toolExecutionMs}ms${errorDetail}`);
+      },
       telemetry: {
         isEnabled: true,
         functionId: 'chat-completion',
       },
-      abortSignal: request.signal,
+      ...(topP !== undefined && { topP }),
+      ...(presencePenalty !== undefined && { presencePenalty }),
+      ...(frequencyPenalty !== undefined && { frequencyPenalty }),
+      ...(seed !== undefined && { seed }),
     });
 
-    return result.toUIMessageStreamResponse({
-      sendReasoning: true,
-      // 通过 messageMetadata 将 conversation_id 传给前端
-      messageMetadata: ({ part }) => {
-        if (part.type === 'start' || part.type === 'finish') {
-          return { conversationId: convId } as any;
-        }
-        return undefined;
-      },
-      // 流结束后保存助手消息 + 遥测
-      async onEnd({ responseMessage: message, isAborted }) {
-        try {
-          const text = (message as any).text
-            || (message.parts || []).filter((p: any) => p.type === 'text').map((p: any) => p.text).join('');
+    // AI SDK v7: use createUIMessageStream to enable follow-up stream merging
+    const uiStream = createUIMessageStream({
+      execute: async ({ writer }) => {
+        // agent.stream() returns PromiseLike<StreamTextResult> - must await first
+        const agentResult = await agent.stream({
+          messages: chatMessages as any,
+          timeout: { totalMs: Math.max(timeoutTotalMs, maxSteps * 30000), stepMs: timeoutStepMs },
+          onStepEnd: ({ finishReason, toolCalls, text }) => {
+            stepCount++;
+            lastFinishReason = finishReason;
+            if (text && text.length > 0) hasProducedText = true;
+            console.log(`[AI] Step ${stepCount}: finishReason=${finishReason}, toolCalls=${toolCalls?.length || 0}, textLen=${text?.length || 0}`);
+          },
+          abortSignal: combinedSignal,
+        });
 
-          // 从 message parts 提取工具执行记录
-          const toolParts = (message.parts || []).filter(
-            (p: any) => p.type?.startsWith('tool-') && p.toolInvocation?.state === 'output-available'
-          );
-          let savedContent = text;
-          if (toolParts.length > 0) {
-            const execLog = toolParts.map((tp: any, i: number) => {
-              const name = tp.toolName || 'unknown';
-              const out = typeof tp.toolInvocation.output === 'string' ? tp.toolInvocation.output : JSON.stringify(tp.toolInvocation.output);
-              return `${i + 1}. ${name}: ${out.startsWith('❌') ? '❌' : '✅'} ${out.slice(0, 100)}`;
-            }).join('\n');
-            savedContent = text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
+        // Merge primary stream into the UI stream
+        // Read thinking mode settings
+        let enableThinking = true;
+        let thinkingMode = 'auto';
+        try {
+          const advStr3 = await getSetting('advanced_config');
+          if (advStr3) {
+            const adv3 = JSON.parse(advStr3);
+            if (adv3.enable_thinking !== undefined) enableThinking = adv3.enable_thinking;
+            if (adv3.thinking_mode !== undefined) thinkingMode = adv3.thinking_mode;
           }
-          if (text && !isAborted) await createMessage(convId!, 'assistant', savedContent, model_id);
+        } catch {}
+        // Determine if reasoning should be sent based on mode
+        const isReasoningModel = model_id.includes('reasoner') || model_id.includes('r1') || model_id.includes('o1') || model_id.includes('o3') || model_id.includes('deepthink');
+        const shouldSendReasoning = thinkingMode === 'always' ? true : thinkingMode === 'off' ? false : isReasoningModel || enableThinking;
+
+        writer.merge(agentResult.toUIMessageStream({
+          sendReasoning: shouldSendReasoning,
+          messageMetadata: ({ part }: any) => {
+            if (part.type === 'start' || part.type === 'finish') {
+              return { conversationId: convId } as any;
+            }
+            return undefined;
+          },
+        }));
+        let text = (await agentResult.text) || '';
+        // Capture reasoning from the stream result
+        let capturedReasoning = '';
+        try {
+          const resultReasoning = (agentResult as any).reasoning;
+          if (resultReasoning && resultReasoning.length > 0) {
+            capturedReasoning = resultReasoning.map((r: any) => r.text || ''  ).join('\n');
+          }
         } catch {}
 
+        // Detect DSML markup (DeepSeek bug: outputs tool calls as text)
+        const isDSMLText = text && (text.includes('DSML') || text.includes('tool_calls') || text.includes('invoke name='));
+        if (isDSMLText) {
+          console.log('[AI] Detected DSML markup in text, treating as no-text:', text.slice(0, 200));
+          text = '';
+        }
+
+        // Extract tool results from steps (single traversal)
+        const allToolResults: string[] = [];
+        const toolPartsForLog: {name: string; output: string}[] = [];
+        for (const step of await agentResult.steps) {
+          for (const tc of step.toolCalls || []) {
+            const tr = step.toolResults?.find((r: any) => r.toolCallId === tc.toolCallId);
+            if (tr) {
+              const out = typeof tr.output === 'string' ? tr.output : JSON.stringify(tr.output);
+              allToolResults.push(`[${tc.toolName}] ${out.slice(0, 500)}`);
+              toolPartsForLog.push({ name: tc.toolName, output: out });
+            }
+          }
+        }
+        const execLog = toolPartsForLog.length > 0 ? toolPartsForLog.map((tp, i) => {
+          return `${i + 1}. ${tp.name}: ${tp.output.startsWith('\u274c') ? '\u274c' : '\u2705'} ${tp.output.slice(0, 100)}`;
+        }).join('\n') : '';
+
+        // Save to DB and decide if follow-up is needed
+        if (text && toolPartsForLog.length > 0) {
+          // Normal: model produced text + tool results
+          // Only add REPORT_CARD for structured reports (has headings + substantial length)
+          const hasMarkdownHeading = /^#{1,6}\s+/m.test(text);
+          const isLongEnough = text.length > 300;
+          const isReportLike = hasMarkdownHeading && isLongEnough;
+          const reportTitle = text.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '\u5206\u6790\u62a5\u544a';
+          const savedContent = isReportLike 
+            ? text + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->'
+            : text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
+          await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
+        } else if (text) {
+          const savedContent = toolPartsForLog.length > 0 ? text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->' : text;
+          await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
+        } else if (!text && (toolPartsForLog.length > 0 || allToolResults.length > 0)) {
+          // No text but has tool results -> follow-up stream that merges to frontend
+          console.log('[AI] No text after tools, starting follow-up stream merge...');
+
+          // Build context from tool results
+          const toolContext = allToolResults.length > 0
+            ? '\n\n\u4ee5\u4e0b\u662f\u4e4b\u524d\u5de5\u5177\u8c03\u7528\u7684\u7ed3\u679c\u6458\u8981\uff1a\n' + allToolResults.map((r, i) => `${i + 1}. ${r}`).join('\n')
+            : '';
+
+          const followUpResult = streamText({
+            system: dynamicPrompt + '\n\n\u3010\u91cd\u8981\u3011\u4f60\u4e4b\u524d\u5df2\u7ecf\u901a\u8fc7\u5de5\u5177\u6536\u96c6\u4e86\u8db3\u591f\u7684\u4fe1\u606f\u3002\u73b0\u5728\u4f60\u5fc5\u987b\u7528\u4e2d\u6587\u5199\u4e00\u7bc7\u5b8c\u6574\u7684\u5206\u6790\u62a5\u544a\u3002\n\n\u8f93\u51fa\u8981\u6c42\uff1a\n1. \u7528 Markdown \u683c\u5f0f\u8f93\u51fa\n2. \u4f7f\u7528 ## \u4e8c\u7ea7\u6807\u9898\u5212\u5206\u7ae0\u8282\uff08\u6982\u8ff0\u3001\u6838\u5fc3\u5206\u6790\u3001\u5173\u952e\u53d1\u73b0\u3001\u603b\u7ed3\u4e0e\u5efa\u8bae\uff09\n3. \u6570\u636e\u5bf9\u6bd4\u7528 Markdown \u8868\u683c\uff08| \u52171 | \u52172 |\uff09\n4. \u8981\u70b9\u7528\u52a0\u7c97\u548c\u5217\u8868\u7a81\u51fa\u663e\u793a\n5. \u7981\u6b62\u8f93\u51fa\u4efb\u4f55DSML\u6807\u7b7e\u3001\u5de5\u5177\u8c03\u7528\u4ee3\u7801\u6216XML\u683c\u5f0f\uff0c\u53ea\u5199\u7eaf\u6587\u5b57\u5206\u6790',
+            model: wrappedModel,
+            messages: [
+              ...chatMessages,
+              { role: 'user' as const, content: '\u57fa\u4e8e\u4ee5\u4e0a\u6240\u6709\u5de5\u5177\u8c03\u7528\u6536\u96c6\u5230\u7684\u4fe1\u606f\uff0c\u8bf7\u7528 Markdown \u683c\u5f0f\u8f93\u51fa\u4e2d\u6587\u5206\u6790\u62a5\u544a\u3002\n\n\u8981\u6c42\uff1a\n- ## \u4e8c\u7ea7\u6807\u9898\u5212\u5206\u7ae0\u8282\uff08\u6982\u8ff0\u3001\u6838\u5fc3\u5206\u6790\u3001\u5173\u952e\u53d1\u73b0\u3001\u603b\u7ed3\u4e0e\u5efa\u8bae\uff09\n- \u6570\u636e\u5bf9\u6bd4\u7528 Markdown \u8868\u683c\n- \u91cd\u70b9\u7528 **\u52a0\u7c97**\n- \u6761\u76ee\u7528 - \u5217\u8868\n\n\u6ce8\u610f\uff1a\u4f60\u73b0\u5728\u6ca1\u6709\u5de5\u5177\u53ef\u7528\uff0c\u5fc5\u987b\u76f4\u63a5\u7528\u7eaf\u6587\u5b57\u8f93\u51fa\u3002' + toolContext }
+            ] as any,
+            temperature,
+            maxOutputTokens,
+            maxRetries: 1,
+            timeout: { totalMs: 60000, stepMs: 30000 },
+          });
+
+          // CRITICAL: merge follow-up stream so text reaches the frontend!
+          writer.merge(followUpResult.toUIMessageStream({
+            sendReasoning: shouldSendReasoning,
+          }));
+
+          const followUpText = await followUpResult.text;
+          if (followUpText) {
+            const reportTitle = followUpText.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '\u5206\u6790\u62a5\u544a';
+            const fullContent = followUpText + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->';
+            await createMessage(convId!, 'assistant', fullContent, model_id, capturedReasoning || null);
+            console.log(`[AI] Follow-up report generated and streamed: ${followUpText.length} chars`);
+          } else {
+            const abortContent = '\u26a0\ufe0f \u5de5\u5177\u8c03\u7528\u5df2\u5b8c\u6210\uff0c\u4f46\u751f\u6210\u62a5\u544a\u5931\u8d25\u3002\u8bf7\u53d1\u9001\u201c\u603b\u7ed3\u201d\u91cd\u8bd5\u3002';
+            await createMessage(convId!, 'assistant', abortContent, model_id, capturedReasoning || null);
+          }
+        }
+
+        // Telemetry
         try {
           const { telemetry } = await import('@/lib/ai-telemetry');
           telemetry.recordAICall({
@@ -787,7 +1078,6 @@ export async function POST(request: NextRequest) {
           });
         } catch {}
 
-        // 记录到 telemetry_events 表（AI SDK 原生 Telemetry 补充）
         try {
           const { recordTelemetry } = await import('@/lib/telemetry');
           await recordTelemetry({
@@ -801,7 +1091,25 @@ export async function POST(request: NextRequest) {
 
         try { const { mcpManager } = await import('@/lib/mcp-client'); await mcpManager.closeAll(); } catch {}
       },
+      onError: (error) => {
+        console.error('[AI] UI Stream error:', error);
+        const msg = (error as any)?.message || String(error);
+        // Check for balance/insufficient/quota errors - mark provider as failed and suggest switching
+        if (msg.includes('余额不足') || msg.includes('insufficient') || msg.includes('quota') || msg.includes('429') || msg.includes('rate limit') || msg.includes('No output generated')) {
+          // Mark the current provider as failed so router skips it next time
+          try { markProviderFailed(modelConfig.provider, msg.slice(0, 100)); } catch {}
+          return "⚠️ 当前模型(" + modelConfig.provider + '/' + model_id + ")API额度不足或暂时不可用，已自动标记，下次auto模式将跳过。建议切换到DeepSeek等可用模型。";
+        }
+        return 'An error occurred during streaming.';
+      },
     });
+
+        // Add routing info header for debugging
+    const responseHeaders: Record<string, string> = {};
+    if (routingResult) {
+      responseHeaders['X-Model-Route'] = routingResult.routingReason;
+    }
+    return createUIMessageStreamResponse({ stream: uiStream, headers: responseHeaders });
   } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message || 'Internal server error' }), {
       status: 500,

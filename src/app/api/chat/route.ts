@@ -471,9 +471,20 @@ export async function POST(request: NextRequest) {
       if (m.parts && Array.isArray(m.parts)) {
         // Check if there are image/file parts (AI SDK native multimodal)
         const hasImageParts = m.parts.some((p: any) => p.type === 'file' && p.data);
+        // Check if there are reasoning parts (DeepSeek thinking mode)
+        const hasReasoningParts = m.parts.some((p: any) => p.type === 'reasoning');
         if (hasImageParts) {
           // Keep parts array for multimodal processing
-          return { role: m.role, content: '', parts: m.parts };
+          return { role: m.role, content: '', parts: m.parts, reasoning: m.reasoning };
+        }
+        if (hasReasoningParts && m.role === 'assistant') {
+          // Preserve reasoning content for thinking mode models (DeepSeek etc.)
+          // AI SDK expects reasoning as separate field on assistant messages
+          const text = m.parts
+            .filter((p: any) => p.type === 'text')
+            .map((p: any) => p.text || '')
+            .join('');
+          return { role: m.role, content: text, reasoning: m.reasoning };
         }
         // Text-only: extract to simple string
         const text = m.parts
@@ -822,7 +833,23 @@ export async function POST(request: NextRequest) {
           
           chatMessages.push({ role: m.role, content: parts.length > 0 ? parts : m.content });
         } else {
-          chatMessages.push({ role: m.role, content: m.content });
+          // For assistant messages with reasoning, include it for DeepSeek thinking mode
+          if (m.role === 'assistant' && (m as any).reasoning) {
+            const reasoningArr = (m as any).reasoning;
+            let reasoningText = '';
+            if (Array.isArray(reasoningArr)) {
+              reasoningText = reasoningArr.map((r: any) => r.text || '').join('\n');
+            } else if (typeof reasoningArr === 'string') {
+              reasoningText = reasoningArr;
+            }
+            if (reasoningText) {
+              chatMessages.push({ role: m.role, content: m.content, reasoning_content: reasoningText });
+            } else {
+              chatMessages.push({ role: m.role, content: m.content });
+            }
+          } else {
+            chatMessages.push({ role: m.role, content: m.content });
+          }
         }
       }
 
@@ -946,6 +973,7 @@ export async function POST(request: NextRequest) {
         // agent.stream() returns PromiseLike<StreamTextResult> - must await first
         const agentResult = await agent.stream({
           messages: chatMessages as any,
+          ...(reasoningEffort && isReasoningModel ? { providerOptions: { reasoning_effort: reasoningEffort } } : {}),
           timeout: { totalMs: Math.max(timeoutTotalMs, maxSteps * 30000), stepMs: timeoutStepMs },
           onStepEnd: ({ finishReason, toolCalls, text }) => {
             stepCount++;
@@ -971,6 +999,15 @@ export async function POST(request: NextRequest) {
         // Determine if reasoning should be sent based on mode
         const isReasoningModel = model_id.includes('reasoner') || model_id.includes('r1') || model_id.includes('o1') || model_id.includes('o3') || model_id.includes('deepthink');
         const shouldSendReasoning = thinkingMode === 'always' ? true : thinkingMode === 'off' ? false : isReasoningModel || enableThinking;
+        // reasoning_effort: controls thinking depth for DeepSeek models (high/max)
+        let reasoningEffort: string | undefined = undefined;
+        try {
+          const advStr4 = await getSetting('advanced_config');
+          if (advStr4) {
+            const adv4 = JSON.parse(advStr4);
+            if (adv4.reasoning_effort) reasoningEffort = adv4.reasoning_effort;
+          }
+        } catch {}
 
         writer.merge(agentResult.toUIMessageStream({
           sendReasoning: shouldSendReasoning,

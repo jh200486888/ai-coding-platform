@@ -1047,7 +1047,6 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
     max_output_tokens: 16384,
     enable_thinking: true,
     thinking_mode: 'auto',
-    reasoning_effort: 'high',
   });
   const [settingsSubTab, setSettingsSubTab] = useState<'basic' | 'advanced' | 'oauth'>(initialSubTab);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -1336,16 +1335,6 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
                     <option value="always">{'始终开启'}</option>
                     <option value="off">{'始终关闭'}</option>
                   </select>
-                </div>
-                <div>
-                  <label className="text-sm text-muted-foreground block mb-1">{'思考深度 (DeepSeek)'}</label>
-                  <select value={advConfig.reasoning_effort || 'high'}
-                    onChange={(e) => setAdvConfig({ ...advConfig, reasoning_effort: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary">
-                    <option value="high">{'High - 标准深度（推荐）'}</option>
-                    <option value="max">{'Max - 最深思考（耗时更长）'}</option>
-                  </select>
-                  <p className="text-xs text-muted-foreground mt-1">控制DeepSeek推理模型的思考深度，影响回复质量和速度</p>
                 </div>
               </div>
             </div>
