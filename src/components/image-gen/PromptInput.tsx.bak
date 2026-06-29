@@ -59,7 +59,7 @@ export function PromptInput({ params, onGenerate, isGenerating }: PromptInputPro
           onKeyDown={handleKeyDown}
           placeholder="描述你想生成的图片..."
           rows={2}
-          className="flex-1 bg-input border border-border rounded-lg px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground/50 dark:bg-[#1e1e2a] dark:text-[#f1f5f9] dark:placeholder:text-[#64748b]"
+          className="flex-1 bg-input border border-border rounded-lg px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary placeholder:text-muted-foreground/50"
           disabled={isGenerating}
         />
         <button
