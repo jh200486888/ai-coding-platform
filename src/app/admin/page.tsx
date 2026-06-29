@@ -18,7 +18,7 @@ import type { ModelConfig, ApiKey, Conversation } from '@/lib/types';
 import { MODELS as MODELS_IMPORT } from '@/lib/models';
 const MODELS_DATA = MODELS_IMPORT.map(m => ({ id: m.id, name: m.name, provider: m.provider, description: m.description || '' }));
 
-type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'imagegen' | 'telemetry' | 'mcp' | 'memory' | 'tasks' | 'patrol' | 'design';
+type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'telemetry' | 'mcp' | 'memory' | 'tasks' | 'patrol' | 'design';
 
 // ============ Sidebar Navigation Structure ============
 interface SidebarGroup {
@@ -64,8 +64,7 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
       { id: 'memory', label: '记忆管理', icon: <Brain size={14} /> },
       { id: 'projects', label: '项目管理', icon: <Folder size={14} /> },
       { id: 'tasks', label: '定时任务', icon: <Clock size={14} /> },
-      { id: 'imagegen', label: '图片生成', icon: <Palette size={14} /> },
-      { id: 'design', label: '设计配置', icon: <Paintbrush size={14} /> },
+      { id: 'design', label: '设计 & 生图', icon: <Paintbrush size={14} /> },
     ],
   },
   {
@@ -235,10 +234,17 @@ export default function AdminPage() {
           {activeTab === 'oauth' && <AuthSettingsPanel />}
           {activeTab === 'projects' && <ProjectsPanel />}
           {activeTab === 'account' && <AccountPanel />}
-          {activeTab === 'imagegen' && <ImageGenPanel />}
+
           {activeTab === 'telemetry' && <TelemetryPanel />}
           {activeTab === 'patrol' && <PatrolPanel />}
-              {activeTab === 'design' && <DesignConfigPanel />}
+              {activeTab === 'design' && (
+                <div className="space-y-6">
+                  <DesignConfigPanel />
+                  <div className="border-t border-border pt-6">
+                    <ImageGenPanel />
+                  </div>
+                </div>
+              )}
           {activeTab === 'mcp' && <McpServersPanel />}
           {activeTab === 'memory' && <MemoryPanel />}
           {activeTab === 'tasks' && <ScheduledTasksPanel />}
