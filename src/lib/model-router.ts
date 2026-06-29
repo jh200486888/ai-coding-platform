@@ -10,7 +10,6 @@ export function classifyIntent(message: string): IntentType {
   return 'chat';
 }
 
-// Intent -> preferred provider order (model ID resolved from DB model_configs)
 const INTENT_PROVIDER_PRIORITY: Record<IntentType, string[]> = {
   design: ['deepseek', 'zhipu', 'qwen', 'openai'],
   code: ['deepseek', 'openai', 'zhipu'],
@@ -35,10 +34,10 @@ function decodeApiKey(encoded: string): string {
 // Get the best model ID for a provider from model_configs
 async function getBestModelForProvider(provider: string): Promise<string | null> {
   try {
-    const models = await query<{ id: string }>(
-      'SELECT id FROM model_configs WHERE provider = $1 LIMIT 1', [provider]
+    const models = await query<{ modelId: string }>(
+      'SELECT "modelId" FROM model_configs WHERE provider = $1 AND "isActive" = true ORDER BY "sortOrder" LIMIT 1', [provider]
     );
-    return models?.[0]?.id || null;
+    return models?.[0]?.modelId || null;
   } catch { return null; }
 }
 
@@ -46,8 +45,8 @@ export async function routeModel(message: string, forceIntent?: IntentType): Pro
   const intent = forceIntent || classifyIntent(message);
   
   // 1. Check for intent-specific model override in settings
-  const settingKey = `${intent}_model`;
   try {
+    const settingKey = `${intent}_model`;
     const overrideModel = await getSetting(settingKey);
     if (overrideModel) {
       const config = await getModelConfig(overrideModel);
@@ -62,16 +61,18 @@ export async function routeModel(message: string, forceIntent?: IntentType): Pro
     }
   } catch {}
 
-  // 2. Try intent-preferred providers, resolving model ID from DB
+  // 2. Try intent-preferred providers, resolving model ID from DB model_configs
   const providers = INTENT_PROVIDER_PRIORITY[intent];
   for (const provider of providers) {
     try {
       const keyData = await getApiKeyByProvider(provider);
       if (keyData?.api_key_encrypted) {
         const modelId = await getBestModelForProvider(provider);
-        return { provider, model: modelId || 'auto',
-          apiKey: decodeApiKey(keyData.api_key_encrypted), baseUrl: keyData.base_url,
-          intent, routingReason: `intent[${intent}] -> ${provider}/${modelId || 'auto'}` };
+        if (modelId) {
+          return { provider, model: modelId,
+            apiKey: decodeApiKey(keyData.api_key_encrypted), baseUrl: keyData.base_url,
+            intent, routingReason: `intent[${intent}] -> ${provider}/${modelId}` };
+        }
       }
     } catch {}
   }
