@@ -720,7 +720,7 @@ export async function POST(request: NextRequest) {
     }));
 
     // Build messages with multi-modal support (images, PDFs, files, body attachments)
-    const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; data?: string; mediaType?: string; image?: any }> }>= [];
+    const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; data?: string; mediaType?: string; image?: any }>; reasoning_content?: string }>= [];
       // Process messages with async support for vision proxy
       for (let msgIdx = 0; msgIdx < userAssistantMessages.length; msgIdx++) {
         const m = userAssistantMessages[msgIdx];
@@ -970,7 +970,22 @@ export async function POST(request: NextRequest) {
     // AI SDK v7: use createUIMessageStream to enable follow-up stream merging
     const uiStream = createUIMessageStream({
       execute: async ({ writer }) => {
-        // agent.stream() returns PromiseLike<StreamTextResult> - must await first
+        // Read all advanced config in one pass (thinking mode + reasoning effort)
+        let enableThinking = true;
+        let thinkingMode = 'auto';
+        let reasoningEffort: string | undefined = undefined;
+        try {
+          const advStr = await getSetting('advanced_config');
+          if (advStr) {
+            const adv = JSON.parse(advStr);
+            if (adv.enable_thinking !== undefined) enableThinking = adv.enable_thinking;
+            if (adv.thinking_mode !== undefined) thinkingMode = adv.thinking_mode;
+            if (adv.reasoning_effort) reasoningEffort = adv.reasoning_effort;
+          }
+        } catch {}
+        const isReasoningModel = model_id.includes('reasoner') || model_id.includes('r1') || model_id.includes('o1') || model_id.includes('o3') || model_id.includes('deepthink');
+        const shouldSendReasoning = thinkingMode === 'always' ? true : thinkingMode === 'off' ? false : isReasoningModel || enableThinking;
+
         const agentResult = await agent.stream({
           messages: chatMessages as any,
           ...(reasoningEffort && isReasoningModel ? { providerOptions: { reasoning_effort: reasoningEffort } } : {}),
@@ -985,30 +1000,7 @@ export async function POST(request: NextRequest) {
         });
 
         // Merge primary stream into the UI stream
-        // Read thinking mode settings
-        let enableThinking = true;
-        let thinkingMode = 'auto';
-        try {
-          const advStr3 = await getSetting('advanced_config');
-          if (advStr3) {
-            const adv3 = JSON.parse(advStr3);
-            if (adv3.enable_thinking !== undefined) enableThinking = adv3.enable_thinking;
-            if (adv3.thinking_mode !== undefined) thinkingMode = adv3.thinking_mode;
-          }
-        } catch {}
-        // Determine if reasoning should be sent based on mode
-        const isReasoningModel = model_id.includes('reasoner') || model_id.includes('r1') || model_id.includes('o1') || model_id.includes('o3') || model_id.includes('deepthink');
-        const shouldSendReasoning = thinkingMode === 'always' ? true : thinkingMode === 'off' ? false : isReasoningModel || enableThinking;
-        // reasoning_effort: controls thinking depth for DeepSeek models (high/max)
-        let reasoningEffort: string | undefined = undefined;
-        try {
-          const advStr4 = await getSetting('advanced_config');
-          if (advStr4) {
-            const adv4 = JSON.parse(advStr4);
-            if (adv4.reasoning_effort) reasoningEffort = adv4.reasoning_effort;
-          }
-        } catch {}
-
+        
         writer.merge(agentResult.toUIMessageStream({
           sendReasoning: shouldSendReasoning,
           messageMetadata: ({ part }: any) => {
