@@ -156,7 +156,7 @@ export default function HomePage() {
             <Palette className="w-4 h-4 shrink-0" />
             <span className="hidden sm:inline">设计工坊</span>
           </Link>
-          <Link href="/image-gen" className="flex items-center gap-1.5 px-2.5 py-2 text-xs md:text-sm font-medium rounded-md hover:bg-muted transition-colors">
+          <Link href="/design?mode=quick" className="flex items-center gap-1.5 px-2.5 py-2 text-xs md:text-sm font-medium rounded-md hover:bg-muted transition-colors">
             <Palette className="w-4 h-4 shrink-0" />
             <span className="hidden sm:inline">图片生成</span>
           </Link>
