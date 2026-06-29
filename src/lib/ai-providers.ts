@@ -81,6 +81,7 @@ export const PROVIDER_ALIASES: Record<string, string[]> = {
   qwen: ['dashscope'],
   doubao: ['volcengine'],
   'openai-image': ['openai'],
+  'qwen-image': ['qwen'],
 };
 
 // 获取提供商配置

@@ -118,13 +118,13 @@ function resolveQuality(resolution: string): 'low' | 'medium' | 'high' {
   }
 }
 
-async function getApiKey(provider: string): Promise<string | null> {
+async function getApiKey(provider: string): Promise<{ key: string; baseUrl: string | null } | null> {
   let apiKey = await queryOne("SELECT id, provider, name, \"apiKey\", \"baseUrl\", \"isActive\", \"createdAt\", \"updatedAt\" FROM api_keys WHERE provider = $1 AND \"isActive\" = true", [provider]);
-  if (apiKey?.apiKey) return decodeApiKey(apiKey.apiKey);
+  if (apiKey?.apiKey) return { key: decodeApiKey(apiKey.apiKey), baseUrl: apiKey.baseUrl || null };
   const aliases = PROVIDER_ALIASES[provider] || [];
   for (const alias of aliases) {
     apiKey = await queryOne("SELECT id, provider, name, \"apiKey\", \"baseUrl\", \"isActive\", \"createdAt\", \"updatedAt\" FROM api_keys WHERE provider = $1 AND \"isActive\" = true", [alias]);
-    if (apiKey?.apiKey) return decodeApiKey(apiKey.apiKey);
+    if (apiKey?.apiKey) return { key: decodeApiKey(apiKey.apiKey), baseUrl: apiKey.baseUrl || null };
   }
   return null;
 }
@@ -241,7 +241,7 @@ async function generateDashScopeAsync(
 // Handle image edit via gpt-image-2
 async function handleOpenAIEdit(
   apiKey: string, prompt: string, base64Image: string,
-  size: string, outputFormat: string
+  size: string, outputFormat: string, editBaseUrl: string = 'https://api.openai.com/v1'
 ): Promise<Response> {
   const extractBase64 = (dataUrl: string): string => {
     const match = dataUrl.match(/^data:[^;]+;base64,(.+)$/);
@@ -257,7 +257,7 @@ async function handleOpenAIEdit(
   const imageBlob = new Blob([imageBuffer], { type: 'image/png' });
   formData.append('image', imageBlob, 'input.png');
 
-  const response = await fetch('https://api.openai.com/v1/images/edits', {
+  const response = await fetch(editBaseUrl + '/images/edits', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}` },
     body: formData,
@@ -313,8 +313,8 @@ export async function POST(request: NextRequest) {
         effectiveConfig = MODEL_CONFIGS['wanx-v1-edit'];
       }
       
-      const apiKey = await getApiKey(effectiveConfig.provider);
-      if (!apiKey) {
+      const refKeyData = await getApiKey(effectiveConfig.provider);
+      if (!refKeyData) {
         const providerNames: Record<string, string> = {
           openai: 'OpenAI', qwen: '通义千问', volcengine: '火山引擎',
         };
@@ -323,11 +323,13 @@ export async function POST(request: NextRequest) {
           { status: 400, headers: { 'Content-Type': 'application/json' } }
         );
       }
+      const apiKey = refKeyData.key;
 
       // OpenAI gpt-image-2 uses /images/edits endpoint
       if (effectiveConfig.provider === 'openai') {
         const actualSize = resolveOpenAISize(effectiveModel, size, resolution);
-        return handleOpenAIEdit(apiKey, prompt, referenceImage, actualSize, output_format);
+        const editBaseUrl = refKeyData?.baseUrl || 'https://api.openai.com/v1';
+        return handleOpenAIEdit(apiKey, prompt, referenceImage, actualSize, output_format, editBaseUrl);
       }
 
       // DashScope models: use same async API but with image field
@@ -335,7 +337,7 @@ export async function POST(request: NextRequest) {
         const actualSize = resolveDashScopeSize(effectiveModel, size, resolution);
         const dashScopeModel = effectiveConfig.dashScopeModel || effectiveModel;
         const result = await generateDashScopeAsync(
-          apiKey, dashScopeModel, prompt, actualSize, Math.min(n, effectiveConfig.maxN), referenceImage
+          refKeyData.key, dashScopeModel, prompt, actualSize, Math.min(n, effectiveConfig.maxN), referenceImage
         );
         return new Response(JSON.stringify({
           success: true, images: result.images, model: effectiveModel, size: actualSize,
@@ -344,8 +346,8 @@ export async function POST(request: NextRequest) {
     }
 
     // Text-to-image flow
-    const apiKey = await getApiKey(modelConfig.provider);
-    if (!apiKey) {
+    const keyData = await getApiKey(modelConfig.provider);
+    if (!keyData) {
       const providerNames: Record<string, string> = {
         openai: 'OpenAI', qwen: '通义千问', volcengine: '火山引擎',
       };
@@ -354,6 +356,7 @@ export async function POST(request: NextRequest) {
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
+    const apiKey = keyData.key;
 
     const imageCount = Math.min(Math.max(1, n), modelConfig.maxN);
     const quality = (explicitQuality as string) || resolveQuality(resolution);
@@ -364,8 +367,9 @@ export async function POST(request: NextRequest) {
     switch (modelConfig.provider) {
       case 'openai': {
         actualSize = resolveOpenAISize(model, size, resolution);
+        const openaiBaseUrl = keyData?.baseUrl || 'https://api.openai.com/v1';
         result = await generateOpenAICompatible(
-          'https://api.openai.com/v1', apiKey, model, prompt,
+          openaiBaseUrl, apiKey, model, prompt,
           actualSize, imageCount, quality, output_format
         );
         break;
@@ -380,8 +384,9 @@ export async function POST(request: NextRequest) {
       }
       case 'volcengine': {
         actualSize = resolveOpenAISize(model, size, resolution);
+        const volcBaseUrl = keyData?.baseUrl || 'https://ark.cn-beijing.volces.com/api/v3';
         result = await generateOpenAICompatible(
-          'https://ark.cn-beijing.volces.com/api/v3', apiKey, model, prompt,
+          volcBaseUrl, apiKey, model, prompt,
           actualSize, imageCount, quality, output_format
         );
         break;

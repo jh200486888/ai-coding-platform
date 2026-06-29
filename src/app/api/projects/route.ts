@@ -5,7 +5,8 @@ import { randomUUID } from 'crypto';
 
 // GET /api/projects
 export async function GET() {
-  const user = await getCurrentUser(); const isAdmin = await isAdminAuthenticated(); if (!user && !isAdmin) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+  // Projects now accessible without login
+  const user = await getCurrentUser(); const isAdmin = await isAdminAuthenticated();
 
   try {
     const projects_rows = await query<any>(
@@ -32,7 +33,8 @@ export async function GET() {
 
 // POST /api/projects
 export async function POST(request: NextRequest) {
-  const user = await getCurrentUser(); const isAdmin = await isAdminAuthenticated(); if (!user && !isAdmin) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+  // Projects now accessible without login
+  const user = await getCurrentUser(); const isAdmin = await isAdminAuthenticated();
 
   try {
     const body = await request.json();
@@ -75,7 +77,8 @@ export async function POST(request: NextRequest) {
 
 // DELETE /api/projects
 export async function DELETE(request: NextRequest) {
-  const user = await getCurrentUser(); const isAdmin = await isAdminAuthenticated(); if (!user && !isAdmin) { return NextResponse.json({ error: "请先登录" }, { status: 401 }); }
+  // Projects now accessible without login
+  const user = await getCurrentUser(); const isAdmin = await isAdminAuthenticated();
 
   try {
     const { searchParams } = new URL(request.url);

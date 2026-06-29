@@ -386,7 +386,22 @@ export default function DesignEditorPage() {
           {tools.map(tool => (
             <button
               key={tool.id}
-              onClick={() => setActiveTool(tool.id)}
+              onClick={() => {
+                setActiveTool(tool.id);
+                if (tool.id === "upload") {
+                  fileInputRef.current?.click();
+                  return;
+                }
+                const toolPrompts: Record<string, string> = {
+                  templates: "请展示可用的设计模板样式",
+                  elements: "帮我添加一些设计元素和装饰",
+                  text: "帮我优化设计中的文字排版和字体",
+                  images: "生成一张设计配图",
+                  layers: "帮我调整设计的图层和布局",
+                };
+                const prompt = toolPrompts[tool.id];
+                if (prompt && !isLoading) sendMessage(prompt);
+              }}
               className={`w-10 md:w-12 h-10 md:h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all ${
                 activeTool === tool.id
                   ? "bg-[#7c3aed]/20 text-[#a78bfa]"

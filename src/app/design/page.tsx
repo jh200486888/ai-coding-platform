@@ -334,7 +334,7 @@ function DesignPageInner() {
                               <div className="font-medium">自动选择</div>
                               <div className="text-xs text-[#64748b]">根据意图智能路由</div>
                             </button>
-                            {models.filter(m => m.type === "text").map(m => (
+                            {models.map(m => (
                               <button key={m.modelId} onClick={() => { setSelectedModel(m.modelId); setShowModelPicker(false); }}
                                 className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${selectedModel === m.modelId ? "bg-[#7c3aed]/20 text-[#a78bfa]" : "text-[#94a3b8] hover:bg-[#2a2a3a]"}`}>
                                 <div className="font-medium">{m.name}</div>
