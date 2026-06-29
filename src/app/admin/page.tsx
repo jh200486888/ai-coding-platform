@@ -138,6 +138,10 @@ export default function AdminPage() {
 
   const activeGroup = SIDEBAR_GROUPS.find(g => g.items.some(i => i.id === activeTab))?.id || 'dashboard';
 
+  if (!authChecked) {
+    return <div className="min-h-screen flex items-center justify-center bg-background"><div className="text-muted-foreground">验证中...</div></div>;
+  }
+
   return (
     <div className="min-h-screen bg-background flex">
       {/* Left Sidebar */}
