@@ -6,6 +6,9 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { Check, Copy } from 'lucide-react';
 
+// Import highlight.js GitHub Dark theme
+import 'highlight.js/styles/github-dark.css';
+
 interface MarkdownRendererProps {
   content: string;
 }
@@ -52,7 +55,7 @@ function CodeBlock({ className, children, ...props }: React.HTMLAttributes<HTMLE
           )}
         </button>
       </div>
-      <pre className="!m-0 !rounded-none overflow-x-auto">
+      <pre className="!m-0 !rounded-none overflow-x-auto !bg-[#0d1117]">
         <code className={className} {...props}>
           {children}
         </code>

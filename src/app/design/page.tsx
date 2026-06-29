@@ -330,7 +330,7 @@ function DesignPageInner() {
                         <ChevronDown className="w-3 h-3" />
                       </button>
                       {showModelPicker && (
-                        <div className="absolute right-0 bottom-full mb-1 w-56 bg-[#1e1e2a] border border-[#2e2e3a] rounded-xl shadow-2xl z-50 overflow-hidden">
+                        <div className="absolute right-0 top-full mt-1 w-56 bg-[#1e1e2a] border border-[#2e2e3a] rounded-xl shadow-2xl z-50 overflow-hidden">
                           <div className="p-2 space-y-0.5 max-h-60 overflow-y-auto">
                             <button onClick={() => { setSelectedModel("auto"); setShowModelPicker(false); }}
                               className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${selectedModel === "auto" ? "bg-[#7c3aed]/20 text-[#a78bfa]" : "text-[#94a3b8] hover:bg-[#2a2a3a]"}`}>

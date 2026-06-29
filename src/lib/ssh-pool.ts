@@ -62,6 +62,9 @@ class SSHConnectionPool {
   }
 
   private getServerConfig(serverId: string): ServerConfig {
+    if (!serverId || typeof serverId !== 'string') {
+      throw new Error('服务器ID不能为空，请指定 production 或 development');
+    }
     const envPrefix = serverId.toUpperCase();
 
     const config: ServerConfig = {
@@ -86,6 +89,9 @@ class SSHConnectionPool {
   }
 
   async getConnection(serverId: string): Promise<NodeSSH> {
+    if (!serverId || typeof serverId !== 'string') {
+      throw new Error('服务器ID不能为空，请指定 production 或 development');
+    }
     const existing = this.connections.get(serverId);
     if (existing && existing.isConnected()) {
       this.lastUsed.set(serverId, Date.now());

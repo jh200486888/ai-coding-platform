@@ -1154,7 +1154,15 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
             className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono" placeholder={''} />
         </div>
 
+        
         <div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'basic' ? 'block' : 'none' }}>
+          <h3 className="font-medium mb-3">{'设计提示词 (Design Prompt)'}</h3>
+          <p className="text-xs text-muted-foreground mb-3">{'设置设计工坊的专用提示词，影响 AI 设计助手的对话风格和能力。独立于编程提示词。'}</p>
+          <textarea value={form.design_system_prompt} onChange={(e) => setForm({ ...form, design_system_prompt: e.target.value })} rows={8}
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono" placeholder={'在此输入设计提示词...'} />
+        </div>
+
+<div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'basic' ? 'block' : 'none' }}>
           <h3 className="font-medium mb-3">{'\u7f51\u7ad9\u4fe1\u606f'}</h3>
           <div className="space-y-3">
             <div>

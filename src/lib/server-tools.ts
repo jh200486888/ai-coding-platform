@@ -23,14 +23,16 @@ export const sshExecuteTool = tool({
     timeout: z.number().default(60).describe('超时秒数，默认60。构建等长任务设300'),
     cwd: z.string().optional().describe('工作目录，默认为项目根目录'),
   }),
-  execute: async ({ command, server, timeout, cwd }: { command: string; server: 'production' | 'development'; timeout: number; cwd?: string }) => {
+  execute: async ({ command, server = 'production', timeout, cwd }: { command: string; server?: string; timeout: number; cwd?: string }) => {
+    // Defensive: ensure server is valid
+    const effectiveServer = (server === 'production' || server === 'development') ? server : 'production';
     for (const pattern of DANGEROUS_COMMANDS) {
       if (pattern.test(command)) {
         return '⛔ 危险命令被拦截: "' + command + '" 匹配安全黑名单规则。此操作可能导致数据丢失或系统不可用。';
       }
     }
     try {
-      const result = await sshPool.execute(server, command, {
+      const result = await sshPool.execute(effectiveServer, command, {
         timeout: timeout * 1000,
         cwd,
       });
@@ -62,9 +64,10 @@ export const sshReadFileTool = tool({
     startLine: z.number().optional().describe('起始行号(从0开始)，大文件分段读取'),
     endLine: z.number().optional().describe('结束行号，默认读全部'),
   }),
-  execute: async ({ path, server, startLine, endLine }: { path: string; server: 'production' | 'development'; startLine?: number; endLine?: number }) => {
+  execute: async ({ path, server = 'production', startLine, endLine }: { path: string; server?: string; startLine?: number; endLine?: number }) => {
+    const effectiveServer = (server === 'production' || server === 'development') ? server : 'production';
     try {
-      let content = await sshPool.readFile(server, path);
+      let content = await sshPool.readFile(effectiveServer, path);
 
       if (startLine !== undefined || endLine !== undefined) {
         const lines = content.split('\n');
@@ -102,9 +105,10 @@ export const sshWriteFileTool = tool({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
     backup: z.boolean().default(true).describe('是否备份原文件，默认true'),
   }),
-  execute: async ({ path, content, server, backup }: { path: string; content: string; server: 'production' | 'development'; backup?: boolean }) => {
+  execute: async ({ path, content, server = 'production', backup }: { path: string; content: string; server?: string; backup?: boolean }) => {
+    const effectiveServer = (server === 'production' || server === 'development') ? server : 'production';
     try {
-      const result = await sshPool.writeFile(server, path, content, backup);
+      const result = await sshPool.writeFile(effectiveServer, path, content, backup);
       let msg = `✅ 文件已写入: ${path}`;
       if (result.backupPath) {
         msg += `\n📦 备份: ${result.backupPath}`;
@@ -112,7 +116,7 @@ export const sshWriteFileTool = tool({
 
       // 写入验证：检查文件存在 + 行数
       const expectedLines = content.split('\n').length;
-      const verifyResult = await sshPool.execute(server, `wc -l < "${path}" 2>/dev/null && echo "EXISTS" || echo "MISSING"`);
+      const verifyResult = await sshPool.execute(effectiveServer, `wc -l < "${path}" 2>/dev/null && echo "EXISTS" || echo "MISSING"`);
       const actualLines = parseInt(verifyResult.stdout.split('\n')[0]) || 0;
       const fileExists = verifyResult.stdout.includes('EXISTS');
 
@@ -142,9 +146,9 @@ export const buildProjectTool = tool({
   parameters: z.object({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
   }),
-  execute: async ({ server }: { server: 'production' | 'development' }) => {
+  execute: async ({ server }: { server?: string }) => {
     try {
-      const result = await sshPool.execute(server,
+      const result = await sshPool.execute(effectiveServer,
         'NODE_OPTIONS="--max-old-space-size=3072" pnpm build 2>&1 | tail -80',
         { timeout: 300000 }
       );
@@ -187,7 +191,7 @@ export const deployServiceTool = tool({
   parameters: z.object({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
   }),
-  execute: async ({ server }: { server: 'production' | 'development' }) => {
+  execute: async ({ server }: { server?: string }) => {
     try {
       const pm2Service = server === 'production' ? 'ai-coding-platform' : 'ai-coding-dev';
       const appPort = server === 'production' ? 5000 : 5001;
@@ -251,7 +255,7 @@ export const healthCheckTool = tool({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
     checks: z.array(z.enum(['http', 'pm2', 'disk', 'memory', 'db'])).default(['http', 'pm2', 'memory']).describe('要检查的项目'),
   }),
-  execute: async ({ server, checks }: { server: 'production' | 'development'; checks: Array<'http' | 'pm2' | 'disk' | 'memory' | 'db'> }) => {
+  execute: async ({ server, checks }: { server?: string; checks: Array<'http' | 'pm2' | 'disk' | 'memory' | 'db'> }) => {
     const results: string[] = [];
 
     try {
@@ -299,7 +303,7 @@ export const gitCommitTool = tool({
     message: z.string().describe('提交信息'),
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
   }),
-  execute: async ({ message, server }: { message: string; server: 'production' | 'development' }) => {
+  execute: async ({ message, server }: { message: string; server?: string }) => {
     try {
       const statusResult = await sshPool.execute(server, 'git status --short');
       if (!statusResult.stdout.trim()) {
@@ -343,7 +347,7 @@ export const diagnoseErrorTool = tool({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
     focus: z.enum(['build', 'deploy', 'runtime', 'db', 'all']).default('all').describe('诊断焦点'),
   }),
-  execute: async ({ server, focus }: { server: 'production' | 'development'; focus: 'build' | 'deploy' | 'runtime' | 'db' | 'all' }) => {
+  execute: async ({ server, focus }: { server?: string; focus: 'build' | 'deploy' | 'runtime' | 'db' | 'all' }) => {
     const pm2Service = server === 'production' ? 'ai-coding-platform' : 'ai-coding-dev';
     const appPort = server === 'production' ? 5000 : 5001;
     const projectDir = server === 'production' ? '/www/wwwroot/agent.piyiguo.com' : '/www/wwwroot/dev.agent.piyiguo.com';

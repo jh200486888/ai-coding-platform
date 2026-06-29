@@ -1,97 +1,88 @@
 import { NextRequest } from 'next/server';
-import { query, queryOne } from '@/lib/db';
+import { queryOne } from '@/lib/db';
 import { decodeApiKey, PROVIDER_ALIASES } from '@/lib/ai-providers';
 
-// Model configurations - interface
+// Model configurations
 interface ModelConfig {
   provider: 'openai' | 'qwen' | 'volcengine';
   sizes: Record<string, string[]>;
   defaultSize: string;
   maxN: number;
   supportsEdit: boolean;
+  // For qwen models that use async API
   dashScopeModel?: string;
+  // Model used for image-to-image (if different from text-to-image)
   editModel?: string;
 }
 
-// Hardcoded fallback configs (used when DB is unavailable)
-const FALLBACK_MODEL_CONFIGS: Record<string, ModelConfig> = {
+const MODEL_CONFIGS: Record<string, ModelConfig> = {
   'gpt-image-2': {
     provider: 'openai',
-    sizes: { '1k': ['1024x1024', '1536x1024', '1024x1536'], '2k': ['2048x2048', '2048x1536', '1536x2048', '2048x1152', '1152x2048'] },
-    defaultSize: '1024x1024', maxN: 10, supportsEdit: true,
+    sizes: {
+      '1k': ['1024x1024', '1536x1024', '1024x1536'],
+      '2k': ['2048x2048', '2048x1536', '1536x2048', '2048x1152', '1152x2048'],
+    },
+    defaultSize: '1024x1024',
+    maxN: 10,
+    supportsEdit: true,
   },
   'qwen-image-2.0': {
-    provider: 'qwen', dashScopeModel: 'wanx2.1-t2i-turbo',
-    sizes: { '1k': ['1024*1024', '720*1280', '1280*720'] },
-    defaultSize: '1024*1024', maxN: 4, supportsEdit: false,
+    provider: 'qwen',
+    dashScopeModel: 'wanx2.1-t2i-turbo',
+    sizes: {
+      '1k': ['1024*1024', '720*1280', '1280*720'],
+    },
+    defaultSize: '1024*1024',
+    maxN: 4,
+    supportsEdit: false,
   },
   'qwen-image-2.0-pro': {
-    provider: 'qwen', dashScopeModel: 'wanx2.1-t2i-plus',
-    sizes: { '1k': ['1024*1024', '720*1280', '1280*720'], '2k': ['2048*2048', '1440*2560', '2560*1440'] },
-    defaultSize: '1024*1024', maxN: 4, supportsEdit: false,
+    provider: 'qwen',
+    dashScopeModel: 'wanx2.1-t2i-plus',
+    sizes: {
+      '1k': ['1024*1024', '720*1280', '1280*720'],
+      '2k': ['2048*2048', '1440*2560', '2560*1440'],
+    },
+    defaultSize: '1024*1024',
+    maxN: 4,
+    supportsEdit: false,
   },
   'wan2.6-t2i': {
-    provider: 'qwen', dashScopeModel: 'wanx-v1',
-    sizes: { '1k': ['1280*1280', '720*1280', '1280*720'], '2k': ['1440*1440', '1024*1440', '1440*1024'] },
-    defaultSize: '1280*1280', maxN: 4, supportsEdit: false,
+    provider: 'qwen',
+    dashScopeModel: 'wanx-v1',
+    sizes: {
+      '1k': ['1280*1280', '720*1280', '1280*720'],
+      '2k': ['1440*1440', '1024*1440', '1440*1024'],
+    },
+    defaultSize: '1280*1280',
+    maxN: 4,
+    supportsEdit: false,
   },
+  // 新增：万相图生图专用模型
   'wanx-v1-edit': {
-    provider: 'qwen', dashScopeModel: 'wanx-v1',
-    sizes: { '1k': ['1024*1024', '720*1280', '1280*720'] },
-    defaultSize: '1024*1024', maxN: 4, supportsEdit: true,
+    provider: 'qwen',
+    dashScopeModel: 'wanx-v1',
+    sizes: {
+      '1k': ['1024*1024', '720*1280', '1280*720'],
+    },
+    defaultSize: '1024*1024',
+    maxN: 4,
+    supportsEdit: true,  // 支持图生图
   },
   'SeedDream-3.0': {
     provider: 'volcengine',
-    sizes: { '1k': ['1024x1024', '768x1024', '1024x768', '576x1024', '1024x576'], '2k': ['2048x2048', '1536x2048', '2048x1536'] },
-    defaultSize: '1024x1024', maxN: 4, supportsEdit: false,
+    sizes: {
+      '1k': ['1024x1024', '768x1024', '1024x768', '576x1024', '1024x576'],
+      '2k': ['2048x2048', '1536x2048', '2048x1536'],
+    },
+    defaultSize: '1024x1024',
+    maxN: 4,
+    supportsEdit: false,
   },
 };
 
-// Cache for DB-loaded configs (refreshed every 5 minutes)
-let cachedModelConfigs: Record<string, ModelConfig> | null = null;
-let lastConfigLoad = 0;
-const CONFIG_CACHE_MS = 5 * 60 * 1000;
-
-async function loadModelConfigs(): Promise<Record<string, ModelConfig>> {
-  const now = Date.now();
-  if (cachedModelConfigs && now - lastConfigLoad < CONFIG_CACHE_MS) {
-    return cachedModelConfigs;
-  }
-
-  try {
-    const rows = await query(
-      'SELECT "modelId", "image_config", "isActive" FROM model_configs WHERE "image_config" IS NOT NULL'
-    );
-    
-    if (rows && rows.length > 0) {
-      const configs: Record<string, ModelConfig> = {};
-      for (const row of rows) {
-        if (row.isActive && row.image_config) {
-          try {
-            const config = typeof row.image_config === 'string' 
-              ? JSON.parse(row.image_config) 
-              : row.image_config;
-            configs[row.modelId] = config as ModelConfig;
-          } catch {}
-        }
-      }
-      // Merge with fallback for any models not in DB
-      for (const [id, config] of Object.entries(FALLBACK_MODEL_CONFIGS)) {
-        if (!configs[id]) configs[id] = config;
-      }
-      cachedModelConfigs = configs;
-      lastConfigLoad = now;
-      return configs;
-    }
-  } catch (error) {
-    console.error('Failed to load model configs from DB, using fallback:', error);
-  }
-
-  return FALLBACK_MODEL_CONFIGS;
-}
-
-function resolveOpenAISize(model: string, ratio: string, resolution: string, configs: Record<string, ModelConfig>): string {
-  const config = configs[model];
+function resolveOpenAISize(model: string, ratio: string, resolution: string): string {
+  const config = MODEL_CONFIGS[model];
   if (!config) return '1024x1024';
   const resKey = resolution === '2k' || resolution === '4k' ? '2k' : '1k';
   const sizes = config.sizes[resKey] || config.sizes['1k'] || ['1024x1024'];
@@ -105,8 +96,8 @@ function resolveOpenAISize(model: string, ratio: string, resolution: string, con
   return ratioToSize[ratio] || config.defaultSize;
 }
 
-function resolveDashScopeSize(model: string, ratio: string, resolution: string, configs: Record<string, ModelConfig>): string {
-  const config = configs[model];
+function resolveDashScopeSize(model: string, ratio: string, resolution: string): string {
+  const config = MODEL_CONFIGS[model];
   if (!config) return '1024*1024';
   const resKey = resolution === '2k' || resolution === '4k' ? '2k' : '1k';
   const sizes = config.sizes[resKey] || config.sizes['1k'] || ['1024*1024'];
@@ -171,15 +162,21 @@ async function generateOpenAICompatible(
 }
 
 // DashScope async image generation (qwen/通义千问 models)
+// Supports both text-to-image and image-to-image
 async function generateDashScopeAsync(
   apiKey: string, dashScopeModel: string, prompt: string,
   size: string, n: number, referenceImage?: string
 ): Promise<{ images: Array<{ id: string; url: string; revised_prompt: string }> }> {
+  // Build input object
   const input: Record<string, unknown> = { prompt };
+  
+  // If reference image provided, add it for image-to-image
+  // wanx-v1 model supports image input for 图生图
   if (referenceImage) {
     input.image = referenceImage;
   }
 
+  // Step 1: Submit task
   const submitResponse = await fetch(
     'https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis',
     {
@@ -207,9 +204,10 @@ async function generateDashScopeAsync(
   const taskId = submitData?.output?.task_id;
   if (!taskId) throw new Error('百炼 API 未返回任务 ID');
 
+  // Step 2: Poll for result (max 120 seconds)
   const maxAttempts = 40;
   for (let i = 0; i < maxAttempts; i++) {
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    await new Promise(resolve => setTimeout(resolve, 3000)); // 3s interval
 
     const pollResponse = await fetch(
       `https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`,
@@ -234,6 +232,7 @@ async function generateDashScopeAsync(
       const msg = pollData?.output?.message || '图片生成失败';
       throw new Error(`百炼图片生成失败: ${msg}`);
     }
+    // PENDING / RUNNING → continue polling
   }
 
   throw new Error('百炼图片生成超时，请稍后重试');
@@ -296,8 +295,6 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Load model configs from DB (with fallback)
-    const MODEL_CONFIGS = await loadModelConfigs();
     const modelConfig = MODEL_CONFIGS[model];
     if (!modelConfig) {
       return new Response(JSON.stringify({ error: `不支持的模型: ${model}` }), {
@@ -310,6 +307,7 @@ export async function POST(request: NextRequest) {
     let effectiveConfig = modelConfig;
     
     if (referenceImage) {
+      // If current model doesn't support edit, auto-switch to wanx-v1-edit (百炼图生图)
       if (!modelConfig.supportsEdit) {
         effectiveModel = 'wanx-v1-edit';
         effectiveConfig = MODEL_CONFIGS['wanx-v1-edit'];
@@ -327,14 +325,16 @@ export async function POST(request: NextRequest) {
       }
       const apiKey = refKeyData.key;
 
+      // OpenAI gpt-image-2 uses /images/edits endpoint
       if (effectiveConfig.provider === 'openai') {
-        const actualSize = resolveOpenAISize(effectiveModel, size, resolution, MODEL_CONFIGS);
+        const actualSize = resolveOpenAISize(effectiveModel, size, resolution);
         const editBaseUrl = refKeyData?.baseUrl || 'https://api.openai.com/v1';
         return handleOpenAIEdit(apiKey, prompt, referenceImage, actualSize, output_format, editBaseUrl);
       }
 
+      // DashScope models: use same async API but with image field
       if (effectiveConfig.provider === 'qwen') {
-        const actualSize = resolveDashScopeSize(effectiveModel, size, resolution, MODEL_CONFIGS);
+        const actualSize = resolveDashScopeSize(effectiveModel, size, resolution);
         const dashScopeModel = effectiveConfig.dashScopeModel || effectiveModel;
         const result = await generateDashScopeAsync(
           refKeyData.key, dashScopeModel, prompt, actualSize, Math.min(n, effectiveConfig.maxN), referenceImage
@@ -366,7 +366,7 @@ export async function POST(request: NextRequest) {
 
     switch (modelConfig.provider) {
       case 'openai': {
-        actualSize = resolveOpenAISize(model, size, resolution, MODEL_CONFIGS);
+        actualSize = resolveOpenAISize(model, size, resolution);
         const openaiBaseUrl = keyData?.baseUrl || 'https://api.openai.com/v1';
         result = await generateOpenAICompatible(
           openaiBaseUrl, apiKey, model, prompt,
@@ -375,7 +375,7 @@ export async function POST(request: NextRequest) {
         break;
       }
       case 'qwen': {
-        actualSize = resolveDashScopeSize(model, size, resolution, MODEL_CONFIGS);
+        actualSize = resolveDashScopeSize(model, size, resolution);
         const dashScopeModel = modelConfig.dashScopeModel || model;
         result = await generateDashScopeAsync(
           apiKey, dashScopeModel, prompt, actualSize, imageCount
@@ -383,7 +383,7 @@ export async function POST(request: NextRequest) {
         break;
       }
       case 'volcengine': {
-        actualSize = resolveOpenAISize(model, size, resolution, MODEL_CONFIGS);
+        actualSize = resolveOpenAISize(model, size, resolution);
         const volcBaseUrl = keyData?.baseUrl || 'https://ark.cn-beijing.volces.com/api/v3';
         result = await generateOpenAICompatible(
           volcBaseUrl, apiKey, model, prompt,
@@ -410,7 +410,6 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET() {
-  const MODEL_CONFIGS = await loadModelConfigs();
   const models = Object.entries(MODEL_CONFIGS).map(([id, config]) => ({
     id,
     provider: config.provider,

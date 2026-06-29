@@ -7,6 +7,8 @@ import HtmlPreviewCard from './html-preview-card';
 import type { Message, Attachment } from '@/types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github-dark.css';
 
 // Clean attachment markers from message content for display
 function cleanAttachmentMarkers(text: string): string {
@@ -143,21 +145,44 @@ function parseContent(text: string): ContentSegment[] {
 
 function CodeBlock({ content, lang }: { content: string; lang?: string }) {
   const [copied, setCopied] = useState(false);
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  const codeRef = useRef<HTMLElement>(null);
+
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(content).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }).catch(() => {});
   }, [content]);
+
+  // Use highlight.js for syntax highlighting
+  useCallback(() => {
+    if (lang && codeRef.current) {
+      try {
+        const hljs = require('highlight.js');
+        const result = hljs.highlight(content, { language: lang });
+        setHighlighted(result.value);
+      } catch {
+        setHighlighted(null);
+      }
+    }
+  }, [content, lang]);
+
   return (
-    <div className="my-2 rounded-lg overflow-hidden border border-border bg-[#1a1a2e]">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#16162a] border-b border-border">
-        <span className="text-xs text-muted-foreground font-mono">{lang || 'code'}</span>
-        <button onClick={handleCopy} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-0.5 rounded hover:bg-muted/50">
+    <div className="my-2 rounded-lg overflow-hidden border border-[#30363d] bg-[#0d1117]">
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[#161b22] border-b border-[#30363d]">
+        <span className="text-xs text-[#8b949e] font-mono">{lang || 'code'}</span>
+        <button onClick={handleCopy} className="flex items-center gap-1 text-xs text-[#8b949e] hover:text-[#c9d1d9] transition-colors px-2 py-0.5 rounded hover:bg-[#161b22]/80">
           {copied ? (<><Check className="w-3 h-3 text-green-400" /><span className="text-green-400">已复制</span></>) : (<><Copy className="w-3 h-3" /><span>复制</span></>)}
         </button>
       </div>
-      <pre className="p-3 overflow-x-auto text-sm"><code className="text-green-300 font-mono whitespace-pre">{content}</code></pre>
+      <pre className="p-3 !m-0 overflow-x-auto text-sm !bg-[#0d1117]">
+        {highlighted ? (
+          <code className={`language-${lang} hljs font-mono whitespace-pre`} dangerouslySetInnerHTML={{ __html: highlighted }} />
+        ) : (
+          <code className="text-[#e6edf3] font-mono whitespace-pre">{content}</code>
+        )}
+      </pre>
     </div>
   );
 }
