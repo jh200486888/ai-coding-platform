@@ -126,25 +126,6 @@ export default function DesignEditorPage() {
     reader.readAsDataURL(file);
   };
 
-  const handleDownload = () => {
-    if (activeCanvas === 'html' && canvasHtml) {
-      const blob = new Blob([canvasHtml], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'design.html';
-      a.click();
-      URL.revokeObjectURL(url);
-    } else if (activeCanvas === 'image' && generatedImages.length > 0) {
-      generatedImages.forEach((url, i) => {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `design-${i + 1}.png`;
-        a.click();
-      });
-    }
-  };
-
   const sendMessage = async (text?: string) => {
     const userMessage = text || input.trim();
     if (!userMessage || isLoading) return;
@@ -332,7 +313,7 @@ export default function DesignEditorPage() {
   };
 
   return (
-    <div className={`h-screen dark bg-[#0f0f14] text-[#f1f5f9] flex flex-col ${isFullscreen ? "fixed inset-0 z-50" : ""}`}>
+    <div className={`h-screen bg-[#0f0f14] text-[#f1f5f9] flex flex-col ${isFullscreen ? "fixed inset-0 z-50" : ""}`}>
       {/* Top Bar */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[#1e293b] bg-[#16161e] shrink-0">
         <div className="flex items-center gap-2">
@@ -373,7 +354,7 @@ export default function DesignEditorPage() {
           <button onClick={() => setIsFullscreen(!isFullscreen)} className="p-1.5 rounded-lg hover:bg-[#1e1e2a] transition-colors" title="全屏">
             {isFullscreen ? <Minimize2 className="w-4 h-4 text-[#94a3b8]" /> : <Maximize2 className="w-4 h-4 text-[#94a3b8]" />}
           </button>
-          <button onClick={handleDownload} className="p-1.5 rounded-lg hover:bg-[#1e1e2a] transition-colors" title="下载">
+          <button className="p-1.5 rounded-lg hover:bg-[#1e1e2a] transition-colors" title="下载">
             <Download className="w-4 h-4 text-[#94a3b8]" />
           </button>
         </div>
