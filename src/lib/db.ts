@@ -82,19 +82,19 @@ export async function deleteConversation(id: string): Promise<void> {
 
 export async function getMessages(conversationId: string): Promise<Message[]> {
   return query<Message>(
-    'SELECT id, "conversationId" as conversation_id, role, content, "modelId" as model_id, NULL as token_count, "createdAt" as created_at FROM chat_messages WHERE "conversationId" = $1 ORDER BY "createdAt" ASC',
+    'SELECT id, "conversationId" as conversation_id, role, content, "modelId" as model_id, NULL as token_count, "createdAt" as created_at, reasoning FROM chat_messages WHERE "conversationId" = $1 ORDER BY "createdAt" ASC',
     [conversationId]
   );
 }
 
-export async function createMessage(conversationId: string, role: string, content: string, modelId: string | null): Promise<Message> {
+export async function createMessage(conversationId: string, role: string, content: string, modelId: string | null, reasoning?: string | null): Promise<Message> {
   const id = randomUUID();
   await run(
-    'INSERT INTO chat_messages (id, "conversationId", role, content, "modelId") VALUES ($1, $2, $3, $4, $5)',
-    [id, conversationId, role, content, modelId]
+    'INSERT INTO chat_messages (id, "conversationId", role, content, "modelId", reasoning) VALUES ($1, $2, $3, $4, $5, $6)',
+    [id, conversationId, role, content, modelId, reasoning || null]
   );
   const row = await queryOne<any>(
-    'SELECT id, "conversationId" as conversation_id, role, content, "modelId" as model_id, NULL as token_count, "createdAt" as created_at FROM chat_messages WHERE id = $1',
+    'SELECT id, "conversationId" as conversation_id, role, content, "modelId" as model_id, NULL as token_count, "createdAt" as created_at, reasoning FROM chat_messages WHERE id = $1',
     [id]
   );
   return row;

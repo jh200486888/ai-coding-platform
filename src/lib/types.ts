@@ -17,6 +17,7 @@ export interface Message {
   model_id: string | null;
   token_count: number | null;
   created_at: string;
+  reasoning?: string | null;
 }
 
 // Model config types

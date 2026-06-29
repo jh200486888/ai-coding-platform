@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from 'react';
-import { User, Bot, Image, FileText, Code, Copy, Check, Pencil, Volume2, Square, FileSearch } from 'lucide-react';
+import { User, Bot, Image, FileText, Code, Copy, Check, Pencil, Volume2, Square, FileSearch, Brain, ChevronDown, ChevronRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import HtmlPreviewCard from './html-preview-card';
 import type { Message, Attachment } from '@/types';
@@ -222,15 +222,15 @@ function RenderedContent({ content, conversationId, isAssistant }: { content: st
           // Render longer assistant text as Markdown for proper formatting
           return (
             <div key={i} className="prose prose-invert prose-sm max-w-none
-              prose-headings:text-[#e2e8f0] prose-h1:text-lg prose-h2:text-base prose-h2:text-[#a78bfa] prose-h3:text-sm prose-h3:text-[#8b5cf6]
-              prose-p:text-[#cbd5e1] prose-p:leading-relaxed prose-p:my-1
-              prose-strong:text-[#a78bfa]
-              prose-code:text-[#06b6d4] prose-code:bg-[#1e1e2a] prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
-              prose-li:text-[#cbd5e1] prose-li:my-0.5
-              prose-table:text-sm prose-table:border prose-table:border-[#2a2a3a]
-              prose-th:bg-[#7c3aed] prose-th:text-white prose-th:px-2 prose-th:py-1
-              prose-td:text-[#cbd5e1] prose-td:border-[#2a2a3a] prose-td:px-2 prose-td:py-1
-              prose-blockquote:border-[#7c3aed] prose-blockquote:text-[#94a3b8]">
+              prose-headings:text-foreground prose-h1:text-lg prose-h2:text-base prose-h2:text-primary prose-h3:text-sm prose-h3:text-primary
+              prose-p:text-foreground prose-p:leading-relaxed prose-p:my-1
+              prose-strong:text-primary
+              prose-code:text-accent prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
+              prose-li:text-foreground prose-li:my-0.5
+              prose-table:text-sm prose-table:border prose-table:border-border
+              prose-th:bg-primary prose-th:text-primary-foreground prose-th:px-2 prose-th:py-1
+              prose-td:text-foreground prose-td:border-border prose-td:px-2 prose-td:py-1
+              prose-blockquote:border-primary prose-blockquote:text-muted-foreground">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{seg.content}</ReactMarkdown>
             </div>
           );
@@ -238,6 +238,34 @@ function RenderedContent({ content, conversationId, isAssistant }: { content: st
         return <span key={i} className="whitespace-pre-wrap break-words">{stripMarkdown(seg.content)}</span>;
       })}
     </>
+  );
+}
+
+
+// ============ Thinking Process Display ============
+function ThinkingBlock({ content }: { content: string }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  if (!content || content.trim().length === 0) return null;
+  
+  return (
+    <div className="mb-3 rounded-lg border border-violet-500/20 bg-violet-500/5 overflow-hidden">
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-violet-400 hover:bg-violet-500/10 transition-colors"
+      >
+        <Brain className="w-3.5 h-3.5" />
+        <span className="font-medium">思考过程</span>
+        {isExpanded ? <ChevronDown className="w-3 h-3 ml-auto" /> : <ChevronRight className="w-3 h-3 ml-auto" />}
+        {!isExpanded && <span className="text-muted-foreground truncate ml-1 max-w-[200px]">{content.slice(0, 50)}...</span>}
+      </button>
+      {isExpanded && (
+        <div className="px-3 pb-3 pt-1 border-t border-violet-500/10">
+          <div className="text-xs text-muted-foreground/80 whitespace-pre-wrap break-words leading-relaxed max-h-[400px] overflow-y-auto">
+            {content}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -305,6 +333,10 @@ export function MessageBubble({ message, isEditing, editContent, onEdit, onEditC
           </div>
         ) : (
           <>
+            {/* Thinking process display */}
+            {!isUser && (message as any).reasoning && (message as any).reasoning.length > 0 && (
+              <ThinkingBlock content={(message as any).reasoning.map((r: any) => r.text || '').join('\n')} />
+            )}
             {message.content && (
               <div className="text-sm break-words">
                 {isUser ? (

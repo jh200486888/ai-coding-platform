@@ -63,11 +63,16 @@ function convertDBMessages(dbMsgs: any[]): UIMessage[] {
         });
       }
 
+      // Build reasoning from DB field
+      const dbReasoning = (m as any).reasoning;
+      const reasoningParts = dbReasoning ? [{ type: 'reasoning' as const, text: dbReasoning }] : undefined;
+
       return {
         id: m.id || `msg-${Math.random().toString(36).slice(2)}`,
         role: m.role as 'user' | 'assistant',
         parts: parts.length > 0 ? parts : [{ type: 'text' as const, text: '' }],
         createdAt: new Date(m.created_at || m.createdAt || Date.now()),
+        ...(reasoningParts ? { reasoning: reasoningParts } : {}),
       } as UIMessage;
     });
 }
@@ -183,6 +188,8 @@ export function useChatLogic(options: {
       createdAt: msg.createdAt || new Date(),
       attachments: [],
       parts: msg.parts,
+      // Pass through reasoning content for thinking mode display
+      reasoning: msg.reasoning || undefined,
     } as any;
   });
 

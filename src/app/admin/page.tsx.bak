@@ -88,43 +88,6 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
 export default function AdminPage() {
   const { theme, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-  const [authChecked, setAuthChecked] = useState(false);
-
-  // Check admin session on mount
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch('/api/admin/login');
-        const data = await res.json();
-        if (!data.authenticated) {
-          window.location.href = '/admin/login';
-          return;
-        }
-      } catch {
-        window.location.href = '/admin/login';
-        return;
-      }
-      setAuthChecked(true);
-    })();
-  }, []);
-
-  // Global 401 interceptor: override fetch for admin API calls
-  useEffect(() => {
-    const originalFetch = window.fetch;
-    window.fetch = (...args: Parameters<typeof fetch>) => {
-      const url = typeof args[0] === 'string' ? args[0] : (args[0] as Request).url;
-      if (url.startsWith('/api/admin/')) {
-        return originalFetch(...args).then(res => {
-          if (res.status === 401) {
-            window.location.href = '/admin/login';
-          }
-          return res;
-        });
-      }
-      return originalFetch(...args);
-    };
-    return () => { window.fetch = originalFetch; };
-  }, []);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   const toggleGroup = (groupId: string) => {

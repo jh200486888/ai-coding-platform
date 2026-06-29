@@ -6,7 +6,6 @@ import { getCurrentUser } from '@/lib/auth';
 import { z } from 'zod';
 import { tool } from 'ai';
 import { createSubAgentTool } from '@/lib/sub-agents';
-import { routeModel, markProviderFailed } from '@/lib/model-router';
 
 import { describeImages } from '@/lib/vision-proxy';
 // === 自主智能：SSH工具 + 技能系统 ===
@@ -495,36 +494,20 @@ export async function POST(request: NextRequest) {
     // Multimodal model candidates (preferred order)
     const MULTIMODAL_MODEL_ORDER = ['gpt-4o', 'gpt-4.1', 'gemini-2.5-pro', 'gemini-2.5-flash', 'qwen-max', 'qwen-plus', 'claude-sonnet-4-5', 'glm-4.5-flash', 'glm-5.2'];
 
-    // === Smart Model Router Integration ===
-    // Use routeModel for intelligent model selection with automatic fallback
-    let routingResult: any = null;
+    // Auto model selection: pick first available model with active API key
     if (model_id === 'auto') {
-      try {
-        const { routeModel } = await import('@/lib/model-router');
-        const userMsg = messages.filter((m: any) => m.role === 'user').map((m: any) => typeof m.content === 'string' ? m.content : '').join(' ');
-        routingResult = await routeModel(userMsg);
-        if (routingResult) {
-          model_id = routingResult.model;
-          console.log(`[Router] Auto: ${routingResult.routingReason}`);
-        }
-      } catch (e: any) {
-        console.log(`[Router] routeModel failed: ${e.message}`);
-      }
-      // Fallback to old logic if router fails
-      if (model_id === 'auto') {
-        const preferredOrder = ['deepseek-v4-flash', 'gpt-4.1', 'qwen-max', 'glm-4.5-flash'];
-        for (const candidate of preferredOrder) {
-          const cfg = await getModelConfig(candidate);
-          if (cfg) {
-            const keyData = await getApiKeyByProvider(cfg.provider);
-            if (keyData && keyData.is_active) {
-              model_id = candidate;
-              break;
-            }
+      const preferredOrder = ['deepseek-v4-flash', 'gpt-4.1', 'claude-sonnet-4-5', 'qwen-max', 'glm-4.5-flash'];
+      for (const candidate of preferredOrder) {
+        const cfg = await getModelConfig(candidate);
+        if (cfg) {
+          const keyData = await getApiKeyByProvider(cfg.provider);
+          if (keyData && keyData.is_active) {
+            model_id = candidate;
+            break;
           }
         }
-        if (model_id === 'auto') { const dm = await getSetting('default_model'); model_id = dm || 'deepseek-v4-flash'; }
       }
+      if (model_id === 'auto') { const dm = await getSetting('default_model'); model_id = dm || 'deepseek-v4-flash'; }
     }
 
     if (!messages || messages.length === 0) {
@@ -673,28 +656,9 @@ export async function POST(request: NextRequest) {
     const supportsMultimodal = MULTIMODAL_PROVIDERS.includes(modelConfig.provider) || 
       MULTIMODAL_MODEL_ORDER.some(m => model_id.includes(m));
 
-    // 构建系统提示词 — 优先读后台设置，fallback到硬编码
+    // 构建系统提示词
     const identityName = MODEL_IDENTITY[modelConfig.provider] || modelConfig.provider;
-    let modePrompt = MODE_PROMPTS[mode] || SYSTEM_PROMPT; // fallback default
-    try {
-      // Try DB system_prompt first
-      const dbSystemPrompt = await getSetting('system_prompt');
-      if (dbSystemPrompt && dbSystemPrompt.trim().length > 20) {
-        // Use DB as base for all modes
-        const dbModePrompts = await getSetting('mode_prompts');
-        if (dbModePrompts) {
-          const parsed = JSON.parse(dbModePrompts);
-          if (parsed[mode] && parsed[mode].trim().length > 20) {
-            modePrompt = parsed[mode];
-          } else if (parsed['coding'] && parsed['coding'].trim().length > 20) {
-            // coding mode prompt in DB is the full system prompt, use as fallback for all modes
-            modePrompt = mode === 'coding' ? parsed['coding'] : (parsed[mode] || parsed['coding']);
-          }
-        }
-      }
-    } catch (e) {
-      console.log('[Prompt] Failed to read DB prompts, using hardcoded:', (e as any)?.message);
-    }
+    const modePrompt = MODE_PROMPTS[mode] || SYSTEM_PROMPT;
     const lastUserMsg = messages.filter((m: any) => m.role === 'user').pop()?.content || ''; const memories = await getMemories(typeof lastUserMsg === 'string' ? lastUserMsg : '');
     const memorySection = memories ? '\n\n【用户记忆】\n' + memories + '\n\n当用户提到与记忆相关的内容时，参考这些信息。用户说"记住"时，用 saveMemory 工具保存。' : '';
     const dynamicPrompt = modePrompt + memorySection + `\n\n【身份】你是 ${identityName} 的 ${model_id} 模型。当用户问你是谁时，如实回答。`;
@@ -957,23 +921,8 @@ export async function POST(request: NextRequest) {
         });
 
         // Merge primary stream into the UI stream
-        // Read thinking mode settings
-        let enableThinking = true;
-        let thinkingMode = 'auto';
-        try {
-          const advStr3 = await getSetting('advanced_config');
-          if (advStr3) {
-            const adv3 = JSON.parse(advStr3);
-            if (adv3.enable_thinking !== undefined) enableThinking = adv3.enable_thinking;
-            if (adv3.thinking_mode !== undefined) thinkingMode = adv3.thinking_mode;
-          }
-        } catch {}
-        // Determine if reasoning should be sent based on mode
-        const isReasoningModel = model_id.includes('reasoner') || model_id.includes('r1') || model_id.includes('o1') || model_id.includes('o3') || model_id.includes('deepthink');
-        const shouldSendReasoning = thinkingMode === 'always' ? true : thinkingMode === 'off' ? false : isReasoningModel || enableThinking;
-
         writer.merge(agentResult.toUIMessageStream({
-          sendReasoning: shouldSendReasoning,
+          sendReasoning: true,
           messageMetadata: ({ part }: any) => {
             if (part.type === 'start' || part.type === 'finish') {
               return { conversationId: convId } as any;
@@ -982,14 +931,6 @@ export async function POST(request: NextRequest) {
           },
         }));
         let text = (await agentResult.text) || '';
-        // Capture reasoning from the stream result
-        let capturedReasoning = '';
-        try {
-          const resultReasoning = (agentResult as any).reasoning;
-          if (resultReasoning && resultReasoning.length > 0) {
-            capturedReasoning = resultReasoning.map((r: any) => r.text || ''  ).join('\n');
-          }
-        } catch {}
 
         // Detect DSML markup (DeepSeek bug: outputs tool calls as text)
         const isDSMLText = text && (text.includes('DSML') || text.includes('tool_calls') || text.includes('invoke name='));
@@ -1026,10 +967,10 @@ export async function POST(request: NextRequest) {
           const savedContent = isReportLike 
             ? text + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->'
             : text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
-          await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
+          await createMessage(convId!, 'assistant', savedContent, model_id);
         } else if (text) {
           const savedContent = toolPartsForLog.length > 0 ? text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->' : text;
-          await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
+          await createMessage(convId!, 'assistant', savedContent, model_id);
         } else if (!text && (toolPartsForLog.length > 0 || allToolResults.length > 0)) {
           // No text but has tool results -> follow-up stream that merges to frontend
           console.log('[AI] No text after tools, starting follow-up stream merge...');
@@ -1054,18 +995,18 @@ export async function POST(request: NextRequest) {
 
           // CRITICAL: merge follow-up stream so text reaches the frontend!
           writer.merge(followUpResult.toUIMessageStream({
-            sendReasoning: shouldSendReasoning,
+            sendReasoning: true,
           }));
 
           const followUpText = await followUpResult.text;
           if (followUpText) {
             const reportTitle = followUpText.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '\u5206\u6790\u62a5\u544a';
             const fullContent = followUpText + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->';
-            await createMessage(convId!, 'assistant', fullContent, model_id, capturedReasoning || null);
+            await createMessage(convId!, 'assistant', fullContent, model_id);
             console.log(`[AI] Follow-up report generated and streamed: ${followUpText.length} chars`);
           } else {
             const abortContent = '\u26a0\ufe0f \u5de5\u5177\u8c03\u7528\u5df2\u5b8c\u6210\uff0c\u4f46\u751f\u6210\u62a5\u544a\u5931\u8d25\u3002\u8bf7\u53d1\u9001\u201c\u603b\u7ed3\u201d\u91cd\u8bd5\u3002';
-            await createMessage(convId!, 'assistant', abortContent, model_id, capturedReasoning || null);
+            await createMessage(convId!, 'assistant', abortContent, model_id);
           }
         }
 
@@ -1093,23 +1034,11 @@ export async function POST(request: NextRequest) {
       },
       onError: (error) => {
         console.error('[AI] UI Stream error:', error);
-        const msg = (error as any)?.message || String(error);
-        // Check for balance/insufficient/quota errors - mark provider as failed and suggest switching
-        if (msg.includes('余额不足') || msg.includes('insufficient') || msg.includes('quota') || msg.includes('429') || msg.includes('rate limit') || msg.includes('No output generated')) {
-          // Mark the current provider as failed so router skips it next time
-          try { markProviderFailed(modelConfig.provider, msg.slice(0, 100)); } catch {}
-          return "⚠️ 当前模型(" + modelConfig.provider + '/' + model_id + ")API额度不足或暂时不可用，已自动标记，下次auto模式将跳过。建议切换到DeepSeek等可用模型。";
-        }
         return 'An error occurred during streaming.';
       },
     });
 
-        // Add routing info header for debugging
-    const responseHeaders: Record<string, string> = {};
-    if (routingResult) {
-      responseHeaders['X-Model-Route'] = routingResult.routingReason;
-    }
-    return createUIMessageStreamResponse({ stream: uiStream, headers: responseHeaders });
+    return createUIMessageStreamResponse({ stream: uiStream });
   } catch (error: any) {
     return new Response(JSON.stringify({ error: error.message || 'Internal server error' }), {
       status: 500,
