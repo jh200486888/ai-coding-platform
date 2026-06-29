@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { streamText, tool, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { routeModel } from '@/lib/model-router';
-import { getApiKeyByProvider } from '@/lib/db';
 import { z } from 'zod';
 
 const DESIGN_SYSTEM_PROMPT = `You are a professional design assistant that creates beautiful HTML/CSS designs and generates images based on user descriptions.
@@ -101,51 +100,50 @@ export async function POST(req: NextRequest) {
       }),
       execute: async ({ prompt, size = '1024x1024' }) => {
         try {
-          const apiKeyData = await getApiKeyByProvider('openai');
-          if (!apiKeyData || !apiKeyData.is_active) {
-            return 'Image generation unavailable: OpenAI API key not configured.';
-          }
-          const decodedKey = Buffer.from(apiKeyData.api_key_encrypted, 'base64').toString('utf-8');
-          const imgBaseUrl = apiKeyData.base_url || 'https://api.openai.com/v1';
-          
-          const response = await fetch(imgBaseUrl + '/images/generations', {
+          // Use internal image-gen API which supports multiple providers (qwen/openai/volcengine)
+          const mapSize = (s: string) => {
+            if (s === '1024x1792' || s === '1792x1024') return '3:4';
+            return '1:1';
+          };
+          const response = await fetch('http://localhost:' + (process.env.PORT || 5000) + '/api/image-gen', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ' + decodedKey,
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              model: 'dall-e-3',
-              prompt: prompt,
-              n: 1,
-              size: size,
-              response_format: 'b64_json',
+              prompt, model: 'qwen-image-2.0', size: mapSize(size),
+              resolution: '1k', quality: 'low', n: 1, output_format: 'png',
             }),
           });
-          
-          if (!response.ok) {
-            const errText = await response.text().catch(() => '');
-            return 'Image generation failed: ' + response.status + ' ' + errText.slice(0, 200);
-          }
-          
           const data = await response.json();
-          const imageData = data.data?.[0];
-          if (imageData?.b64_json) {
+          if (!data.success || !data.images?.length) {
+            return 'Image generation failed: ' + (data.error || 'Unknown error');
+          }
+          // Download and save image locally
+          const imgUrl = data.images[0].url;
+          if (imgUrl.startsWith('data:')) {
             const fs = await import('fs/promises');
             const path = await import('path');
             const imgDir = path.join(process.cwd(), 'public', 'generated');
             await fs.mkdir(imgDir, { recursive: true });
             const imgId = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
             const imgPath = path.join(imgDir, imgId + '.png');
-            const imgBuffer = Buffer.from(imageData.b64_json, 'base64');
-            await fs.writeFile(imgPath, imgBuffer);
-            const imgUrl = '/generated/' + imgId + '.png';
-            return 'IMAGE_GENERATED:' + imgUrl;
+            const base64Data = imgUrl.replace(/^data:image\/\w+;base64,/, '');
+            await fs.writeFile(imgPath, Buffer.from(base64Data, 'base64'));
+            return 'IMAGE_GENERATED:/generated/' + imgId + '.png';
           }
-          if (imageData?.url) {
-            return 'IMAGE_GENERATED:' + imageData.url;
+          // External URL - download and save locally
+          const imgResponse = await fetch(imgUrl);
+          if (imgResponse.ok) {
+            const fs = await import('fs/promises');
+            const path = await import('path');
+            const imgDir = path.join(process.cwd(), 'public', 'generated');
+            await fs.mkdir(imgDir, { recursive: true });
+            const imgId = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+            const imgPath = path.join(imgDir, imgId + '.png');
+            const buffer = Buffer.from(await imgResponse.arrayBuffer());
+            await fs.writeFile(imgPath, buffer);
+            return 'IMAGE_GENERATED:/generated/' + imgId + '.png';
           }
-          return 'Image generation failed: no image data returned';
+          return 'IMAGE_GENERATED:' + imgUrl;
         } catch (e: any) {
           return 'Image generation error: ' + (e.message || 'Unknown error');
         }

@@ -80,7 +80,6 @@ export const PROVIDERS: Record<string, ProviderConfig> = {
 export const PROVIDER_ALIASES: Record<string, string[]> = {
   qwen: ['dashscope'],
   doubao: ['volcengine'],
-  'openai-image': ['openai'],
 };
 
 // 获取提供商配置

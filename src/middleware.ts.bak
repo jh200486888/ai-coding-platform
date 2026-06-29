@@ -12,7 +12,7 @@ const PROTECTED_ROUTES: string[] = [];  // Homepage and workspace are now open t
 // Routes that should redirect to home if already logged in
 const AUTH_ROUTES = ['/login'];
 // API routes that require user authentication
-const PROTECTED_API_ROUTES: string[] = [];  // All APIs now open (chat, design, image-gen)
+const PROTECTED_API_ROUTES = ['/api/image-generate', '/api/image-gen'];  // Chat and conversations are now open
 // Admin routes - keep existing admin auth separate
 const ADMIN_ROUTES = ['/api/admin'];
 
