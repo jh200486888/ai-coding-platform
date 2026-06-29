@@ -156,3 +156,74 @@ html, body {
 .prose a:hover, .markdown-content a:hover {
   color: var(--color-accent) !important;
 }
+
+/* Typing cursor animation for streaming AI responses */
+.typing-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background-color: var(--color-primary, #7c3aed);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: blink 0.8s ease-in-out infinite;
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+/* 表格滚动+间距优化 */
+.prose table {
+  max-width: 100%;
+  font-size: 14px;
+  border-collapse: collapse;
+}
+.prose thead {
+  background: rgba(124, 58, 237, 0.08);
+}
+.prose th {
+  font-weight: 600;
+  white-space: nowrap;
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--border);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.prose td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.prose tr:hover {
+  background: rgba(124, 58, 237, 0.04);
+}
+.prose tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+.prose p {
+  margin-top: 0.4em;
+  margin-bottom: 0.4em;
+  line-height: 1.7;
+}
+.prose ul, .prose ol {
+  margin-top: 0.4em;
+  margin-bottom: 0.4em;
+}
+.prose h2 {
+  margin-top: 1.2em;
+  margin-bottom: 0.6em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--border);
+}
+.prose h3 {
+  margin-top: 1em;
+  margin-bottom: 0.4em;
+}
+/* Mobile: ensure tables scroll horizontally */
+@media (max-width: 768px) {
+  .prose table {
+    font-size: 13px;
+  }
+  .prose th, .prose td {
+    padding: 6px 8px;
+  }
+}

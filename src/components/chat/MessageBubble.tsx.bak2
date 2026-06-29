@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from 'react';
-import { User, Bot, Image, FileText, Code, Copy, Check, Pencil, Volume2, Square, FileSearch, Brain, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import { User, Bot, Image, FileText, Code, Copy, Check, Pencil, Volume2, Square, FileSearch, Brain, ChevronDown, ChevronRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import HtmlPreviewCard from './html-preview-card';
 import type { Message, Attachment } from '@/types';
@@ -69,37 +69,22 @@ interface ContentSegment {
   content: string;
   lang?: string;
   reportTitle?: string;
-  reportSummary?: string;
   htmlData?: { html: string; title: string; viewport: string };
 }
 
 function parseContent(text: string): ContentSegment[] {
   const segments: ContentSegment[] = [];
   
-  // Extract FULL_REPORT content and REPORT_CARD title
+  // Extract REPORT_CARD marker if present
   let reportTitle: string | undefined;
-  let fullReportContent: string | undefined;
-  
-  // Match: <!--REPORT_CARD\ntitle\n-->...<!--FULL_REPORT-->...content...<!--/FULL_REPORT-->
-  const reportBlockMatch = text.match(/<!--REPORT_CARD\n(.+?)\n-->([\s\S]*?)<!--FULL_REPORT-->([\s\S]*?)<!--\/FULL_REPORT-->/);
-  if (reportBlockMatch) {
-    reportTitle = reportBlockMatch[1];
-    fullReportContent = reportBlockMatch[3].trim();
-    // Remove the entire report block from display text
-    text = text.replace(/<!--REPORT_CARD\n.+?\n-->[\s\S]*?<!--\/FULL_REPORT-->/, '');
-  }
-  
-  // Fallback: old format without FULL_REPORT (backward compat)
-  if (!reportTitle) {
-    const reportMatch = text.match(/<!--REPORT_CARD\n(.+?)\n-->/);
-    if (reportMatch) {
-      reportTitle = reportMatch[1];
-      text = text.replace(/<!--REPORT_CARD\n.+?\n-->/, '');
-    }
+  const reportMatch = text.match(/<!--REPORT_CARD\n(.+?)\n-->/);
+  if (reportMatch) {
+    reportTitle = reportMatch[1];
+    text = text.replace(/<!--REPORT_CARD\n.+?\n-->/, '');
   }
   
   // Remove EXEC_LOG from display
-  text = text.replace(/\n?<!--EXEC_LOG\n[\s\S]*?\n-->/, '');
+  text = text.replace(/\n\n<!--EXEC_LOG\n[\s\S]*?\n-->/, '');
 
   // Extract HTML_PREVIEW marker if present
   let htmlPreviewData: { html: string; title: string; viewport: string } | undefined;
@@ -121,13 +106,15 @@ function parseContent(text: string): ContentSegment[] {
     text = text.replace(/<!--HTML_PREVIEW\n[\s\S]*?\n-->/, '');
   }
   
-  // Remove DSML tool-call markup
+  // Remove DSML tool-call markup that model outputs as text when prepareStep disables tools
   const hadDSML = text.includes('DSML') || text.includes('tool_calls') || text.includes('invoke name=');
   text = text.replace(/<｜｜DSML｜｜[^>]*>[\s\S]*?(?=<｜｜DSML｜｜|$)/g, '');
   text = text.replace(/<｜｜DSML｜｜[^>]*>/g, '');
+  // Clean up any remaining DSML-related artifacts
   text = text.replace(/invoke name="[^"]*">/g, '');
   text = text.replace(/parameter name="[^"]*"[^>]*>[^<]*/g, '');
   text = text.replace(/<[^>]*DSML[^>]*>/g, '');
+  // If the entire text was just DSML markup, show a placeholder
   if (text.trim().length === 0 && hadDSML) {
     text = '正在生成分析报告，请稍候...';
   }
@@ -148,16 +135,9 @@ function parseContent(text: string): ContentSegment[] {
     if (remaining) segments.push({ type: 'text', content: remaining });
   }
   
-  // Add report card segment if marker was found
+  // Add report card segment at the end if marker was found
   if (reportTitle) {
-    // Get the summary text from the remaining segments (everything before the card)
-    const summaryText = segments
-      .filter(s => s.type === 'text')
-      .map(s => s.content)
-      .join(' ')
-      .trim()
-      .slice(0, 100);
-    segments.push({ type: 'report-card', content: '', reportTitle, reportSummary: summaryText });
+    segments.push({ type: 'report-card', content: '', reportTitle });
   }
   
   if (segments.length === 0 && text) segments.push({ type: 'text', content: text });
@@ -166,6 +146,8 @@ function parseContent(text: string): ContentSegment[] {
 
 function CodeBlock({ content, lang }: { content: string; lang?: string }) {
   const [copied, setCopied] = useState(false);
+  const [highlighted, setHighlighted] = useState<string | null>(null);
+  const codeRef = useRef<HTMLElement>(null);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(content).then(() => {
@@ -173,6 +155,19 @@ function CodeBlock({ content, lang }: { content: string; lang?: string }) {
       setTimeout(() => setCopied(false), 2000);
     }).catch(() => {});
   }, [content]);
+
+  // Use highlight.js for syntax highlighting
+  useCallback(() => {
+    if (lang && codeRef.current) {
+      try {
+        const hljs = require('highlight.js');
+        const result = hljs.highlight(content, { language: lang });
+        setHighlighted(result.value);
+      } catch {
+        setHighlighted(null);
+      }
+    }
+  }, [content, lang]);
 
   return (
     <div className="my-2 rounded-lg overflow-hidden border border-[#30363d] bg-[#0d1117]">
@@ -183,7 +178,11 @@ function CodeBlock({ content, lang }: { content: string; lang?: string }) {
         </button>
       </div>
       <pre className="p-3 !m-0 overflow-x-auto text-sm !bg-[#0d1117]">
-        <code className={`language-${lang || 'text'} hljs font-mono whitespace-pre`} dangerouslySetInnerHTML={{ __html: content }} />
+        {highlighted ? (
+          <code className={`language-${lang} hljs font-mono whitespace-pre`} dangerouslySetInnerHTML={{ __html: highlighted }} />
+        ) : (
+          <code className="text-[#e6edf3] font-mono whitespace-pre">{content}</code>
+        )}
       </pre>
     </div>
   );
@@ -219,24 +218,19 @@ function ReportCard({ title, conversationId }: { title: string; conversationId?:
   return (
     <div
       onClick={handleClick}
-      className="mt-3 rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10 hover:from-primary/10 hover:to-primary/15 px-4 py-3.5 cursor-pointer transition-all group"
+      className="mt-3 flex items-center gap-3 bg-muted/60 hover:bg-muted border border-border/60 hover:border-primary/40 rounded-lg px-4 py-3 cursor-pointer transition-all group"
     >
-      <div className="flex items-start gap-3">
-        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-primary/15 flex items-center justify-center group-hover:bg-primary/25 transition-colors">
-          <FileSearch className="w-5 h-5 text-primary" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors truncate">{title}</div>
-          <div className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1">
-            <ExternalLink className="w-3 h-3" />
-            点击查看完整详细文档
-          </div>
-        </div>
-        <div className="flex-shrink-0 text-muted-foreground group-hover:text-primary transition-colors mt-1">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </div>
+      <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+        <FileSearch className="w-5 h-5 text-primary" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate">{title}</div>
+        <div className="text-[11px] text-muted-foreground mt-0.5">点击查看完整分析文档</div>
+      </div>
+      <div className="flex-shrink-0 text-muted-foreground group-hover:text-primary transition-colors">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
       </div>
     </div>
   );
@@ -251,27 +245,19 @@ function RenderedContent({ content, conversationId, isAssistant }: { content: st
         if (seg.type === 'report-card') return <ReportCard key={i} title={seg.reportTitle || '分析报告'} conversationId={conversationId} />;
         if (seg.type === 'html-preview' && seg.htmlData) return <HtmlPreviewCard key={i} html={seg.htmlData.html} title={seg.htmlData.title} viewport={seg.htmlData.viewport as any} />;
         if (isAssistant && seg.content.length > 20) {
+          // Render longer assistant text as Markdown for proper formatting
           return (
-            <div key={i} className="prose prose-invert max-w-none
-              prose-headings:text-foreground prose-h1:text-xl prose-h1:mb-2 prose-h2:text-lg prose-h2:mb-2 prose-h2:mt-4 prose-h2:text-primary prose-h3:text-base prose-h3:mt-3 prose-h3:text-primary
-              prose-p:text-foreground prose-p:leading-7 prose-p:my-2 prose-p:text-[15px]
-              prose-strong:text-primary prose-strong:font-semibold
-              prose-code:text-accent prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:before:content-none prose-code:after:content-none
-              prose-li:text-foreground prose-li:my-1 prose-li:text-[15px]
-              prose-a:text-primary prose-a:underline hover:prose-a:text-accent prose-blockquote:border-primary prose-blockquote:text-muted-foreground
-              prose-table:text-sm prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:text-xs prose-th:font-semibold prose-th:border-b prose-th:border-border prose-th:bg-primary/10
-              prose-td:px-3 prose-td:py-2 prose-td:border-b prose-td:border-border">
-              <ReactMarkdown 
-              remarkPlugins={[remarkGfm]}
-              components={{
-                table: (props) => <div className="my-3 overflow-x-auto -mx-2 px-2 snap-x"><table className="w-full border-collapse border border-border rounded-lg text-sm" {...props}/></div>,
-                thead: (props) => <thead className="bg-primary/10" {...props}/>,
-                tbody: (props) => <tbody className="divide-y divide-border" {...props}/>,
-                tr: (props) => <tr className="hover:bg-muted/30 even:bg-muted/10" {...props}/>,
-                th: (props) => <th className="px-3 py-2.5 text-left text-xs font-semibold text-foreground border-b border-border whitespace-nowrap" {...props}/>,
-                td: (props) => <td className="px-3 py-2 text-sm text-foreground border-b border-border" {...props}/>,
-              }}
-            >{seg.content}</ReactMarkdown>
+            <div key={i} className="prose prose-invert prose-sm max-w-none
+              prose-headings:text-foreground prose-h1:text-lg prose-h2:text-base prose-h2:text-primary prose-h3:text-sm prose-h3:text-primary
+              prose-p:text-foreground prose-p:leading-relaxed prose-p:my-1
+              prose-strong:text-primary
+              prose-code:text-accent prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs
+              prose-li:text-foreground prose-li:my-0.5
+              prose-table:text-sm prose-table:border prose-table:border-border
+              prose-th:bg-primary prose-th:text-primary-foreground prose-th:px-2 prose-th:py-1
+              prose-td:text-foreground prose-td:border-border prose-td:px-2 prose-td:py-1
+              prose-a:text-primary prose-a:underline hover:prose-a:text-accent prose-blockquote:border-primary prose-blockquote:text-muted-foreground overflow-x-hidden">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{seg.content}</ReactMarkdown>
             </div>
           );
         }
@@ -350,7 +336,7 @@ export function MessageBubble({ message, isStreaming, isEditing, editContent, on
       <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isUser ? 'bg-primary' : 'bg-muted'}`}>
         {isUser ? <User className="w-4 h-4 text-primary-foreground" /> : <Bot className="w-4 h-4 text-muted-foreground" />}
       </div>
-      <div className={`flex-1 ${isUser ? 'max-w-[80%]' : 'max-w-[95%]'} rounded-lg px-4 py-3 text-[15px] ${isUser ? 'bg-primary text-primary-foreground' : 'bg-card border border-border overflow-hidden'}`}>
+      <div className={`flex-1 ${isUser ? 'max-w-[80%]' : 'max-w-[95%]'} rounded-lg px-4 py-3 ${isUser ? 'bg-primary text-primary-foreground' : 'bg-card border border-border overflow-hidden'}`}>
         {hasAttachments && (
           <div className={`flex flex-wrap gap-2 mb-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
             {message.attachments!.map(att => <AttachmentItem key={att.id} attachment={att} />)}

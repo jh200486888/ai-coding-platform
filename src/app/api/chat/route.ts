@@ -641,7 +641,7 @@ export async function POST(request: NextRequest) {
 
     // ====== 读取超时、重试和模型生成参数 ======
     let timeoutTotalMs = 120000;  // 默认 2 分钟总超时
-    let timeoutStepMs = 30000;    // 默认 30 秒单步超时
+    let timeoutStepMs = 60000;    // 默认 60 秒单步超时
     let maxRetries = 3;
     let topP: number | undefined = undefined;
     let presencePenalty: number | undefined = undefined;
@@ -649,10 +649,10 @@ export async function POST(request: NextRequest) {
     let seed: number | undefined = undefined;
     // Per-provider maxOutputTokens limits (some models reject values above their max)
     const PROVIDER_MAX_TOKENS: Record<string, number> = {
-      deepseek: 8192,      // DeepSeek V4 Flash/Pro max is 8192
+      deepseek: 16384,      // DeepSeek V4 Flash/Pro max is 8192
       groq: 8192,          // Groq models typically max 8192
       moonshot: 8192,      // Kimi/Moonshot max 8192
-      zhipu: 4096,         // GLM models typically 4096
+      zhipu: 8192,         // GLM models typically 4096
     };
     let maxOutputTokens = PROVIDER_MAX_TOKENS[modelConfig.provider] || 16384;
 
@@ -687,21 +687,27 @@ export async function POST(request: NextRequest) {
     // 构建系统提示词 — 优先读后台设置，fallback到硬编码
     const identityName = MODEL_IDENTITY[modelConfig.provider] || modelConfig.provider;
     let modePrompt = MODE_PROMPTS[mode] || SYSTEM_PROMPT; // fallback default
+    let dbFollowupPrompt = "";
+    let sharedRules = ""; // rules from system_prompt that apply to all modes
     try {
-      // Try DB system_prompt first
+      // Read DB prompts: system_prompt = shared rules, mode_prompts = mode-specific
       const dbSystemPrompt = await getSetting('system_prompt');
       if (dbSystemPrompt && dbSystemPrompt.trim().length > 20) {
-        // Use DB as base for all modes
-        const dbModePrompts = await getSetting('mode_prompts');
-        if (dbModePrompts) {
-          const parsed = JSON.parse(dbModePrompts);
-          if (parsed[mode] && parsed[mode].trim().length > 20) {
-            modePrompt = parsed[mode];
-          } else if (parsed['coding'] && parsed['coding'].trim().length > 20) {
-            // coding mode prompt in DB is the full system prompt, use as fallback for all modes
-            modePrompt = mode === 'coding' ? parsed['coding'] : (parsed[mode] || parsed['coding']);
-          }
+        sharedRules = dbSystemPrompt; // shared rules for all modes
+      }
+      const dbModePrompts = await getSetting('mode_prompts');
+      dbFollowupPrompt = (await getSetting('followup_report_prompt')) || '';
+      if (dbModePrompts) {
+        const parsed = JSON.parse(dbModePrompts);
+        if (parsed[mode] && parsed[mode].trim().length > 20) {
+          modePrompt = parsed[mode];
+        } else if (parsed['coding'] && parsed['coding'].trim().length > 20) {
+          modePrompt = mode === 'coding' ? parsed['coding'] : (parsed[mode] || parsed['coding']);
         }
+      }
+      // Merge: mode-specific prompt + shared rules (dedup if mode_prompt already contains them)
+      if (sharedRules && !modePrompt.includes(sharedRules.slice(0, 50))) {
+        modePrompt = modePrompt + '\n\n' + sharedRules;
       }
     } catch (e) {
       console.log('[Prompt] Failed to read DB prompts, using hardcoded:', (e as any)?.message);
@@ -1010,7 +1016,7 @@ export async function POST(request: NextRequest) {
             return undefined;
           },
         }));
-        let text = (await agentResult.text) || '';
+        let text = await agentResult.text || '';
         // Capture reasoning from the stream result
         let capturedReasoning = '';
         try {
@@ -1045,51 +1051,71 @@ export async function POST(request: NextRequest) {
         }).join('\n') : '';
 
         // Save to DB and decide if follow-up is needed
+        // Helper: extract summary from report text
+        const extractSummary = (txt: string): string => {
+          const firstSection = txt.indexOf('\n## ');
+          if (firstSection > 0) {
+            let summary = txt.slice(0, firstSection).trim();
+            if (summary.length > 300) {
+              const sentences = summary.match(/[^\u3002\uff01\uff1f.!?]+[\u3002\uff01\uff1f.!?]/g) || [];
+              summary = sentences.slice(0, 3).join('').trim();
+              if (!summary) summary = txt.slice(0, 200).trim() + '...';
+            }
+            return summary;
+          }
+          return txt.slice(0, 200).trim() + '...';
+        };
+
+        // Helper: wrap report with FULL_REPORT tags for chat display
+        const wrapReport = (txt: string): string => {
+          const hasMarkdownHeading = /^#{1,6}\s+/m.test(txt);
+          const isLongEnough = txt.length > 800;
+          const hasMultipleSections = (txt.match(/^#{2,3}\s+/gm) || []).length >= 3;
+          const isReportLike = hasMarkdownHeading && isLongEnough && hasMultipleSections;
+          const reportTitle = txt.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '\u5206\u6790\u62a5\u544a';
+          if (txt.includes('<!--FULL_REPORT-->')) return txt;
+          if (isReportLike) {
+            const summary = extractSummary(txt);
+            return summary + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--FULL_REPORT-->\n' + txt + '\n<!--/FULL_REPORT-->';
+          }
+          return txt;
+        };
+
         if (text && toolPartsForLog.length > 0) {
-          // Normal: model produced text + tool results
-          // Only add REPORT_CARD for structured reports (has headings + substantial length)
-          const hasMarkdownHeading = /^#{1,6}\s+/m.test(text);
-          const isLongEnough = text.length > 300;
-          const isReportLike = hasMarkdownHeading && isLongEnough;
-          const reportTitle = text.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '\u5206\u6790\u62a5\u544a';
-          const savedContent = isReportLike 
-            ? text + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->'
-            : text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->';
+          const wrapped = wrapReport(text);
+          const savedContent = wrapped + '\n<!--EXEC_LOG\n' + execLog + '\n-->';
           await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
         } else if (text) {
-          const savedContent = toolPartsForLog.length > 0 ? text + '\n\n<!--EXEC_LOG\n' + execLog + '\n-->' : text;
+          const wrapped = wrapReport(text);
+          const savedContent = toolPartsForLog.length > 0 ? wrapped + '\n<!--EXEC_LOG\n' + execLog + '\n-->' : wrapped;
           await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
         } else if (!text && (toolPartsForLog.length > 0 || allToolResults.length > 0)) {
-          // No text but has tool results -> follow-up stream that merges to frontend
           console.log('[AI] No text after tools, starting follow-up stream merge...');
-
-          // Build context from tool results
           const toolContext = allToolResults.length > 0
             ? '\n\n\u4ee5\u4e0b\u662f\u4e4b\u524d\u5de5\u5177\u8c03\u7528\u7684\u7ed3\u679c\u6458\u8981\uff1a\n' + allToolResults.map((r, i) => `${i + 1}. ${r}`).join('\n')
             : '';
-
+          // Read follow-up prompt from DB (not hardcoded)
+          let followupSystemSuffix = dbFollowupPrompt || '';
+          if (!followupSystemSuffix || followupSystemSuffix.trim().length < 20) {
+            followupSystemSuffix = '\u4f60\u4e4b\u524d\u5df2\u7ecf\u901a\u8fc7\u5de5\u5177\u6536\u96c6\u4e86\u4fe1\u606f\u3002\u8bf7\u7528\u4e2d\u6587\u5199\u5206\u6790\u62a5\u544a\uff0c\u5148\u5199\u7b80\u77ed\u603b\u7ed3\uff0c\u7136\u540e\u7528<!--FULL_REPORT-->\u683c\u5f0f\u5305\u88f9\u8be6\u7ec6\u5185\u5bb9\u3002';
+          }
           const followUpResult = streamText({
-            system: dynamicPrompt + '\n\n\u3010\u91cd\u8981\u3011\u4f60\u4e4b\u524d\u5df2\u7ecf\u901a\u8fc7\u5de5\u5177\u6536\u96c6\u4e86\u8db3\u591f\u7684\u4fe1\u606f\u3002\u73b0\u5728\u4f60\u5fc5\u987b\u7528\u4e2d\u6587\u5199\u4e00\u7bc7\u5b8c\u6574\u7684\u5206\u6790\u62a5\u544a\u3002\n\n\u8f93\u51fa\u8981\u6c42\uff1a\n1. \u7528 Markdown \u683c\u5f0f\u8f93\u51fa\n2. \u4f7f\u7528 ## \u4e8c\u7ea7\u6807\u9898\u5212\u5206\u7ae0\u8282\uff08\u6982\u8ff0\u3001\u6838\u5fc3\u5206\u6790\u3001\u5173\u952e\u53d1\u73b0\u3001\u603b\u7ed3\u4e0e\u5efa\u8bae\uff09\n3. \u6570\u636e\u5bf9\u6bd4\u7528 Markdown \u8868\u683c\uff08| \u52171 | \u52172 |\uff09\n4. \u8981\u70b9\u7528\u52a0\u7c97\u548c\u5217\u8868\u7a81\u51fa\u663e\u793a\n5. \u7981\u6b62\u8f93\u51fa\u4efb\u4f55DSML\u6807\u7b7e\u3001\u5de5\u5177\u8c03\u7528\u4ee3\u7801\u6216XML\u683c\u5f0f\uff0c\u53ea\u5199\u7eaf\u6587\u5b57\u5206\u6790',
+            system: dynamicPrompt + '\n\n' + followupSystemSuffix,
             model: wrappedModel,
             messages: [
               ...chatMessages,
-              { role: 'user' as const, content: '\u57fa\u4e8e\u4ee5\u4e0a\u6240\u6709\u5de5\u5177\u8c03\u7528\u6536\u96c6\u5230\u7684\u4fe1\u606f\uff0c\u8bf7\u7528 Markdown \u683c\u5f0f\u8f93\u51fa\u4e2d\u6587\u5206\u6790\u62a5\u544a\u3002\n\n\u8981\u6c42\uff1a\n- ## \u4e8c\u7ea7\u6807\u9898\u5212\u5206\u7ae0\u8282\uff08\u6982\u8ff0\u3001\u6838\u5fc3\u5206\u6790\u3001\u5173\u952e\u53d1\u73b0\u3001\u603b\u7ed3\u4e0e\u5efa\u8bae\uff09\n- \u6570\u636e\u5bf9\u6bd4\u7528 Markdown \u8868\u683c\n- \u91cd\u70b9\u7528 **\u52a0\u7c97**\n- \u6761\u76ee\u7528 - \u5217\u8868\n\n\u6ce8\u610f\uff1a\u4f60\u73b0\u5728\u6ca1\u6709\u5de5\u5177\u53ef\u7528\uff0c\u5fc5\u987b\u76f4\u63a5\u7528\u7eaf\u6587\u5b57\u8f93\u51fa\u3002' + toolContext }
+              { role: 'user' as const, content: '\u57fa\u4e8e\u4ee5\u4e0a\u6240\u6709\u5de5\u5177\u8c03\u7528\u6536\u96c6\u5230\u7684\u4fe1\u606f\uff0c\u8bf7\u7528 Markdown \u683c\u5f0f\u8f93\u51fa\u4e2d\u6587\u5206\u6790\u62a5\u544a\u3002\n\n\u8981\u6c42\uff1a\n- \u5148\u51992-3\u53e5\u7b80\u77ed\u603b\u7ed3\n- \u7136\u540e\u7528 <!--REPORT_CARD\n\u62a5\u544a\u6807\u9898\n-->\n<!--FULL_REPORT-->...<!--/FULL_REPORT--> \u683c\u5f0f\u5305\u88f9\u8be6\u7ec6\u5185\u5bb9\n- ## \u4e8c\u7ea7\u6807\u9898\u5212\u5206\u7ae0\u8282\n- \u6570\u636e\u5bf9\u6bd4\u7528 Markdown \u8868\u683c\n- \u91cd\u70b9\u7528 **\u52a0\u7c97**\n- \u7981\u6b62\u8f93\u51fa DSML/XML \u6807\u7b7e\uff0c\u53ea\u5199\u7eaf\u6587\u5b57' + toolContext }
             ] as any,
             temperature,
             maxOutputTokens,
             maxRetries: 1,
-            timeout: { totalMs: 60000, stepMs: 30000 },
+            timeout: { totalMs: 180000, stepMs: 60000 },
           });
-
-          // CRITICAL: merge follow-up stream so text reaches the frontend!
-          writer.merge(followUpResult.toUIMessageStream({
-            sendReasoning: shouldSendReasoning,
-          }));
-
+          writer.merge(followUpResult.toUIMessageStream({ sendReasoning: shouldSendReasoning }));
           const followUpText = await followUpResult.text;
           if (followUpText) {
-            const reportTitle = followUpText.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '\u5206\u6790\u62a5\u544a';
-            const fullContent = followUpText + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--EXEC_LOG\n' + execLog + '\n-->';
+            const wrappedFollowup = wrapReport(followUpText);
+            const fullContent = wrappedFollowup + '\n<!--EXEC_LOG\n' + execLog + '\n-->';
             await createMessage(convId!, 'assistant', fullContent, model_id, capturedReasoning || null);
             console.log(`[AI] Follow-up report generated and streamed: ${followUpText.length} chars`);
           } else {
@@ -1097,7 +1123,6 @@ export async function POST(request: NextRequest) {
             await createMessage(convId!, 'assistant', abortContent, model_id, capturedReasoning || null);
           }
         }
-
         // Telemetry
         try {
           const { telemetry } = await import('@/lib/ai-telemetry');

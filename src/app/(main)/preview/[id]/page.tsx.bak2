@@ -24,16 +24,8 @@ export default function MarkdownPreviewPage() {
           const assistantTexts = msgs
             .filter((m: any) => m.role === "assistant")
             .map((m: any) => {
-              let c = m.content || "";
-              // Remove EXEC_LOG
-              c = c.replace(/\n?<!--EXEC_LOG[\s\S]*?-->/, "");
-              // Remove REPORT_CARD marker but keep the content
-              c = c.replace(/<!--REPORT_CARD\n.+?\n-->/, "");
-              // Extract FULL_REPORT content if present (remove markers but keep content)
-              c = c.replace(/<!--FULL_REPORT-->/, "").replace(/<!--\/FULL_REPORT-->/, "");
-              // Remove HTML_PREVIEW
-              c = c.replace(/\n?<!--HTML_PREVIEW\n[\s\S]*?\n-->/, "");
-              return c.trim();
+              const c = m.content || "";
+              return c.replace(/\n?<!--EXEC_LOG[\s\S]*?-->/, "").replace(/\n?<!--REPORT_CARD[\s\S]*?-->/, "").trim();
             })
             .filter(Boolean);
           if (assistantTexts.length > 0) {
@@ -141,13 +133,6 @@ export default function MarkdownPreviewPage() {
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeHighlight]}
-            components={{
-              table: (props) => <div className="my-3 overflow-x-auto -mx-1 px-1"><table className="w-full border-collapse border border-border rounded-lg overflow-hidden" {...props}/></div>,
-              thead: (props) => <thead className="bg-primary/10" {...props}/>,
-              th: (props) => <th className="px-3 py-2 text-left text-sm font-semibold text-foreground border-b border-border bg-primary/10" {...props}/>,
-              td: (props) => <td className="px-3 py-2 text-sm border-b border-border" {...props}/>,
-              tr: (props) => <tr className="hover:bg-muted/50 even:bg-muted/20" {...props}/>,
-            }}
           >
             {content}
           </ReactMarkdown>

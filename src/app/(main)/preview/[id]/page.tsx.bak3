@@ -24,16 +24,8 @@ export default function MarkdownPreviewPage() {
           const assistantTexts = msgs
             .filter((m: any) => m.role === "assistant")
             .map((m: any) => {
-              let c = m.content || "";
-              // Remove EXEC_LOG
-              c = c.replace(/\n?<!--EXEC_LOG[\s\S]*?-->/, "");
-              // Remove REPORT_CARD marker but keep the content
-              c = c.replace(/<!--REPORT_CARD\n.+?\n-->/, "");
-              // Extract FULL_REPORT content if present (remove markers but keep content)
-              c = c.replace(/<!--FULL_REPORT-->/, "").replace(/<!--\/FULL_REPORT-->/, "");
-              // Remove HTML_PREVIEW
-              c = c.replace(/\n?<!--HTML_PREVIEW\n[\s\S]*?\n-->/, "");
-              return c.trim();
+              const c = m.content || "";
+              return c.replace(/\n?<!--EXEC_LOG[\s\S]*?-->/, "").replace(/\n?<!--REPORT_CARD[\s\S]*?-->/, "").trim();
             })
             .filter(Boolean);
           if (assistantTexts.length > 0) {

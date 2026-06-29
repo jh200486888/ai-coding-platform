@@ -4,7 +4,7 @@ import { decodeApiKey, PROVIDER_ALIASES } from '@/lib/ai-providers';
 
 // Model configurations - interface
 interface ModelConfig {
-  provider: 'openai' | 'qwen' | 'volcengine';
+  provider: 'openai' | 'qwen' | 'volcengine' | 'zhipu';
   sizes: Record<string, string[]>;
   defaultSize: string;
   maxN: number;
@@ -422,7 +422,7 @@ export async function POST(request: NextRequest) {
     const keyData = await getApiKey(modelConfig.provider);
     if (!keyData) {
       const providerNames: Record<string, string> = {
-        openai: 'OpenAI', qwen: '通义千问', qwenimage: '通义千问', volcengine: '火山引擎',
+        openai: 'OpenAI', qwen: '通义千问', qwenimage: '通义千问', volcengine: '火山引擎', zhipu: '智谱',
       };
       return new Response(
         JSON.stringify({ error: `未配置 ${providerNames[modelConfig.provider] || modelConfig.provider} 的 API Key，请先在后台添加` }),
@@ -517,6 +517,15 @@ export async function POST(request: NextRequest) {
         const volcBaseUrl = keyData?.baseUrl || 'https://ark.cn-beijing.volces.com/api/v3';
         result = await generateOpenAICompatible(
           volcBaseUrl, apiKey, model, prompt,
+          actualSize, imageCount, quality, output_format
+        );
+        break;
+      }
+      case 'zhipu': {
+        actualSize = resolveOpenAISize(model, size, resolution, MODEL_CONFIGS);
+        const zhipuBaseUrl = keyData?.baseUrl || 'https://open.bigmodel.cn/api/paas/v4';
+        result = await generateOpenAICompatible(
+          zhipuBaseUrl, apiKey, model, prompt,
           actualSize, imageCount, quality, output_format
         );
         break;

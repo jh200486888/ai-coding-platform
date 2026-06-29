@@ -88,6 +88,7 @@ export default function AdminPage() {
   const { theme, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [authChecked, setAuthChecked] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Check admin session on mount
   useEffect(() => {
@@ -122,7 +123,54 @@ export default function AdminPage() {
       }
       return originalFetch(...args);
     };
-    return () => { window.fetch = originalFetch; };
+    
+<style>{`
+  @media (max-width: 768px) {
+    .admin-sidebar {
+      position: fixed !important;
+      left: -280px !important;
+      top: 0;
+      bottom: 0;
+      z-index: 50;
+      transition: left 0.3s ease;
+      width: 280px !important;
+      min-width: 280px !important;
+    }
+    .admin-sidebar.open {
+      left: 0 !important;
+    }
+    .admin-overlay {
+      display: block !important;
+    }
+    .admin-main {
+      margin-left: 0 !important;
+      width: 100% !important;
+      padding: 16px 8px !important;
+      padding-top: 56px !important;
+    }
+    .admin-mobile-header {
+      display: flex !important;
+    }
+    .admin-main .grid {
+      grid-template-columns: 1fr !important;
+    }
+    .admin-main table {
+      font-size: 12px !important;
+    }
+    .admin-main .text-sm {
+      font-size: 13px !important;
+    }
+  }
+  @media (min-width: 769px) {
+    .admin-mobile-header {
+      display: none !important;
+    }
+    .admin-overlay {
+      display: none !important;
+    }
+  }
+`}</style>
+return () => { window.fetch = originalFetch; };
   }, []);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
@@ -142,9 +190,15 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="min-h-screen bg-background flex relative">
+      {/* Mobile hamburger button */}
+      <button onClick={() => setSidebarOpen(!sidebarOpen)} className="admin-mobile-header fixed top-0 left-0 z-50 p-3 bg-card border-b border-border rounded-br-lg shadow-lg">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+      </button>
+      {/* Mobile overlay */}
+      {sidebarOpen && <div className="admin-overlay fixed inset-0 bg-black/50 z-40" onClick={() => setSidebarOpen(false)} />}
       {/* Left Sidebar */}
-      <aside className="w-[220px] min-h-screen bg-card border-r border-border flex flex-col shrink-0">
+      <aside className={`admin-sidebar w-[220px] min-h-screen bg-card border-r border-border flex flex-col shrink-0 ${sidebarOpen ? 'open' : ''}`}>
         <div className="px-4 py-4 border-b border-border">
           <Link href="/" className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-accent transition-colors text-sm font-medium text-muted-foreground">
             <ArrowLeft size={14} /> 返回首页
@@ -223,7 +277,7 @@ export default function AdminPage() {
         </div>
       </aside>
 
-      <main className="flex-1 min-h-screen overflow-y-auto">
+      <main className="admin-main flex-1 min-h-screen overflow-y-auto p-6">
         <div className="max-w-5xl mx-auto px-6 py-6">
           {activeTab === 'dashboard' && <DashboardPanel />}
           {activeTab === 'keys' && <ApiKeysPanel />}
@@ -1019,6 +1073,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
   const [form, setForm] = useState({
     system_prompt: '',
     design_system_prompt: '',
+    followup_report_prompt: '',
     site_title: '',
     site_description: '',
     default_model: '',
@@ -1069,6 +1124,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
         setForm({
           system_prompt: data.data.system_prompt || '',
           design_system_prompt: data.data.design_system_prompt || '',
+          followup_report_prompt: data.data.followup_report_prompt || '',
           site_title: data.data.site_title || '',
           site_description: data.data.site_description || '',
           default_model: data.data.default_model || '',
@@ -1094,6 +1150,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
       await Promise.all([
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'system_prompt', value: form.system_prompt }) }),
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'design_system_prompt', value: form.design_system_prompt }) }),
+        fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'followup_report_prompt', value: form.followup_report_prompt }) }),
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'site_title', value: form.site_title }) }),
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'site_description', value: form.site_description }) }),
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'default_model', value: form.default_model }) }),
@@ -1162,6 +1219,13 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
             className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono" placeholder={'在此输入设计提示词...'} />
         </div>
 
+        <div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'basic' ? 'block' : 'none' }}>
+          <h3 className="font-medium mb-3">{'工具调用报告提示词 (Follow-up Report Prompt)'}</h3>
+          <p className="text-xs text-muted-foreground mb-3">{'当AI调用工具后生成分析报告时使用的提示词。控制报告格式（摘要+详细内容分离）。修改后即时生效。'}</p>
+          <textarea value={form.followup_report_prompt} onChange={(e) => setForm({ ...form, followup_report_prompt: e.target.value })} rows={6}
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono" placeholder={"在此输入报告生成提示词..."} />
+        </div>
+
 <div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'basic' ? 'block' : 'none' }}>
           <h3 className="font-medium mb-3">{'\u7f51\u7ad9\u4fe1\u606f'}</h3>
           <div className="space-y-3">
@@ -1225,7 +1289,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
                   <label className="text-sm text-muted-foreground block mb-1">{label}{'\u6a21\u5f0f\u63d0\u793a\u8bcd'}</label>
                   <textarea value={(modePrompts as any)[key]}
                     onChange={(e) => setModePrompts({ ...modePrompts, [key]: e.target.value })}
-                    rows={3}
+                    rows={6}
                     className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono" />
                 </div>
               ))}

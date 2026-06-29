@@ -111,11 +111,12 @@ export function ChatMessages({
       )}
 
       {/* Messages */}
-      {messages.map(message => (
+      {messages.map((message, index) => (
         <MessageBubble
           key={message.id}
           conversationId={conversationId}
           message={message}
+          isStreaming={isLoading && message.role === 'assistant' && index === messages.length - 1}
           isEditing={editingMessageId === message.id}
           editContent={editContent}
           onEdit={() => onEditMessage(message.id)}
