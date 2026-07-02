@@ -1,0 +1,305 @@
+// @ts-nocheck
+/**
+ * 跨对话记忆系统 - embedding向量索引 + 语义搜索
+ * 复用RAG模块的embedding能力，实现对话间知识传递
+ */
+import { tool } from 'ai';
+import { z } from 'zod';
+import { generateEmbedding } from '@/lib/rag';
+import { Pool } from 'pg';
+
+const pool = new Pool({ 
+  connectionString: process.env.DATABASE_URL,
+  connectionTimeoutMillis: 5000,
+  idleTimeoutMillis: 30000,
+});
+
+// 记忆类型说明
+const MEMORY_TYPES = {
+  insight: '洞察结论 - 从对话中提炼的关键发现、规律、经验',
+  decision: '决策记录 - 重要的技术选型、架构决策及理由',
+  preference: '用户偏好 - 用户明确表达或反复体现的喜好',
+  fact: '事实信息 - 项目配置、API用法、版本号等硬信息',
+  error_solution: '错误解决方案 - 遇到的问题和解决办法',
+  architecture: '架构知识 - 系统架构、模块关系、数据流',
+};
+
+/**
+ * save_cross_memory - 保存跨对话记忆
+ */
+export const saveCrossMemoryTool = tool({
+  description: `保存一条跨对话记忆。记忆会自动生成embedding向量，后续任何对话都可通过语义搜索召回。
+
+使用场景：
+- 用户说"记住这个" → 立即保存
+- 发现重要规律/经验 → 主动保存
+- 做出重要决策 → 记录决策和理由
+- 找到bug解决方案 → 保存避免重复踩坑
+- 项目关键配置/架构信息 → 持久化
+
+记忆类型：
+- insight: 洞察结论（从实践中提炼的经验）
+- decision: 决策记录（技术选型、架构决策及理由）
+- preference: 用户偏好（用户反复表达的需求模式）
+- fact: 事实信息（版本号、配置值、API用法等）
+- error_solution: 错误解决方案（问题和解法）
+- architecture: 架构知识（系统结构、模块关系）`,
+  parameters: z.object({
+    content: z.string().describe('记忆内容（详细描述，便于语义搜索召回）'),
+    memory_type: z.enum(['insight', 'decision', 'preference', 'fact', 'error_solution', 'architecture']).default('insight').describe('记忆类型'),
+    category: z.string().optional().describe('分类标签，如 frontend, backend, deployment, api, database'),
+    summary: z.string().optional().describe('一句话摘要（用于列表展示）'),
+    importance: z.number().min(0).max(1).default(0.5).describe('重要性 0-1，越高越不容易被遗忘'),
+    expires_days: z.number().optional().describe('过期天数，不填则永久保存'),
+  }),
+  execute: async ({ content, memory_type = 'insight', category, summary, importance = 0.5, expires_days }: { content: string; memory_type?: string; category?: string; summary?: string; importance?: number; expires_days?: number }) => {
+    try {
+      // Guard: ensure content is defined
+      if (!content || typeof content !== 'string') {
+        return { success: false, error: 'Content is required', id: null };
+      }
+      // 生成embedding
+      let embedding: number[] | null = null;
+      try {
+        embedding = await generateEmbedding(content.slice(0, 2000));
+      } catch (e) {
+        // embedding失败不影响保存，只是搜索质量降低
+        console.error('[CrossMemory] Embedding generation failed:', e);
+      }
+
+      const expiresAt = expires_days ? new Date(Date.now() + expires_days * 86400000).toISOString() : null;
+
+      const result = await pool.query(
+        `INSERT INTO cross_session_memories (session_id, memory_type, category, content, summary, importance, embedding, source_session_id, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id, summary`,
+        [
+          'cross-session',
+          memory_type,
+          category || null,
+          content,
+          summary || content.slice(0, 100),
+          importance,
+          embedding ? `[${embedding.join(',')}]` : null,
+          'current',
+          expiresAt,
+        ]
+      );
+
+      return `✅ 跨对话记忆已保存 (ID:${result.rows[0].id})\n类型: ${memory_type}${category ? ` | 分类: ${category}` : ''}\n${embedding ? '向量索引已生成，可语义搜索' : '⚠️ 向量索引未生成（embedding API失败），仅支持关键词搜索'}`;
+    } catch (error) {
+      return `❌ 保存失败: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  },
+});
+
+/**
+ * search_cross_memory - 语义搜索跨对话记忆
+ */
+export const searchCrossMemoryTool = tool({
+  description: `语义搜索跨对话记忆。输入自然语言描述，自动匹配最相关的记忆。
+
+使用场景：
+- 遇到类似问题 → 搜索是否有历史解决方案
+- 不确定某个配置 → 搜索历史决策记录
+- 新对话开始 → 搜索相关上下文快速了解项目状态
+- 用户说"之前我们讨论过…" → 搜索历史记忆
+
+搜索会同时使用向量语义匹配和关键词匹配，返回最相关的结果。`,
+  parameters: z.object({
+    query: z.string().describe('搜索内容（自然语言描述，越具体越好）'),
+    memory_type: z.string().optional().describe('限定记忆类型：insight/decision/preference/fact/error_solution/architecture'),
+    category: z.string().optional().describe('限定分类'),
+    top_k: z.number().default(5).describe('返回最多几条结果'),
+    min_importance: z.number().default(0.3).describe('最低重要性过滤'),
+  }),
+  execute: async ({ query: queryText, memory_type, category, top_k = 5, min_importance = 0.3 }: { query: string; memory_type?: string; category?: string; top_k?: number; min_importance?: number }) => {
+    try {
+      // 生成查询向量
+      let queryEmbedding: number[] | null = null;
+      try {
+        queryEmbedding = await generateEmbedding(queryText);
+      } catch (e) {
+        console.error('[CrossMemory] Query embedding failed:', e);
+      }
+
+      let results: any[] = [];
+
+      // 1. 向量搜索（如果embedding可用）
+      if (queryEmbedding) {
+        const vectorStr = `[${queryEmbedding.join(',')}]`;
+        let vectorQuery = `
+          SELECT id, memory_type, category, content, summary, importance, access_count, created_at,
+                 1 - (embedding <=> $1::vector) as similarity
+          FROM cross_session_memories
+          WHERE embedding IS NOT NULL
+            AND importance >= $2
+            AND (expires_at IS NULL OR expires_at > NOW())
+        `;
+        const params: any[] = [vectorStr, min_importance];
+        let paramIdx = 3;
+
+        if (memory_type) {
+          vectorQuery += ` AND memory_type = $${paramIdx++}`;
+          params.push(memory_type);
+        }
+        if (category) {
+          vectorQuery += ` AND category = $${paramIdx++}`;
+          params.push(category);
+        }
+
+        vectorQuery += ` ORDER BY similarity DESC LIMIT $${paramIdx++}`;
+        params.push(top_k);
+
+        const vectorResult = await pool.query(vectorQuery, params);
+        results = vectorResult.rows;
+      }
+
+      // 2. 关键词搜索（补充，防止embedding未覆盖）
+      const keywordQuery = queryText.slice(0, 100);
+      let textQuery = `
+        SELECT id, memory_type, category, content, summary, importance, access_count, created_at,
+               CASE WHEN content ILIKE '%' || $1 || '%' THEN 0.6 ELSE 0.3 END as similarity
+        FROM cross_session_memories
+        WHERE (content ILIKE '%' || $1 || '%' OR summary ILIKE '%' || $1 || '%')
+          AND importance >= $2
+          AND (expires_at IS NULL OR expires_at > NOW())
+      `;
+      const textParams: any[] = [keywordQuery, min_importance];
+      let textParamIdx = 3;
+
+      if (memory_type) {
+        textQuery += ` AND memory_type = $${textParamIdx++}`;
+        textParams.push(memory_type);
+      }
+      if (category) {
+        textQuery += ` AND category = $${textParamIdx++}`;
+        textParams.push(category);
+      }
+
+      textQuery += ` ORDER BY similarity DESC, importance DESC LIMIT $${textParamIdx++}`;
+      textParams.push(top_k);
+
+      const textResult = await pool.query(textQuery, textParams);
+
+      // 合并去重
+      const seenIds = new Set(results.map(r => r.id));
+      for (const row of textResult.rows) {
+        if (!seenIds.has(row.id)) {
+          results.push(row);
+          seenIds.add(row.id);
+        }
+      }
+
+      // 按相似度排序取top_k
+      results.sort((a, b) => b.similarity - a.similarity);
+      results = results.slice(0, top_k);
+
+      if (results.length === 0) {
+        return '未找到相关记忆。可以尝试：1) 换关键词搜索 2) 不限定类型/分类 3) 降低min_importance';
+      }
+
+      // 更新访问计数
+      const ids = results.map(r => r.id);
+      await pool.query(`UPDATE cross_session_memories SET access_count = access_count + 1, updated_at = NOW() WHERE id = ANY($1)`, [ids]);
+
+      const output = results.map((r: any, i: number) => {
+        const typeLabel: Record<string, string> = {
+          insight: '💡', decision: '🎯', preference: '👤', fact: '📌', error_solution: '🔧', architecture: '🏗️'
+        };
+        return `${i + 1}. ${typeLabel[r.memory_type] || '📝'} [${r.memory_type}] 相似度:${(r.similarity * 100).toFixed(0)}% 重要度:${r.importance}
+   ${r.summary}
+   ${r.content.slice(0, 200)}${r.content.length > 200 ? '...' : ''}
+   (${r.category || '未分类'} | 访问${r.access_count}次 | ${new Date(r.created_at).toLocaleDateString('zh-CN')})`;
+      }).join('\n\n');
+
+      return `找到 ${results.length} 条相关记忆：\n\n${output}`;
+    } catch (error) {
+      return `❌ 搜索失败: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  },
+});
+
+/**
+ * list_cross_memories - 列出跨对话记忆
+ */
+export const listCrossMemoriesTool = tool({
+  description: `列出跨对话记忆，支持按类型/分类/重要性筛选。`,
+  parameters: z.object({
+    memory_type: z.string().optional().describe('记忆类型过滤'),
+    category: z.string().optional().describe('分类过滤'),
+    min_importance: z.number().default(0).describe('最低重要性'),
+    limit: z.number().default(20).describe('最多返回条数'),
+    sort_by: z.enum(['importance', 'recent', 'accessed']).default('importance').describe('排序方式'),
+  }),
+  execute: async ({ memory_type, category, min_importance = 0, limit = 20, sort_by = 'importance' }: { memory_type?: string; category?: string; min_importance?: number; limit?: number; sort_by?: string }) => {
+    try {
+      let query = `
+        SELECT id, memory_type, category, summary, importance, access_count, created_at
+        FROM cross_session_memories
+        WHERE importance >= $1 AND (expires_at IS NULL OR expires_at > NOW())
+      `;
+      const params: any[] = [min_importance];
+      let idx = 2;
+
+      if (memory_type) {
+        query += ` AND memory_type = $${idx++}`;
+        params.push(memory_type);
+      }
+      if (category) {
+        query += ` AND category = $${idx++}`;
+        params.push(category);
+      }
+
+      const orderBy = sort_by === 'recent' ? 'created_at DESC' : sort_by === 'accessed' ? 'access_count DESC' : 'importance DESC, created_at DESC';
+      query += ` ORDER BY ${orderBy} LIMIT $${idx++}`;
+      params.push(limit);
+
+      const result = await pool.query(query, params);
+
+      if (result.rows.length === 0) {
+        return '暂无跨对话记忆。使用save_cross_memory可保存新记忆。';
+      }
+
+      const typeLabel: Record<string, string> = {
+        insight: '💡', decision: '🎯', preference: '👤', fact: '📌', error_solution: '🔧', architecture: '🏗️'
+      };
+
+      const output = result.rows.map((r: any, i: number) =>
+        `${i + 1}. ${typeLabel[r.memory_type] || '📝'} [${r.memory_type}] 重要度:${r.importance} | ${r.summary} (${r.category || '未分类'} | 访问${r.access_count}次)`
+      ).join('\n');
+
+      return `共 ${result.rows.length} 条记忆：\n\n${output}`;
+    } catch (error) {
+      return `❌ 查询失败: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  },
+});
+
+/**
+ * delete_cross_memory - 删除跨对话记忆
+ */
+export const deleteCrossMemoryTool = tool({
+  description: `删除指定的跨对话记忆。需要提供记忆ID。`,
+  parameters: z.object({
+    memory_id: z.number().describe('要删除的记忆ID'),
+  }),
+  execute: async ({ memory_id }: { memory_id: number }) => {
+    try {
+      const result = await pool.query('DELETE FROM cross_session_memories WHERE id = $1 RETURNING id, summary', [memory_id]);
+      if (result.rows.length === 0) {
+        return `❌ 未找到ID为${memory_id}的记忆`;
+      }
+      return `✅ 已删除记忆: ${result.rows[0].summary}`;
+    } catch (error) {
+      return `❌ 删除失败: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  },
+});
+
+export const crossMemoryTools = {
+  save_cross_memory: saveCrossMemoryTool,
+  search_cross_memory: searchCrossMemoryTool,
+  list_cross_memories: listCrossMemoriesTool,
+  delete_cross_memory: deleteCrossMemoryTool,
+};

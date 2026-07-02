@@ -6,6 +6,7 @@ export interface Conversation {
   user_id?: string;
   created_at: string;
   updated_at: string;
+  msg_count?: number;
 }
 
 // Message types

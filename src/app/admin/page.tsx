@@ -2,13 +2,15 @@
 import { toast } from 'sonner';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette, Activity, Plug, Brain, LayoutDashboard, ChevronDown, ChevronRight, Clock, Database, CheckCircle2, XCircle, Cpu, BarChart3, Shield, Paintbrush } from 'lucide-react';
+import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette, Activity, Plug, Brain, BookOpen, LayoutDashboard, ChevronDown, ChevronRight, Clock, Database, CheckCircle2, XCircle, Cpu, BarChart3, Shield, Paintbrush, Heart, Users, Zap, Edit2, X} from 'lucide-react';
 import { ImageGenPanel } from "@/components/admin/ImageGenPanel";
 import { TelemetryPanel } from "@/components/admin/TelemetryPanel";
 import { McpServersPanel } from "@/components/admin/McpServersPanel";
 import { MemoryPanel } from "@/components/admin/MemoryPanel";
+import { KnowledgePanel } from "@/components/admin/KnowledgePanel";
 import { ScheduledTasksPanel } from "@/components/admin/ScheduledTasksPanel";
 import { PatrolPanel } from '@/components/admin/PatrolPanel';
+import { HeartbeatPanel } from '@/components/admin/HeartbeatPanel';
 import { DesignConfigPanel } from '@/components/admin/DesignConfigPanel';
 import Link from 'next/link';
 import { useTheme } from '@/components/theme-provider';
@@ -18,7 +20,7 @@ import type { ModelConfig, ApiKey, Conversation } from '@/lib/types';
 import { MODELS as MODELS_IMPORT } from '@/lib/models';
 const MODELS_DATA = MODELS_IMPORT.map(m => ({ id: m.id, name: m.name, provider: m.provider, description: m.description || '' }));
 
-type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'telemetry' | 'mcp' | 'memory' | 'tasks' | 'patrol' | 'design';
+type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'telemetry' | 'mcp' | 'memory' | 'knowledge' | 'tasks' | 'patrol' | 'heartbeat' | 'design' | 'sub-agents' | 'skills';
 
 // ============ Sidebar Navigation Structure ============
 interface SidebarGroup {
@@ -62,8 +64,11 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
     items: [
       { id: 'conversations', label: '对话记录', icon: <MessageSquare size={14} /> },
       { id: 'memory', label: '记忆管理', icon: <Brain size={14} /> },
+      { id: 'knowledge', label: '知识库', icon: <BookOpen size={14} /> },
+      { id: 'skills', label: '技能管理', icon: <Zap size={14} /> },
       { id: 'projects', label: '项目管理', icon: <Folder size={14} /> },
       { id: 'tasks', label: '定时任务', icon: <Clock size={14} /> },
+      { id: 'sub-agents', label: '子智能体', icon: <Users size={14} /> },
       { id: 'design', label: '设计 & 生图', icon: <Paintbrush size={14} /> },
     ],
   },
@@ -74,6 +79,7 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
     items: [
       { id: 'telemetry', label: 'AI监控', icon: <Activity size={14} /> },
       { id: 'patrol', label: '系统巡检', icon: <Shield size={14} /> },
+      { id: 'heartbeat', label: '心跳巡检', icon: <Heart size={14} /> },
     ],
   },
   {
@@ -124,52 +130,7 @@ export default function AdminPage() {
       return originalFetch(...args);
     };
     
-<style>{`
-  @media (max-width: 768px) {
-    .admin-sidebar {
-      position: fixed !important;
-      left: -280px !important;
-      top: 0;
-      bottom: 0;
-      z-index: 50;
-      transition: left 0.3s ease;
-      width: 280px !important;
-      min-width: 280px !important;
-    }
-    .admin-sidebar.open {
-      left: 0 !important;
-    }
-    .admin-overlay {
-      display: block !important;
-    }
-    .admin-main {
-      margin-left: 0 !important;
-      width: 100% !important;
-      padding: 16px 8px !important;
-      padding-top: 56px !important;
-    }
-    .admin-mobile-header {
-      display: flex !important;
-    }
-    .admin-main .grid {
-      grid-template-columns: 1fr !important;
-    }
-    .admin-main table {
-      font-size: 12px !important;
-    }
-    .admin-main .text-sm {
-      font-size: 13px !important;
-    }
-  }
-  @media (min-width: 769px) {
-    .admin-mobile-header {
-      display: none !important;
-    }
-    .admin-overlay {
-      display: none !important;
-    }
-  }
-`}</style>
+
 return () => { window.fetch = originalFetch; };
   }, []);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
@@ -189,21 +150,92 @@ return () => { window.fetch = originalFetch; };
     return <div className="min-h-screen flex items-center justify-center bg-background"><div className="text-muted-foreground">验证中...</div></div>;
   }
 
-  return (
+  
+
+    return (
     <div className="min-h-screen bg-background flex relative">
+      <style>{`
+  @media (max-width: 768px) {
+    .admin-sidebar {
+      position: fixed !important;
+      left: -100% !important;
+      top: 0;
+      bottom: 0;
+      z-index: 50;
+      transition: left 0.3s ease;
+      width: 75vw !important;
+      min-width: 0 !important;
+      max-width: 280px !important;
+      flex: none !important;
+      box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+    }
+    .admin-sidebar.open {
+      left: 0 !important;
+    }
+    .admin-overlay {
+      display: block !important;
+    }
+    .admin-main {
+      width: 100vw !important;
+      max-width: 100vw !important;
+      margin-left: 0 !important;
+      padding: 12px 8px !important;
+      padding-top: 56px !important;
+      box-sizing: border-box !important;
+      overflow-x: hidden !important;
+    }
+    .admin-mobile-header {
+      display: flex !important;
+    }
+    .admin-main .bg-card {
+      padding: 12px !important;
+    }
+    .admin-main h2 {
+      font-size: 16px !important;
+    }
+    .admin-main h3 {
+      font-size: 14px !important;
+    }
+    .admin-main .space-y-6 > * + * {
+      margin-top: 12px !important;
+    }
+    .admin-main textarea {
+      font-size: 14px !important;
+    }
+    .admin-main input[type="text"],
+    .admin-main input[type="password"],
+    .admin-main input[type="number"],
+    .admin-main select {
+      font-size: 16px !important;
+    }
+  }
+  @media (min-width: 769px) {
+    .admin-mobile-header {
+      display: none !important;
+    }
+    .admin-overlay {
+      display: none !important;
+    }
+  }
+`}</style>
       {/* Mobile hamburger button */}
       <button onClick={() => setSidebarOpen(!sidebarOpen)} className="admin-mobile-header fixed top-0 left-0 z-50 p-3 bg-card border-b border-border rounded-br-lg shadow-lg">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
       </button>
       {/* Mobile overlay */}
-      {sidebarOpen && <div className="admin-overlay fixed inset-0 bg-black/50 z-40" onClick={() => setSidebarOpen(false)} />}
+      {sidebarOpen && <div className="admin-overlay fixed inset-0 bg-black/50 z-30" onClick={() => setSidebarOpen(false)} />}
       {/* Left Sidebar */}
-      <aside className={`admin-sidebar w-[220px] min-h-screen bg-card border-r border-border flex flex-col shrink-0 ${sidebarOpen ? 'open' : ''}`}>
+      <aside className={`admin-sidebar md:w-[220px] md:min-w-[220px] md:shrink-0 md:relative w-[75vw] max-w-[280px] h-screen bg-card border-r border-border flex flex-col ${sidebarOpen ? 'open' : ''}`}>
         <div className="px-4 py-4 border-b border-border">
           <Link href="/" className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-accent transition-colors text-sm font-medium text-muted-foreground">
             <ArrowLeft size={14} /> 返回首页
           </Link>
-          <h1 className="text-lg font-bold mt-2">后台管理</h1>
+          <div className="flex items-center justify-between mt-2">
+            <h1 className="text-lg font-bold">后台管理</h1>
+            <button onClick={() => setSidebarOpen(false)} className="md:hidden p-1.5 rounded-lg hover:bg-accent text-muted-foreground">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
         </div>
 
         <nav className="flex-1 overflow-y-auto py-2 px-2">
@@ -277,8 +309,12 @@ return () => { window.fetch = originalFetch; };
         </div>
       </aside>
 
-      <main className="admin-main flex-1 min-h-screen overflow-y-auto p-6">
-        <div className="max-w-5xl mx-auto px-6 py-6">
+      <main className="admin-main flex-1 min-h-screen overflow-y-auto p-4 md:p-6">
+        {/* Mobile active tab indicator */}
+        <div className="md:hidden text-sm text-muted-foreground mb-3 -mt-1">
+          {SIDEBAR_GROUPS.flatMap(g => g.items).find(i => i.id === activeTab)?.label || '仪表盘'}
+        </div>
+        <div className="max-w-5xl mx-auto px-3 sm:px-6 py-3 sm:py-6">
           {activeTab === 'dashboard' && <DashboardPanel />}
           {activeTab === 'keys' && <ApiKeysPanel />}
           {activeTab === 'models' && <ModelsPanel />}
@@ -291,6 +327,7 @@ return () => { window.fetch = originalFetch; };
 
           {activeTab === 'telemetry' && <TelemetryPanel />}
           {activeTab === 'patrol' && <PatrolPanel />}
+          {activeTab === 'heartbeat' && <HeartbeatPanel />}
               {activeTab === 'design' && (
                 <div className="space-y-6">
                   <DesignConfigPanel />
@@ -301,7 +338,10 @@ return () => { window.fetch = originalFetch; };
               )}
           {activeTab === 'mcp' && <McpServersPanel />}
           {activeTab === 'memory' && <MemoryPanel />}
+          {activeTab === 'knowledge' && <KnowledgePanel />}
           {activeTab === 'tasks' && <ScheduledTasksPanel />}
+          {activeTab === 'skills' && <SkillsPanel />}
+          {activeTab === 'sub-agents' && <SubAgentsPanel />}
         </div>
       </main>
     </div>
@@ -309,15 +349,33 @@ return () => { window.fetch = originalFetch; };
 }
 
 // ============ Dashboard Panel ============
+
+function timeAgo(dateStr: string): string {
+  const now = new Date();
+  const d = new Date(dateStr);
+  const diff = now.getTime() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return '刚刚';
+  if (mins < 60) return `${mins}分钟前`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}天前`;
+  return d.toLocaleDateString();
+}
+
 function DashboardPanel() {
   const [stats, setStats] = useState<{
     totalConversations: number;
+    todayConversations: number;
     todayMessages: number;
     activeModels: number;
     apiSuccessRate: number;
-    recentConversations: { id: string; title: string; modelId: string; createdAt: string }[];
+    recentConversations: { id: string; title: string; modelId: string; userId: string; createdAt: string; updatedAt: string; msg_count: number }[];
     dbHealthy: boolean;
     activeApiKeys: number;
+    todayTokens: { prompt: number; completion: number; total: number };
+    totalTokens: { prompt: number; completion: number; total: number };
   } | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -333,11 +391,15 @@ function DashboardPanel() {
     finally { setLoading(false); }
   };
 
+  const fmtK = (n: number) => n >= 1000000 ? (n/1000000).toFixed(1)+'M' : n >= 1000 ? (n/1000).toFixed(1)+'K' : String(n);
   const statCards = stats ? [
     { label: '总对话数', value: stats.totalConversations, icon: <MessageSquare size={20} />, color: 'text-blue-400' },
-    { label: '今日消息数', value: stats.todayMessages, icon: <BarChart3 size={20} />, color: 'text-green-400' },
+    { label: '今日对话数', value: stats.todayConversations, icon: <MessageSquare size={20} />, color: 'text-green-400' },
+    { label: '今日消息数', value: stats.todayMessages, icon: <BarChart3 size={20} />, color: 'text-emerald-400' },
     { label: '活跃模型数', value: stats.activeModels, icon: <Cpu size={20} />, color: 'text-purple-400' },
     { label: 'API成功率', value: `${stats.apiSuccessRate}%`, icon: <Activity size={20} />, color: stats.apiSuccessRate >= 95 ? 'text-green-400' : 'text-yellow-400' },
+    { label: '今日Token消耗', value: fmtK(stats.todayTokens?.total || 0), sub: `输入 ${fmtK(stats.todayTokens?.prompt || 0)} / 输出 ${fmtK(stats.todayTokens?.completion || 0)}`, icon: <Zap size={20} />, color: 'text-amber-400' },
+    { label: '累计Token消耗', value: fmtK(stats.totalTokens?.total || 0), sub: `输入 ${fmtK(stats.totalTokens?.prompt || 0)} / 输出 ${fmtK(stats.totalTokens?.completion || 0)}`, icon: <Zap size={20} />, color: 'text-orange-400' },
   ] : [];
 
   return (
@@ -361,6 +423,7 @@ function DashboardPanel() {
                   <span className={card.color}>{card.icon}</span>
                 </div>
                 <div className="text-2xl font-bold">{card.value}</div>
+                {'sub' in card && card.sub && <div className="text-xs text-muted-foreground mt-1">{card.sub}</div>}
               </div>
             ))}
           </div>
@@ -390,10 +453,9 @@ function DashboardPanel() {
                 {stats.recentConversations.map((conv) => (
                   <div key={conv.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-accent/50">
                     <div>
-                      <span className="text-sm font-medium">{conv.title}</span>
-                      <span className="text-xs text-muted-foreground ml-2">{conv.modelId}</span>
+                      <span className="text-sm font-medium truncate block">{conv.title}</span>
+                      <span className="text-xs text-muted-foreground">{conv.modelId} · {conv.msg_count || 0}条消息 · {timeAgo(conv.updatedAt || conv.createdAt)}</span>
                     </div>
-                    <span className="text-xs text-muted-foreground">{new Date(conv.createdAt).toLocaleString()}</span>
                   </div>
                 ))}
               </div>
@@ -425,6 +487,11 @@ const PROVIDERS = [
   { id: 'meta', name: 'Meta', desc: 'Llama 3.3 / 3.1' },
   { id: 'mistral', name: 'Mistral', desc: 'Mistral Large 2' },
   { id: 'cohere', name: 'Cohere', desc: 'Command R+' },
+  { id: 'agnes', name: 'Agnes AI', desc: 'Agnes 1.5/2.0 Flash 文本模型' },
+  { id: 'agnes-image', name: 'Agnes Image', desc: '图像/视频生成模型' },
+  { id: 'tavily', name: 'Tavily', desc: 'AI搜索API（推荐）' },
+  { id: 'github', name: 'GitHub', desc: 'GitHub API（代码搜索/Issues/PR）' },
+  { id: 'firecrawl', name: 'Firecrawl', desc: '网页抓取/搜索' },
 ];
 
 function ApiKeysPanel() {
@@ -433,6 +500,8 @@ function ApiKeysPanel() {
   const [form, setForm] = useState({ provider: '', provider_name: '', api_key: '', base_url: '' });
   const [loading, setLoading] = useState(false);
   const [searchProvider, setSearchProvider] = useState('');
+  const [editingKey, setEditingKey] = useState<ApiKey | null>(null);
+  const [editForm, setEditForm] = useState({ api_key: '', base_url: '' });
 
   const fetchKeys = useCallback(async () => {
     const res = await fetch('/api/admin/keys');
@@ -460,6 +529,7 @@ function ApiKeysPanel() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!confirm('确定删除此API Key？')) return;
     await fetch(`/api/admin/keys?id=${id}`, { method: 'DELETE' });
     await fetchKeys();
   };
@@ -471,6 +541,25 @@ function ApiKeysPanel() {
     }
   };
 
+  const handleEditKey = (key: ApiKey) => {
+    setEditingKey(key);
+    setEditForm({ api_key: '', base_url: key.base_url || '' });
+  };
+
+  const handleUpdateKey = async () => {
+    if (!editingKey) return;
+    const body: any = { id: editingKey.id };
+    if (editForm.api_key) body.api_key = editForm.api_key;
+    if (editForm.base_url) body.base_url = editForm.base_url;
+    await fetch('/api/admin/keys', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    setEditingKey(null);
+    await fetchKeys();
+  };
+
   const filteredProviders = PROVIDERS.filter(p => 
     p.id.toLowerCase().includes(searchProvider.toLowerCase()) ||
     p.name.toLowerCase().includes(searchProvider.toLowerCase()) ||
@@ -479,7 +568,7 @@ function ApiKeysPanel() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h2 className="text-lg font-semibold">API 密钥管理</h2>
         <button
           onClick={() => setShowForm(!showForm)}
@@ -541,20 +630,70 @@ function ApiKeysPanel() {
         </div>
       )}
 
+      {editingKey && (
+        <div className="bg-card border border-primary/30 rounded-xl p-4 mb-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-medium flex items-center gap-2">
+              <Edit2 size={16} /> 编辑 {editingKey.provider_name}
+            </h3>
+            <button onClick={() => setEditingKey(null)} className="p-1 hover:bg-accent rounded">
+              <X size={16} />
+            </button>
+          </div>
+          <input
+            placeholder="API 密钥（留空则不修改）"
+            type="password"
+            value={editForm.api_key}
+            onChange={(e) => setEditForm({ ...editForm, api_key: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
+          />
+          <input
+            placeholder="API 地址"
+            value={editForm.base_url}
+            onChange={(e) => setEditForm({ ...editForm, base_url: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={handleUpdateKey}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90"
+            >
+              <Save size={14} /> 保存
+            </button>
+            <button
+              onClick={() => setEditingKey(null)}
+              className="px-4 py-2 rounded-lg bg-muted text-foreground text-sm"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2">
         {keys.map((key) => (
-          <div key={key.id} className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+          <div key={key.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 bg-card border border-border rounded-xl gap-2">
             <div>
               <div className="font-medium">{key.provider_name}</div>
-              <div className="text-sm text-muted-foreground">{key.api_key_encrypted}</div>
+              <div className="text-sm text-muted-foreground">{key.api_key_encrypted || '未填写密钥'}</div>
               {key.base_url && <div className="text-xs text-muted-foreground mt-1">{key.base_url}</div>}
             </div>
-            <button
-              onClick={() => handleDelete(key.id)}
-              className="p-2 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-            >
-              <Trash2 size={16} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => handleEditKey(key)}
+                className="p-2 rounded-lg hover:bg-primary/10 text-primary transition-colors"
+                title="编辑"
+              >
+                <Edit2 size={16} />
+              </button>
+              <button
+                onClick={() => handleDelete(key.id)}
+                className="p-2 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                title="删除"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
           </div>
         ))}
         {keys.length === 0 && (
@@ -698,33 +837,33 @@ function ModelsPanel() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">模型配置</h2>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 flex-wrap">
           <button
             onClick={() => fetchModels(true)}
             disabled={refreshing}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent disabled:opacity-50"
+            className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg border border-border text-xs sm:text-sm hover:bg-accent disabled:opacity-50"
           >
-            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} /> {refreshing ? "刷新中..." : "刷新"}
+            <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} /> {refreshing ? "刷新中..." : "刷新"}
           </button>
           <button
             onClick={handleBatchImport}
             disabled={importing}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white text-sm hover:bg-green-700 disabled:opacity-50"
+            className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-green-600 text-white text-xs sm:text-sm hover:bg-green-700 disabled:opacity-50"
           >
-            <Upload size={14} /> {importing ? '导入中...' : '批量导入'}
+            <Upload size={13} /> {importing ? '导入中...' : '导入'}
           </button>
           <button
             onClick={() => { setShowForm(!showForm); setEditingModel(null); setForm({ model_id: '', display_name: '', provider: 'openai', description: '', default_temperature: '0.7', default_max_tokens: 4096, sort_order: 0 }); }}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90"
+            className="flex items-center gap-1.5 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg bg-primary text-primary-foreground text-xs sm:text-sm hover:bg-primary/90"
           >
-            <Plus size={14} /> 添加模型
+            <Plus size={13} /> 添加
           </button>
         </div>
       </div>
 
       {showForm && (
         <div className="bg-card border border-border rounded-xl p-4 mb-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input
               placeholder="模型ID（如 gpt-4o）"
               value={form.model_id}
@@ -738,7 +877,7 @@ function ModelsPanel() {
               className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary"
             />
           </div>
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <input
               placeholder="厂商（如 openai）"
               value={form.provider}
@@ -794,7 +933,7 @@ function ModelsPanel() {
 
       <div className="space-y-2">
         {models.map((model) => (
-          <div key={model.id} className="flex items-center justify-between p-4 bg-card border border-border rounded-xl">
+          <div key={model.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 bg-card border border-border rounded-xl gap-2">
             <div className="flex-1">
               <div className="flex items-center gap-2">
                 <input
@@ -814,24 +953,24 @@ function ModelsPanel() {
               <div className="text-sm text-muted-foreground mt-1">{model.model_id}</div>
               {model.description && <div className="text-xs text-muted-foreground mt-1">{model.description}</div>}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 self-end sm:self-center">
               <button
                 onClick={() => handleEdit(model)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/10 text-blue-500 hover:bg-blue-500/20"
+                className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs font-medium bg-blue-500/10 text-blue-500 hover:bg-blue-500/20"
               >
                 编辑
               </button>
               <button
                 onClick={() => handleToggleEnabled(model)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${model.is_enabled ? 'bg-green-500/10 text-green-500 hover:bg-green-500/20' : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'}`}
+                className={`px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs font-medium transition-colors ${model.is_enabled ? 'bg-green-500/10 text-green-500 hover:bg-green-500/20' : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'}`}
               >
                 {model.is_enabled ? '禁用' : '启用'}
               </button>
               <button
                 onClick={() => handleDelete(model.id)}
-                className="p-2 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                className="p-1.5 sm:p-2 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
               >
-                <Trash2 size={16} />
+                <Trash2 size={14} />
               </button>
             </div>
           </div>
@@ -856,7 +995,7 @@ function ConversationsPanel() {
   const fetchConversations = useCallback(async (showFeedback: boolean = false) => {
     if (showFeedback) setConvRefreshing(true);
     try {
-      const res = await fetch("/api/conversations");
+      const res = await fetch("/api/admin/conversations");
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       const convs = Array.isArray(data) ? data : (data.data || []);
@@ -876,13 +1015,13 @@ function ConversationsPanel() {
   const filteredConversations = conversations
     .filter(c => {
       if (filterDays === 0) return true;
-      const d = new Date(c.created_at);
+      const d = new Date(c.updated_at || c.created_at);
       const now = new Date();
       return (now.getTime() - d.getTime()) < filterDays * 86400000;
     })
     .sort((a, b) => {
-      const da = new Date(a.created_at).getTime();
-      const db = new Date(b.created_at).getTime();
+      const da = new Date(a.updated_at || a.created_at).getTime();
+      const db = new Date(b.updated_at || b.created_at).getTime();
       return sortOrder === 'newest' ? db - da : da - db;
     });
 
@@ -944,9 +1083,9 @@ function ConversationsPanel() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h2 className="text-lg font-semibold">对话记录</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <select
             value={filterDays}
             onChange={(e) => setFilterDays(Number(e.target.value))}
@@ -1014,7 +1153,7 @@ function ConversationsPanel() {
         {filteredConversations.map((conv) => (
           <div key={conv.id} className={`bg-card border rounded-xl overflow-hidden ${selectedIds.has(conv.id) ? 'border-primary' : 'border-border'}`}>
             <div
-              className="flex items-center justify-between p-4 cursor-pointer hover:bg-accent/50 transition-colors"
+              className="flex items-center justify-between p-3 sm:p-4 cursor-pointer hover:bg-accent/50 transition-colors flex-wrap gap-1"
               onClick={() => loadMessages(conv.id)}
             >
               <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -1027,7 +1166,7 @@ function ConversationsPanel() {
                 <div className="min-w-0">
                   <div className="font-medium truncate">{conv.title}</div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    {conv.model_id} - {new Date(conv.created_at).toLocaleString()}
+                    {conv.model_id} · {conv.msg_count || 0}条消息 · {timeAgo(conv.updated_at || conv.created_at)}
                   </div>
                 </div>
               </div>
@@ -1083,6 +1222,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
 
   const [modeTemps, setModeTemps] = useState({ coding: 0, writing: 0.7, analysis: 0.1, design: 0.3, chat: 0.5 });
   const [modePrompts, setModePrompts] = useState({
+    coding: '',
     writing: '\u4f60\u662f\u4e00\u4e2a\u4e13\u4e1a\u6587\u6848\u5199\u4f5c\u52a9\u624b\u3002\n\u3010\u89c4\u5219\u3011\u76f4\u63a5\u7ed9\u5185\u5bb9\uff0c\u4e0d\u7528Markdown\u3002\u6839\u636e\u573a\u666f\u8c03\u6574\u8bed\u6c14\u3002\u6ca1\u6307\u5b9a\u98ce\u683c\u7ed92-3\u4e2a\u7248\u672c\u3002\u5b8c\u6210\u540e1-2\u53e5\u603b\u7ed3\u3002',
     analysis: '\u4f60\u662f\u6570\u636e\u5206\u6790\u4e0e\u7b56\u7565\u987e\u95ee\u3002\n\u3010\u89c4\u5219\u3011\u5148\u7ed3\u8bba\u540e\u5c55\u5f00\u3002\u4e0d\u7528Markdown\u3002\u6ce8\u660e\u6765\u6e90\u3002\u4e0d\u786e\u5b9a\u5c31\u8bf4\u660e\u3002\u5b8c\u6210\u540e\u603b\u7ed3\u6838\u5fc3\u7ed3\u8bba\u3002',
     design: '\u4f60\u662fUI/UX\u8bbe\u8ba1\u987e\u95ee\u3002\n\u3010\u89c4\u5219\u3011\u7ed9\u5177\u4f53\u6570\u503c\u3002\u4e0d\u7528Markdown\u3002\u7ed9\u5b8c\u6574\u65b9\u6848\u4e0d\u9010\u6b65\u8ffd\u95ee\u3002\u5b8c\u6210\u540e\u603b\u7ed3\u8981\u70b9\u3002',
@@ -1104,11 +1244,43 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
     enable_thinking: true,
     thinking_mode: 'auto',
     reasoning_effort: 'high',
+    cron_secret: 'ai-platform-cron-2026',
+    error_threshold_stuck: 3,
+    memory_extract_max_length: 3000,
+    tool_history_limit: 50,
+    cron_task_limit: 10,
+    // 上下文压缩参数
+    context_compress_threshold: 80000,
+    context_compress_ratio: 0.5,
+    max_tool_output_chars: 8000,
   });
+  const [modelRoutingConfig, setModelRoutingConfig] = useState<{
+    intent_model_priority: Record<string, string>;
+    intent_provider_priority: string;
+    vision_model_priority: string;
+    multimodal_model_order: string;
+    provider_max_tokens: string;
+    fallback_model_order: string;
+    fallback_providers: string;
+    default_temperature: string;
+  }>({
+    intent_model_priority: {},
+    intent_provider_priority: '',
+    vision_model_priority: '',
+    multimodal_model_order: '',
+    provider_max_tokens: '',
+    fallback_model_order: '',
+    fallback_providers: '',
+    default_temperature: '0.3',
+  });
+  const [showModelRouting, setShowModelRouting] = useState(false);
+  const [sandboxConfig, setSandboxConfig] = useState({timeout: 30, max_output_length: 10000, enable_network: false, temp_dir: '/tmp/ai-sandbox'});
+  const [showSandbox, setShowSandbox] = useState(false);
   const [settingsSubTab, setSettingsSubTab] = useState<'basic' | 'advanced' | 'oauth'>(initialSubTab);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showModeTemps, setShowModeTemps] = useState(false);
   const [showModePrompts, setShowModePrompts] = useState(false);
+  const [modelTokenConfigs, setModelTokenConfigs] = useState<{modelId: string; name: string; provider: string; default_temperature: number; default_max_tokens: number; default_top_p: number | null; default_presence_penalty: number | null; default_frequency_penalty: number | null}[]>([]);
 
   useEffect(() => {
     fetchSettings();
@@ -1130,8 +1302,47 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
           default_model: data.data.default_model || '',
         });
         try { if (data.data.mode_temperatures) setModeTemps(JSON.parse(data.data.mode_temperatures)); } catch {}
+        // Fetch model token configs
+        try {
+          const modelRes = await fetch('/api/models');
+          const modelData = await modelRes.json();
+          if (modelData.data) {
+            setModelTokenConfigs(modelData.data.map((m: any) => ({
+              modelId: m.modelId,
+              name: m.name || m.modelId,
+              provider: m.provider,
+              default_temperature: m.default_temperature || 0.7,
+              default_max_tokens: m.default_max_tokens || 4096,
+              default_top_p: m.default_top_p ?? null,
+              default_presence_penalty: m.default_presence_penalty ?? null,
+              default_frequency_penalty: m.default_frequency_penalty ?? null,
+            })));
+          }
+        } catch {}
         try { if (data.data.mode_prompts) setModePrompts(JSON.parse(data.data.mode_prompts)); } catch {}
+        // Load model routing config (parse intent_model_priority JSON for per-intent editing)
+        try {
+          const mrc: any = {};
+          const keys = ['intent_provider_priority','vision_model_priority','multimodal_model_order','provider_max_tokens','fallback_model_order','fallback_providers','default_temperature'];
+          for (const k of keys) { if (data.data[k]) mrc[k] = data.data[k]; }
+          // intent_model_priority is JSON string like {"coding":"...","chat":"..."}, parse for editing
+          if (data.data.intent_model_priority) {
+            try {
+              const impObj = JSON.parse(data.data.intent_model_priority);
+              // Convert arrays to comma-separated strings for input editing
+              const impForEdit: Record<string, string> = {};
+              for (const [intent, val] of Object.entries(impObj)) {
+                impForEdit[intent] = Array.isArray(val) ? val.join(',') : String(val || '');
+              }
+              mrc.intent_model_priority = impForEdit; // Store as comma-separated strings for per-intent inputs
+            } catch {
+              mrc.intent_model_priority = {};
+            }
+          }
+          if (Object.keys(mrc).length > 0) setModelRoutingConfig(prev => ({...prev, ...mrc}));
+        } catch {}
         try { if (data.data.advanced_config) { const adv = JSON.parse(data.data.advanced_config); setAdvConfig(prev => ({ ...prev, ...adv })); } } catch {}
+        try { if (data.data.sandbox_config) { setSandboxConfig(prev => ({ ...prev, ...JSON.parse(data.data.sandbox_config) })); } } catch {}
       }
     } catch (err) { console.error('Failed to fetch settings:', err); }
   };
@@ -1156,8 +1367,34 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'default_model', value: form.default_model }) }),
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'mode_temperatures', value: JSON.stringify(modeTemps) }) }),
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'mode_prompts', value: JSON.stringify(modePrompts) }) }),
+        // Save model routing config (stringify intent_model_priority back to JSON for DB)
+        ...Object.entries(modelRoutingConfig).filter(([_, v]) => v !== undefined && v !== '').map(([k, v]) => {
+          const saveValue = k === 'intent_model_priority' ? JSON.stringify(Object.fromEntries(Object.entries(v as Record<string,string>).map(([ik, iv]) => [ik, typeof iv === 'string' && iv.includes(',') ? iv.split(',').map(s=>s.trim()).filter(Boolean) : iv]))) : (typeof v === 'string' ? v : JSON.stringify(v));
+          return fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: k, value: saveValue }) });
+        }),
+        fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'sandbox_config', value: JSON.stringify(sandboxConfig) }) }),
         fetch('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'advanced_config', value: JSON.stringify(advConfig) }) }),
       ]);
+      // Save model token configs
+      try {
+        await Promise.all(modelTokenConfigs.map(mc =>
+          fetch('/api/models', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model_id: mc.modelId,
+              display_name: mc.name,
+              provider: mc.provider,
+              default_temperature: mc.default_temperature,
+              default_max_tokens: mc.default_max_tokens,
+              default_top_p: mc.default_top_p,
+              default_presence_penalty: mc.default_presence_penalty,
+              default_frequency_penalty: mc.default_frequency_penalty,
+              is_enabled: true,
+            }),
+          })
+        ));
+      } catch (err) { console.error('Failed to save model token configs:', err); }
       toast.success('\u8bbe\u7f6e\u5df2\u4fdd\u5b58\uff01');
       fetchSettings();
     } catch (err) { console.error('Failed to save settings:', err); toast.error('\u4fdd\u5b58\u5931\u8d25'); }
@@ -1168,7 +1405,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h2 className="text-lg font-semibold">{'\u7cfb\u7edf\u8bbe\u7f6e'}</h2>
         <button onClick={handleSave} disabled={loading} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50">
           <Save size={14} /> {loading ? '\u4fdd\u5b58\u4e2d...' : '\u4fdd\u5b58\u8bbe\u7f6e'}
@@ -1176,10 +1413,10 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
       </div>
 
       {/* Sub-tab navigation */}
-      <div className="flex gap-2 mb-6 border-b border-border pb-3">
+      <div className="flex gap-1.5 sm:gap-2 mb-4 sm:mb-6 border-b border-border pb-2 sm:pb-3 flex-wrap">
         <button
           onClick={() => setSettingsSubTab('basic')}
-          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+          className={`px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors ${
             settingsSubTab === 'basic' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
           }`}
         >
@@ -1187,7 +1424,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
         </button>
         <button
           onClick={() => setSettingsSubTab('advanced')}
-          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+          className={`px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors ${
             settingsSubTab === 'advanced' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
           }`}
         >
@@ -1195,7 +1432,7 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
         </button>
         <button
           onClick={() => setSettingsSubTab('oauth')}
-          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+          className={`px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors ${
             settingsSubTab === 'oauth' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent'
           }`}
         >
@@ -1212,18 +1449,25 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
         </div>
 
         
+                <div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'basic' ? 'block' : 'none' }}>
+          <h3 className="font-medium mb-3">{'编程模式提示词 (Coding Prompt)'}</h3>
+          <p className="text-xs text-muted-foreground mb-3">{'设置编程模式的专用提示词，控制 AI 编程助手如何使用工具、改代码、构建部署。核心闭环流程指令在这里配置。'}</p>
+          <textarea value={modePrompts.coding || ''} onChange={(e) => setModePrompts({ ...modePrompts, coding: e.target.value })} rows={12}
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono whitespace-pre-wrap" placeholder={'在此输入编程模式提示词...'} />
+        </div>
+
         <div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'basic' ? 'block' : 'none' }}>
           <h3 className="font-medium mb-3">{'设计提示词 (Design Prompt)'}</h3>
           <p className="text-xs text-muted-foreground mb-3">{'设置设计工坊的专用提示词，影响 AI 设计助手的对话风格和能力。独立于编程提示词。'}</p>
-          <textarea value={form.design_system_prompt} onChange={(e) => setForm({ ...form, design_system_prompt: e.target.value })} rows={8}
-            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono" placeholder={'在此输入设计提示词...'} />
+          <textarea value={form.design_system_prompt} onChange={(e) => setForm({ ...form, design_system_prompt: e.target.value })} rows={10}
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono whitespace-pre-wrap" placeholder={'在此输入设计提示词...'} />
         </div>
 
         <div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'basic' ? 'block' : 'none' }}>
           <h3 className="font-medium mb-3">{'工具调用报告提示词 (Follow-up Report Prompt)'}</h3>
-          <p className="text-xs text-muted-foreground mb-3">{'当AI调用工具后生成分析报告时使用的提示词。控制报告格式（摘要+详细内容分离）。修改后即时生效。'}</p>
-          <textarea value={form.followup_report_prompt} onChange={(e) => setForm({ ...form, followup_report_prompt: e.target.value })} rows={6}
-            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono" placeholder={"在此输入报告生成提示词..."} />
+          <p className="text-xs text-muted-foreground mb-3">{'当AI调用工具后生成分析报告时使用的提示词。控制报告格式（摘要+详细内容分离）。修改后即时生效。支持换行。'}</p>
+          <textarea value={form.followup_report_prompt} onChange={(e) => setForm({ ...form, followup_report_prompt: e.target.value })} rows={10}
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono whitespace-pre-wrap" placeholder={"在此输入报告生成提示词..."} />
         </div>
 
 <div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'basic' ? 'block' : 'none' }}>
@@ -1289,8 +1533,8 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
                   <label className="text-sm text-muted-foreground block mb-1">{label}{'\u6a21\u5f0f\u63d0\u793a\u8bcd'}</label>
                   <textarea value={(modePrompts as any)[key]}
                     onChange={(e) => setModePrompts({ ...modePrompts, [key]: e.target.value })}
-                    rows={6}
-                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono" />
+                    rows={10}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono whitespace-pre-wrap" />
                 </div>
               ))}
             </div>
@@ -1361,6 +1605,46 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
                     className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" min={1024} max={128000} />
                 </div>
               </div>
+              {/* 🔧 动态工具沙箱配置 */}
+              <h4 className="text-sm font-medium mt-4 mb-2">{'🔧 动态工具沙箱配置'}</h4>
+              <div className="text-xs text-muted-foreground mb-3 space-y-1">
+                <p>💡 <b>使用说明：</b></p>
+                <p>• 控制AI执行动态代码（execute_code）时的安全边界</p>
+                <p>• <b>超时时间</b>：代码执行的最大等待秒数，超时自动终止（建议30-120秒）</p>
+                <p>• <b>最大输出长度</b>：代码执行的stdout/stderr截断字数，防止大量输出耗尽token</p>
+                <p>• <b>允许网络访问</b>：开启后沙箱内代码可发HTTP请求，关闭则仅限本地计算</p>
+                <p>• <b>临时目录</b>：沙箱代码的工作目录，文件不持久化</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'⏱️ 超时时间（秒）'}</label>
+                  <input type="number" value={sandboxConfig.timeout}
+                    onChange={(e) => setSandboxConfig({ ...sandboxConfig, timeout: parseInt(e.target.value) || 30 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" min={5} max={300} />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'📝 最大输出长度（字符）'}</label>
+                  <input type="number" value={sandboxConfig.max_output_length}
+                    onChange={(e) => setSandboxConfig({ ...sandboxConfig, max_output_length: parseInt(e.target.value) || 10000 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" min={1000} max={100000} />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'🌐 允许网络访问'}</label>
+                  <label className="flex items-center gap-2 mt-1 cursor-pointer">
+                    <input type="checkbox" checked={sandboxConfig.enable_network}
+                      onChange={(e) => setSandboxConfig({ ...sandboxConfig, enable_network: e.target.checked })}
+                      className="w-4 h-4 accent-primary" />
+                    <span className="text-sm">{'开启后沙箱内代码可发HTTP请求'}</span>
+                  </label>
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">{'📁 临时目录路径'}</label>
+                  <input type="text" value={sandboxConfig.temp_dir}
+                    onChange={(e) => setSandboxConfig({ ...sandboxConfig, temp_dir: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                    placeholder="/tmp/ai-sandbox" />
+                </div>
+              </div>
               <h4 className="text-sm font-medium mt-4 mb-2">{'模型生成参数（高级）'}</h4>
               <p className="text-xs text-muted-foreground mb-3">{'控制输出多样性、重复惩罚等。一般使用默认值即可。'}</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1423,15 +1707,574 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
                   <p className="text-xs text-muted-foreground mt-1">控制DeepSeek推理模型的思考深度，影响回复质量和速度</p>
                 </div>
               </div>
+
+              <h4 className="text-sm font-medium mt-4 mb-2">{'Agent 状态管理'}</h4>
+              <p className="text-xs text-muted-foreground mb-3">控制AI Agent的行为参数：错误恢复策略、跨对话记忆、定时任务调度等。</p>
+        <div className="text-xs text-muted-foreground/70 mb-4 space-y-1 bg-muted/30 rounded-lg p-3">
+          <p>⚙️ <b>最大步数(max_steps)</b>：AI单次对话最多执行的工具调用轮数。推荐5-20，太低会截断复杂任务，太高可能死循环。</p>
+          <p>⚙️ <b>最大重试(max_retries)</b>：工具调用失败后自动重试次数。推荐3，网络不稳定可调高。</p>
+          <p>⚙️ <b>工具超时(tool_timeout)</b>：单个工具执行超时时间（秒）。SSH命令推荐120，简单API调用可30-60。</p>
+          <p>⚙️ <b>步超时(timeout_step)</b>：单步（含AI思考+工具执行）超时（秒）。推荐30-60。</p>
+          <p>⚙️ <b>最大输出token(max_output_tokens)</b>：AI单次回复最大长度。16384≈12000字，4096≈3000字。长代码/报告建议8192+。</p>
+          <p>⚙️ <b>Top-P</b>：采样范围，0.9=从概率前90%的词中选。越低越确定，越高越随机。与temperature配合使用。</p>
+          <p>⚙️ <b>Presence/Frequency Penalty</b>：-2到2，正值减少重复，负值增加重复。0=不调整。</p>
+          <p>⚙️ <b>Seed</b>：随机种子。-1=随机，固定值=可复现输出（同参数同输入得同结果）。</p>
+          <p>⚙️ <b>记忆上下文条数(memory_context_limit)</b>：对话中携带的最近N条记忆。推荐20-50，太多浪费token。</p>
+          <p>⚙️ <b>自动提取记忆(auto_memory_extract)</b>：AI是否自动从对话中提取重要信息存入长期记忆。</p>
+          <p>⚙️ <b>子智能体模型(sub_agent_models)</b>：并行子智能体使用的模型，逗号分隔。按优先级排列，第一个为主模型。</p>
+          <p>⚙️ <b>Cron密钥(cron_secret)</b>：定时任务API的安全密钥，防止未授权调用。修改后需同步更新宝塔定时任务URL。</p>
+          <p>⚙️ <b>卡住阈值(error_threshold_stuck)</b>：同一对话连续失败N次后标记为"卡住"。推荐3-5。</p>
+          <p>⚙️ <b>记忆提取长度(memory_extract_max_length)</b>：单次记忆提取最大字符数。推荐2000-5000。</p>
+          <p>⚙️ <b>工具历史条数(tool_history_limit)</b>：上下文中保留的最近工具调用记录数。推荐30-100。</p>
+          <p>⚙️ <b>Cron任务上限(cron_task_limit)</b>：同时活跃的定时任务最大数量。防止任务堆积。</p>
+          <p>⚙️ <b>模型Token配置</b>：每个模型可单独设置默认温度、最大token、Top-P等。未设置的模型使用上方全局值。</p>
+        </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">Cron调度密钥</label>
+                  <input type="text" value={advConfig.cron_secret || 'ai-platform-cron-2026'}
+                    onChange={(e) => setAdvConfig({ ...advConfig, cron_secret: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono" />
+                  <p className="text-xs text-muted-foreground mt-1">调用 /api/cron 端点的验证密钥</p>
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">错误恢复阈值（标记stuck）</label>
+                  <input type="number" min="1" max="10" value={advConfig.error_threshold_stuck ?? 3}
+                    onChange={(e) => setAdvConfig({ ...advConfig, error_threshold_stuck: parseInt(e.target.value) || 3 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" />
+                  <p className="text-xs text-muted-foreground mt-1">连续失败N次后标记为stuck，触发策略切换</p>
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">记忆提取最大长度</label>
+                  <input type="number" min="500" max="10000" step="500" value={advConfig.memory_extract_max_length ?? 3000}
+                    onChange={(e) => setAdvConfig({ ...advConfig, memory_extract_max_length: parseInt(e.target.value) || 3000 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" />
+                  <p className="text-xs text-muted-foreground mt-1">跨对话记忆提取时，对话内容的最大字符数</p>
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">工具历史保留条数</label>
+                  <input type="number" min="10" max="200" step="10" value={advConfig.tool_history_limit ?? 50}
+                    onChange={(e) => setAdvConfig({ ...advConfig, tool_history_limit: parseInt(e.target.value) || 50 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" />
+                  <p className="text-xs text-muted-foreground mt-1">每次对话保留的工具调用记录数量上限</p>
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">Cron每次执行任务上限</label>
+                  <input type="number" min="1" max="50" value={advConfig.cron_task_limit ?? 10}
+                    onChange={(e) => setAdvConfig({ ...advConfig, cron_task_limit: parseInt(e.target.value) || 10 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" />
+                  <p className="text-xs text-muted-foreground mt-1">每次cron触发最多执行的任务数</p>
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">上下文压缩阈值（tokens估算）</label>
+                  <input type="number" min={30000} max={200000} step={5000} value={advConfig.context_compress_threshold ?? 80000}
+                    onChange={(e) => setAdvConfig({ ...advConfig, context_compress_threshold: parseInt(e.target.value) || 80000 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" />
+                  <p className="text-xs text-muted-foreground mt-1">上下文超过此值时触发摘要式压缩（建议60000-100000）</p>
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">上下文压缩比例</label>
+                  <input type="number" min={0.2} max={0.8} step={0.05} value={advConfig.context_compress_ratio ?? 0.5}
+                    onChange={(e) => setAdvConfig({ ...advConfig, context_compress_ratio: parseFloat(e.target.value) || 0.5 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" />
+                  <p className="text-xs text-muted-foreground mt-1">0.5=保留后半段对话，0.3=只保留后30%</p>
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">工具输出截断长度（字符）</label>
+                  <input type="number" min={1000} max={50000} step={1000} value={advConfig.max_tool_output_chars ?? 8000}
+                    onChange={(e) => setAdvConfig({ ...advConfig, max_tool_output_chars: parseInt(e.target.value) || 8000 })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" />
+                  <p className="text-xs text-muted-foreground mt-1">单个工具输出超过此长度自动截断，防止撑爆上下文</p>
+                </div>
+              </div>
+
+              <h4 className="text-sm font-medium mt-4 mb-2">{'模型微调参数'}</h4>
+              <p className="text-xs text-muted-foreground mb-3">{'按模型设置微调参数。温度/TopP控制输出随机性，惩罚项控制重复倾向，MaxTokens控制最大输出长度。留空则使用全局默认值。'}</p>
+              <div className="space-y-1.5 max-h-[600px] overflow-y-auto pr-1">
+                {modelTokenConfigs.map((mc, idx) => (
+                  <div key={mc.modelId} className="bg-background/50 rounded-lg px-3 py-2 border border-border/50 hover:border-primary/30 transition-colors">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium text-foreground truncate" title={mc.modelId}>{mc.name || mc.modelId}</div>
+                        <div className="text-[10px] text-muted-foreground font-mono truncate">{mc.modelId}</div>
+                      </div>
+                      <span className="text-[10px] text-primary/70 bg-primary/10 px-1.5 py-0.5 rounded shrink-0">{mc.provider}</span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="flex items-center gap-1">
+                        <label className="text-[10px] text-muted-foreground whitespace-nowrap">温度</label>
+                        <input type="number" value={mc.default_temperature}
+                          onChange={(e) => {
+                            const newConfigs = [...modelTokenConfigs];
+                            newConfigs[idx] = { ...newConfigs[idx], default_temperature: parseFloat(e.target.value) || 0.7 };
+                            setModelTokenConfigs(newConfigs);
+                          }}
+                          className="w-14 px-1.5 py-1 rounded bg-background border border-border text-xs text-center outline-none focus:border-primary" min={0} max={2} step={0.1} />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <label className="text-[10px] text-muted-foreground whitespace-nowrap">TopP</label>
+                        <input type="number" value={mc.default_top_p ?? ''}
+                          placeholder="全局"
+                          onChange={(e) => {
+                            const newConfigs = [...modelTokenConfigs];
+                            newConfigs[idx] = { ...newConfigs[idx], default_top_p: e.target.value === '' ? null : parseFloat(e.target.value) };
+                            setModelTokenConfigs(newConfigs);
+                          }}
+                          className="w-14 px-1.5 py-1 rounded bg-background border border-border text-xs text-center outline-none focus:border-primary" min={0.1} max={1.0} step={0.05} />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <label className="text-[10px] text-muted-foreground whitespace-nowrap">存在惩罚</label>
+                        <input type="number" value={mc.default_presence_penalty ?? ''}
+                          placeholder="全局"
+                          onChange={(e) => {
+                            const newConfigs = [...modelTokenConfigs];
+                            newConfigs[idx] = { ...newConfigs[idx], default_presence_penalty: e.target.value === '' ? null : parseFloat(e.target.value) };
+                            setModelTokenConfigs(newConfigs);
+                          }}
+                          className="w-14 px-1.5 py-1 rounded bg-background border border-border text-xs text-center outline-none focus:border-primary" min={-2.0} max={2.0} step={0.1} />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <label className="text-[10px] text-muted-foreground whitespace-nowrap">频率惩罚</label>
+                        <input type="number" value={mc.default_frequency_penalty ?? ''}
+                          placeholder="全局"
+                          onChange={(e) => {
+                            const newConfigs = [...modelTokenConfigs];
+                            newConfigs[idx] = { ...newConfigs[idx], default_frequency_penalty: e.target.value === '' ? null : parseFloat(e.target.value) };
+                            setModelTokenConfigs(newConfigs);
+                          }}
+                          className="w-14 px-1.5 py-1 rounded bg-background border border-border text-xs text-center outline-none focus:border-primary" min={-2.0} max={2.0} step={0.1} />
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <label className="text-[10px] text-muted-foreground whitespace-nowrap">Max Tokens</label>
+                        <input type="number" value={mc.default_max_tokens}
+                          onChange={(e) => {
+                            const newConfigs = [...modelTokenConfigs];
+                            newConfigs[idx] = { ...newConfigs[idx], default_max_tokens: parseInt(e.target.value) || 4096 };
+                            setModelTokenConfigs(newConfigs);
+                          }}
+                          className="w-20 px-1.5 py-1 rounded bg-background border border-border text-xs text-center outline-none focus:border-primary" min={1024} max={128000} step={1024} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
+
+        {/* ========== 智能模型路由配置 ========== */}
+        <div className="bg-card border border-border rounded-xl p-4" style={{ display: settingsSubTab === 'advanced' ? 'block' : 'none' }}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-medium">{'🧭 智能模型路由配置'}</h3>
+            <button onClick={() => setShowModelRouting(!showModelRouting)} className="text-sm text-primary hover:underline">
+              {showModelRouting ? '收起' : '展开'}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">控制不同意图（编程/聊天/分析等）使用哪些模型。按优先级排列，第一个为主模型，后面的为备选。修改后即时生效。</p>
+          {showModelRouting && (
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">{'编程模式模型优先级 (coding)'}</label>
+                <input type="text" value={modelRoutingConfig.intent_model_priority?.coding || ''}
+                  onChange={(e) => {
+                    const imp = { ...modelRoutingConfig.intent_model_priority };
+                    imp.coding = e.target.value;
+                    setModelRoutingConfig({ ...modelRoutingConfig, intent_model_priority: imp });
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                  placeholder="gpt-5.5-thinking,gpt-5.4-thinking,gpt-4.1" />
+                <p className="text-xs text-muted-foreground mt-1">逗号分隔，第一个为首选。影响AI编程能力的核心配置</p>
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">{'聊天模式模型优先级 (chat)'}</label>
+                <input type="text" value={modelRoutingConfig.intent_model_priority?.chat || ''}
+                  onChange={(e) => {
+                    const imp = { ...modelRoutingConfig.intent_model_priority };
+                    imp.chat = e.target.value;
+                    setModelRoutingConfig({ ...modelRoutingConfig, intent_model_priority: imp });
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                  placeholder="gpt-5.5,deepseek-v4-flash,qwen-turbo" />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">{'分析模式模型优先级 (analysis)'}</label>
+                <input type="text" value={modelRoutingConfig.intent_model_priority?.analysis || ''}
+                  onChange={(e) => {
+                    const imp = { ...modelRoutingConfig.intent_model_priority };
+                    imp.analysis = e.target.value;
+                    setModelRoutingConfig({ ...modelRoutingConfig, intent_model_priority: imp });
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                  placeholder="gpt-5.5-thinking,gpt-5.4-thinking,deepseek-v4-pro" />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">{'写作模式模型优先级 (writing)'}</label>
+                <input type="text" value={modelRoutingConfig.intent_model_priority?.writing || ''}
+                  onChange={(e) => {
+                    const imp = { ...modelRoutingConfig.intent_model_priority };
+                    imp.writing = e.target.value;
+                    setModelRoutingConfig({ ...modelRoutingConfig, intent_model_priority: imp });
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                  placeholder="gpt-5.5,gpt-5.4-mini,qwen-max" />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">{'设计模式模型优先级 (design)'}</label>
+                <input type="text" value={modelRoutingConfig.intent_model_priority?.design || ''}
+                  onChange={(e) => {
+                    const imp = { ...modelRoutingConfig.intent_model_priority };
+                    imp.design = e.target.value;
+                    setModelRoutingConfig({ ...modelRoutingConfig, intent_model_priority: imp });
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                  placeholder="gpt-5.5,gpt-4.1,claude-sonnet-4-5" />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">{'视觉/图片模型优先级 (visual)'}</label>
+                <input type="text" value={modelRoutingConfig.intent_model_priority?.visual || ''}
+                  onChange={(e) => {
+                    const imp = { ...modelRoutingConfig.intent_model_priority };
+                    imp.visual = e.target.value;
+                    setModelRoutingConfig({ ...modelRoutingConfig, intent_model_priority: imp });
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                  placeholder="gpt-4.1,claude-sonnet-4-5,glm-5v-turbo" />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">{'生图模型优先级 (image)'}</label>
+                <input type="text" value={modelRoutingConfig.intent_model_priority?.image || ''}
+                  onChange={(e) => {
+                    const imp = { ...modelRoutingConfig.intent_model_priority };
+                    imp.image = e.target.value;
+                    setModelRoutingConfig({ ...modelRoutingConfig, intent_model_priority: imp });
+                  }}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                  placeholder="gpt-image-2" />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">{'Fallback模型顺序（全局兜底）'}</label>
+                <input type="text" value={modelRoutingConfig.fallback_model_order}
+                  onChange={(e) => setModelRoutingConfig({ ...modelRoutingConfig, fallback_model_order: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                  placeholder="gpt-5.5,gpt-5.5-thinking,gpt-4.1,deepseek-v4-flash" />
+                <p className="text-xs text-muted-foreground mt-1">当意图路由失败时的全局兜底模型顺序，逗号分隔</p>
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">{'视觉模型优先级（多模态图片识别）'}</label>
+                <input type="text" value={modelRoutingConfig.vision_model_priority}
+                  onChange={(e) => setModelRoutingConfig({ ...modelRoutingConfig, vision_model_priority: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                  placeholder="gpt-4.1,claude-sonnet-4-5,glm-5v-turbo" />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">{'多模态模型顺序'}</label>
+                <input type="text" value={modelRoutingConfig.multimodal_model_order}
+                  onChange={(e) => setModelRoutingConfig({ ...modelRoutingConfig, multimodal_model_order: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                  placeholder="gpt-4o,gpt-4.1,gemini-2.5-pro" />
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">{'Provider最大Token映射（JSON）'}</label>
+                <textarea value={modelRoutingConfig.provider_max_tokens}
+                  onChange={(e) => setModelRoutingConfig({ ...modelRoutingConfig, provider_max_tokens: e.target.value })}
+                  rows={3}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                  placeholder='{"deepseek":16384,"groq":8192,"moonshot":8192}' />
+                <p className="text-xs text-muted-foreground mt-1">各Provider的默认最大Token限制，JSON格式</p>
+              </div>
+              <div>
+                <label className="text-sm text-muted-foreground block mb-1">{'Fallback Provider顺序'}</label>
+                <input type="text" value={modelRoutingConfig.fallback_providers}
+                  onChange={(e) => setModelRoutingConfig({ ...modelRoutingConfig, fallback_providers: e.target.value })}
+                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                  placeholder="openai,deepseek,qwen" />
+                <p className="text-xs text-muted-foreground mt-1">当首选Provider不可用时的备选Provider顺序</p>
+              </div>
+            </div>
+          )}
+        </div>
+
         {settingsSubTab === 'oauth' && <AuthSettingsPanel />}
       </div>
     </div>
   );
 }
 
+
+
+
+// ============ 技能管理面板 (P51) ============
+function SkillsPanel() {
+  const [skills, setSkills] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ name: '', description: '', instructions: '', category: 'general', priority: 100, is_active: true });
+  const [toast, setToast] = useState<{msg: string; type: 'success'|'error'} | null>(null);
+
+  const loadSkills = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/skills');
+      const data = await res.json();
+      if (data.skills) setSkills(data.skills);
+    } catch (e: any) { setToast({msg: '加载失败: ' + e.message, type: 'error'}); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadSkills(); }, [loadSkills]);
+
+  const handleSave = async (skillData: any) => {
+    setSaving(true);
+    try {
+      const res = await fetch('/api/admin/skills', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(skillData) });
+      const data = await res.json();
+      if (data.success) { setToast({msg: '保存成功', type: 'success'}); loadSkills(); setShowAdd(false); setEditingId(null); }
+      else setToast({msg: '保存失败: ' + data.error, type: 'error'});
+    } catch (e: any) { setToast({msg: '保存失败: ' + e.message, type: 'error'}); }
+    setSaving(false);
+  };
+
+  const handleToggle = async (id: string, isActive: boolean) => {
+    try {
+      await fetch('/api/admin/skills', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ id, is_active: isActive }) });
+      loadSkills();
+    } catch {}
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('确定删除此技能？')) return;
+    try {
+      await fetch('/api/admin/skills?id=' + id, { method: 'DELETE' });
+      setToast({msg: '已删除', type: 'success'}); loadSkills();
+    } catch (e: any) { setToast({msg: '删除失败', type: 'error'}); }
+  };
+
+  const categories = [...new Set(skills.map(s => s.category || 'general'))];
+  const catIcons: Record<string, string> = { filesystem: '📁', 'sub-agent': '🤖', general: '⚡' };
+  const catNames: Record<string, string> = { filesystem: '文件系统技能', 'sub-agent': '子智能体', general: '通用技能' };
+
+  return (
+    <div className="space-y-4">
+      {toast && <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-lg text-sm ${toast.type === 'success' ? 'bg-green-500/10 text-green-400 border border-green-500/30' : 'bg-red-500/10 text-red-400 border border-red-500/30'}`}>{toast.msg}<button className="ml-2 opacity-60 hover:opacity-100" onClick={() => setToast(null)}>✕</button></div>}
+      
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-white">技能管理</h3>
+          <p className="text-xs text-gray-400 mt-1">渐进式披露：系统提示词只注入技能目录(~50t/技能)，任务匹配时通过 activate_skill 加载完整指令</p>
+        </div>
+        <button onClick={() => { setForm({name:'',description:'',instructions:'',category:'general',priority:100,is_active:true}); setShowAdd(true); }} className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-sm rounded-lg flex items-center gap-1"><Plus size={14}/> 新增技能</button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-[#1a1a2e] rounded-lg p-3 border border-white/5">
+          <div className="text-2xl font-bold text-white">{skills.length}</div>
+          <div className="text-xs text-gray-400">总技能数</div>
+        </div>
+        <div className="bg-[#1a1a2e] rounded-lg p-3 border border-white/5">
+          <div className="text-2xl font-bold text-green-400">{skills.filter(s => s.is_active).length}</div>
+          <div className="text-xs text-gray-400">已激活</div>
+        </div>
+        <div className="bg-[#1a1a2e] rounded-lg p-3 border border-white/5">
+          <div className="text-2xl font-bold text-violet-400">{skills.reduce((a, s) => a + (s.token_estimate || 0), 0).toLocaleString()}</div>
+          <div className="text-xs text-gray-400">估算总Token</div>
+        </div>
+      </div>
+
+      {loading ? <div className="text-gray-400 text-center py-8">加载中...</div> : categories.map(cat => (
+        <div key={cat} className="space-y-2">
+          <h4 className="text-sm font-medium text-gray-300 flex items-center gap-2">{catIcons[cat] || '⚡'} {catNames[cat] || cat} <span className="text-gray-500">({skills.filter(s => (s.category||'general') === cat).length})</span></h4>
+          <div className="space-y-2">
+            {skills.filter(s => (s.category||'general') === cat).map(skill => (
+              <div key={skill.id} className="bg-[#1a1a2e] rounded-lg border border-white/5 overflow-hidden">
+                <div className="flex items-center justify-between p-3">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <button onClick={() => handleToggle(skill.id, !skill.is_active)} className={`w-8 h-4 rounded-full transition-colors ${skill.is_active ? 'bg-green-500' : 'bg-gray-600'} relative`}>
+                      <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${skill.is_active ? 'left-4' : 'left-0.5'}`}/>
+                    </button>
+                    <div className="min-w-0">
+                      <div className="text-white text-sm font-medium truncate">{skill.name} <span className="text-gray-500 text-xs">({skill.id})</span></div>
+                      <div className="text-gray-400 text-xs truncate">{skill.description}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-gray-500">~{skill.token_estimate || 0}t</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 text-gray-400">P{skill.priority}</span>
+                    <button onClick={() => { setEditingId(skill.id); setForm({name:skill.name,description:skill.description,instructions:skill.instructions||'',category:skill.category||'general',priority:skill.priority||100,is_active:skill.is_active}); }} className="text-gray-400 hover:text-white"><Edit2 size={14}/></button>
+                    <button onClick={() => handleDelete(skill.id)} className="text-gray-400 hover:text-red-400"><Trash2 size={14}/></button>
+                  </div>
+                </div>
+                {editingId === skill.id && (
+                  <div className="p-3 border-t border-white/5 space-y-2">
+                    <input value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white" placeholder="技能描述"/>
+                    <textarea value={form.instructions} onChange={e => setForm({...form, instructions: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white h-40 font-mono" placeholder="技能指令（SKILL.md正文，激活时加载到上下文）"/>
+                    <div className="grid grid-cols-3 gap-2">
+                      <input value={form.category} onChange={e => setForm({...form, category: e.target.value})} className="bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white" placeholder="分类"/>
+                      <input type="number" value={form.priority} onChange={e => setForm({...form, priority: parseInt(e.target.value)||100})} className="bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white" placeholder="优先级"/>
+                      <button onClick={() => handleSave({id: skill.id, ...form})} disabled={saving} className="bg-violet-600 hover:bg-violet-700 text-white text-sm rounded py-1.5 disabled:opacity-50">{saving ? '保存中...' : '保存'}</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {showAdd && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-[#12121c] rounded-xl border border-white/10 p-6 w-[500px] max-h-[80vh] overflow-y-auto space-y-3">
+            <h3 className="text-lg font-semibold text-white">新增技能</h3>
+            <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white" placeholder="技能名称"/>
+            <input value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white" placeholder="技能描述（何时使用此技能）"/>
+            <textarea value={form.instructions} onChange={e => setForm({...form, instructions: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white h-48 font-mono" placeholder="技能指令（激活时加载到上下文的完整指令）"/>
+            <div className="grid grid-cols-2 gap-2">
+              <input value={form.category} onChange={e => setForm({...form, category: e.target.value})} className="bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white" placeholder="分类 (general/sub-agent/filesystem)"/>
+              <input type="number" value={form.priority} onChange={e => setForm({...form, priority: parseInt(e.target.value)||100})} className="bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white" placeholder="优先级"/>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => handleSave(form)} disabled={saving || !form.name} className="flex-1 bg-violet-600 hover:bg-violet-700 text-white text-sm rounded-lg py-2 disabled:opacity-50">{saving ? '保存中...' : '创建技能'}</button>
+              <button onClick={() => setShowAdd(false)} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-gray-300 text-sm rounded-lg">取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ============ 子智能体配置面板 ============
+function SubAgentsPanel() {
+  const [configs, setConfigs] = useState<Record<string, {description: string; defaultTimeout: number; instructions?: string; toolNames?: string[]; temperature?: number; preferredModel?: string; maxSteps?: number}>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
+
+  useEffect(() => { fetchConfigs(); }, []);
+
+  const fetchConfigs = async () => {
+    try {
+      const res = await fetch('/api/admin/settings');
+      const data = await res.json();
+      if (data.success && data.data?.sub_agent_configs) {
+        try {
+          setConfigs(JSON.parse(data.data.sub_agent_configs));
+        } catch { setConfigs({}); }
+      }
+    } catch {}
+    setLoading(false);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'sub_agent_configs', value: JSON.stringify(configs) }),
+      });
+      setSaving(false);
+    } catch { setSaving(false); }
+  };
+
+  const agentIcons: Record<string, string> = {
+    researcher: '🔍', coder: '💻', reviewer: '👀',
+    writer: '✍️', tester: '🧪', planner: '📋',
+    deployer: '🚀', analyst: '📊', debugger: '🐛',
+  };
+
+  if (loading) return <div className="p-8 text-center text-muted-foreground">加载中...</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">子智能体配置</h2>
+        <button onClick={handleSave} disabled={saving}
+          className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50">
+          {saving ? '保存中...' : '💾 保存配置'}
+        </button>
+      </div>
+      <p className="text-xs text-muted-foreground">配置各子智能体的描述、超时和提示词。修改后点击保存即时生效（已有的硬编码提示词作为默认值）。</p>
+      
+      <div className="space-y-3">
+        {Object.entries(configs).map(([key, cfg]) => (
+          <div key={key} className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="p-4 cursor-pointer flex items-center justify-between hover:bg-accent/50 transition-colors"
+              onClick={() => setExpandedAgent(expandedAgent === key ? null : key)}>
+              <div className="flex items-center gap-3">
+                <span className="text-xl">{agentIcons[key] || '🤖'}</span>
+                <div>
+                  <div className="font-medium">{key}</div>
+                  <div className="text-xs text-muted-foreground">{cfg.description}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground">超时: {cfg.defaultTimeout}s</span>
+                <span className="text-xs text-muted-foreground">工具: {(cfg.toolNames || []).length}个</span>
+                {cfg.preferredModel && <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">{cfg.preferredModel}</span>}
+                <span className="text-muted-foreground">{expandedAgent === key ? '▲' : '▼'}</span>
+              </div>
+            </div>
+            {expandedAgent === key && (
+              <div className="p-4 border-t border-border space-y-3">
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">描述</label>
+                  <input type="text" value={cfg.description}
+                    onChange={(e) => setConfigs({ ...configs, [key]: { ...cfg, description: e.target.value } })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">默认超时（秒）</label>
+                  <input type="number" value={cfg.defaultTimeout} min={10} max={600}
+                    onChange={(e) => setConfigs({ ...configs, [key]: { ...cfg, defaultTimeout: parseInt(e.target.value) || 60 } })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">提示词</label>
+                  <textarea value={cfg.instructions || ''}
+                    onChange={(e) => setConfigs({ ...configs, [key]: { ...cfg, instructions: e.target.value } })}
+                    rows={8}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono whitespace-pre-wrap"
+                    placeholder="编辑此智能体的系统提示词..." />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground block mb-1">可用工具（逗号分隔）</label>
+                  <input type="text" value={Array.isArray(cfg.toolNames) ? cfg.toolNames.join(", ") : (cfg.toolNames || "")} 
+                    onChange={(e) => setConfigs({ ...configs, [key]: { ...cfg, toolNames: e.target.value.split(",").map((s: string) => s.trim()).filter(Boolean) } })}
+                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono" 
+                    placeholder="searchWeb, readFile, runCommand..." />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-sm text-muted-foreground block mb-1">温度</label>
+                    <input type="number" value={cfg.temperature ?? 0.5} min={0} max={2} step={0.1}
+                      onChange={(e) => setConfigs({ ...configs, [key]: { ...cfg, temperature: parseFloat(e.target.value) ?? 0.5 } })}
+                      className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" />
+                  </div>
+                  <div>
+                    <label className="text-sm text-muted-foreground block mb-1">首选模型</label>
+                    <input type="text" value={cfg.preferredModel || ''}
+                      onChange={(e) => setConfigs({ ...configs, [key]: { ...cfg, preferredModel: e.target.value } })}
+                      className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary font-mono"
+                      placeholder="gpt-5.5-thinking" />
+                  </div>
+                  <div>
+                    <label className="text-sm text-muted-foreground block mb-1">最大步数</label>
+                    <input type="number" value={cfg.maxSteps ?? 15} min={1} max={50}
+                      onChange={(e) => setConfigs({ ...configs, [key]: { ...cfg, maxSteps: parseInt(e.target.value) || 15 } })}
+                      className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-primary" />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ============ Auth Settings Panel ============
 function AuthSettingsPanel() {

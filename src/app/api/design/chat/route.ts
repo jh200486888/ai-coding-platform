@@ -130,7 +130,7 @@ export async function POST(req: NextRequest) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              prompt, model: 'qwen-image-2.0', size: size,
+              prompt, model: modelId.includes('image') || modelId.includes('wan') || modelId.includes('wanx') || modelId.includes('dream') || modelId.includes('cogview') || modelId.includes('gpt-image') ? modelId : 'wan2.6-t2i', size: size,
               resolution: '1k', quality: 'low', n: 1, output_format: 'png',
               referenceImage: contextReferenceImage || undefined,
             }),

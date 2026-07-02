@@ -1,9 +1,18 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
 import { AuthProvider } from '@/lib/auth-provider';
 import { Toaster } from '@/components/ui/sonner';
 import { getSetting } from '@/lib/db';
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover',
+  themeColor: '#7c3aed',
+};
 
 export async function generateMetadata(): Promise<Metadata> {
   try {

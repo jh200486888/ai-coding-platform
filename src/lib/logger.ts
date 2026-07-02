@@ -1,13 +1,12 @@
-// 统一日志工具，生产环境可替换为结构化日志
+// 统一日志工具
 const isDev = process.env.NODE_ENV === 'development';
 
 export const logger = {
   error: (message: string, ...args: unknown[]) => {
-    if (isDev) console.error(`[ERROR] ${message}`, ...args);
-    // 生产环境可接入 Sentry / 日志服务
+    console.error(`[ERROR] ${message}`, ...args);
   },
   warn: (message: string, ...args: unknown[]) => {
-    if (isDev) console.warn(`[WARN] ${message}`, ...args);
+    console.warn(`[WARN] ${message}`, ...args);
   },
   info: (message: string, ...args: unknown[]) => {
     if (isDev) console.log(`[INFO] ${message}`, ...args);
@@ -16,3 +15,4 @@ export const logger = {
     if (isDev) console.debug(`[DEBUG] ${message}`, ...args);
   },
 };
+

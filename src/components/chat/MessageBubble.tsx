@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { User, Bot, Image, FileText, Code, Copy, Check, Pencil, Volume2, Square, FileSearch, Brain, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+
 import HtmlPreviewCard from './html-preview-card';
 import type { Message, Attachment } from '@/types';
 import ReactMarkdown from 'react-markdown';
@@ -70,6 +70,7 @@ interface ContentSegment {
   lang?: string;
   reportTitle?: string;
   reportSummary?: string;
+  reportArtifactId?: string;
   htmlData?: { html: string; title: string; viewport: string };
 }
 
@@ -78,28 +79,23 @@ function parseContent(text: string): ContentSegment[] {
   
   // Extract FULL_REPORT content and REPORT_CARD title
   let reportTitle: string | undefined;
-  let fullReportContent: string | undefined;
+  let fullReportContent = '';
   
-  // Match: <!--REPORT_CARD\ntitle\n-->...<!--FULL_REPORT-->...content...<!--/FULL_REPORT-->
-  const reportBlockMatch = text.match(/<!--REPORT_CARD\n(.+?)\n-->([\s\S]*?)<!--FULL_REPORT-->([\s\S]*?)<!--\/FULL_REPORT-->/);
+  // P71: Match REPORT_CARD with optional artifactId
+  // Format: <!--REPORT_CARD\ntitle\nartifactId\n--> or <!--REPORT_CARD\ntitle\n-->
+  let reportArtifactId: string | undefined;
+  const reportBlockMatch = text.match(/<!--REPORT_CARD\n(.+?)\n(.+?)?\n-->/);
   if (reportBlockMatch) {
     reportTitle = reportBlockMatch[1];
-    fullReportContent = reportBlockMatch[3].trim();
-    // Remove the entire report block from display text
-    text = text.replace(/<!--REPORT_CARD\n.+?\n-->[\s\S]*?<!--\/FULL_REPORT-->/, '');
-  }
-  
-  // Fallback: old format without FULL_REPORT (backward compat)
-  if (!reportTitle) {
-    const reportMatch = text.match(/<!--REPORT_CARD\n(.+?)\n-->/);
-    if (reportMatch) {
-      reportTitle = reportMatch[1];
-      text = text.replace(/<!--REPORT_CARD\n.+?\n-->/, '');
-    }
+    reportArtifactId = reportBlockMatch[2] || undefined;
+    text = text.replace(/<!--REPORT_CARD[\s\S]*?-->/, '');
   }
   
   // Remove EXEC_LOG from display
-  text = text.replace(/\n?<!--EXEC_LOG\n[\s\S]*?\n-->/, '');
+  text = text.replace(/\n?<!--EXEC_LOG[\s\S]*?-->/g, '');
+  // Remove REPORT_CARD wrapper tags but keep content
+  text = text.replace(/<!--REPORT_CARD[\s\S]*?-->/g, '');
+  text = text.replace(/<!--FULL_REPORT[\s\S]*?-->/g, '');
 
   // Extract HTML_PREVIEW marker if present
   let htmlPreviewData: { html: string; title: string; viewport: string } | undefined;
@@ -150,14 +146,35 @@ function parseContent(text: string): ContentSegment[] {
   
   // Add report card segment if marker was found
   if (reportTitle) {
-    // Get the summary text from the remaining segments (everything before the card)
     const summaryText = segments
       .filter(s => s.type === 'text')
       .map(s => s.content)
       .join(' ')
       .trim()
       .slice(0, 100);
-    segments.push({ type: 'report-card', content: '', reportTitle, reportSummary: summaryText });
+    segments.push({ type: 'report-card', content: '', reportTitle, reportSummary: summaryText, reportArtifactId });
+  }
+  
+  // Add html-preview segment if HTML_PREVIEW marker was found
+  if (htmlPreviewData) {
+    segments.push({ type: 'html-preview', content: '', htmlData: htmlPreviewData });
+  }
+  
+  // Auto-detect HTML code blocks and add preview after them
+  const htmlCodeSegments: number[] = [];
+  segments.forEach((seg, idx) => {
+    if (seg.type === 'code' && (seg.lang === 'html' || seg.lang === 'htm') && seg.content.trim().startsWith('<')) {
+      htmlCodeSegments.push(idx);
+    }
+  });
+  for (let i = htmlCodeSegments.length - 1; i >= 0; i--) {
+    const idx = htmlCodeSegments[i];
+    const codeSeg = segments[idx];
+    segments.splice(idx + 1, 0, {
+      type: 'html-preview',
+      content: '',
+      htmlData: { html: codeSeg.content, title: 'HTML 预览', viewport: 'desktop' },
+    });
   }
   
   if (segments.length === 0 && text) segments.push({ type: 'text', content: text });
@@ -175,14 +192,14 @@ function CodeBlock({ content, lang }: { content: string; lang?: string }) {
   }, [content]);
 
   return (
-    <div className="my-2 rounded-lg overflow-hidden border border-[#30363d] bg-[#0d1117]">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-[#161b22] border-b border-[#30363d]">
+    <div className="my-2 rounded-lg overflow-hidden border border-[#30363d] bg-[#0d1117] max-w-full">
+      <div className="flex items-center justify-between px-2 md:px-3 py-1.5 bg-[#161b22] border-b border-[#30363d]">
         <span className="text-xs text-[#8b949e] font-mono">{lang || 'code'}</span>
-        <button onClick={handleCopy} className="flex items-center gap-1 text-xs text-[#8b949e] hover:text-[#c9d1d9] transition-colors px-2 py-0.5 rounded hover:bg-[#161b22]/80">
+        <button onClick={handleCopy} className="flex items-center gap-1 text-xs text-[#8b949e] hover:text-[#c9d1d9] transition-colors px-2 py-0.5 rounded hover:bg-[#161b22]/80 min-h-[32px]">
           {copied ? (<><Check className="w-3 h-3 text-green-400" /><span className="text-green-400">已复制</span></>) : (<><Copy className="w-3 h-3" /><span>复制</span></>)}
         </button>
       </div>
-      <pre className="p-3 !m-0 overflow-x-auto text-sm !bg-[#0d1117]">
+      <pre className="p-2 md:p-3 !m-0 overflow-x-auto text-xs md:text-sm !bg-[#0d1117] -webkit-overflow-scrolling-touch">
         <code className={`language-${lang || 'text'} hljs font-mono whitespace-pre`} dangerouslySetInnerHTML={{ __html: content }} />
       </pre>
     </div>
@@ -209,21 +226,32 @@ function AttachmentItem({ attachment }: { attachment: Attachment }) {
   );
 }
 
-function ReportCard({ title, conversationId }: { title: string; conversationId?: string }) {
-  const router = useRouter();
+function ReportCard({ title, conversationId, artifactId }: { title: string; conversationId?: string; artifactId?: string }) {
+
   const handleClick = () => {
-    if (conversationId) {
-      window.open(`/preview/${conversationId}`, "_blank");
+    if (artifactId) {
+      // P71: Open dedicated report page showing only this report (no other chat history)
+      window.open('/report/' + artifactId, '_blank');
+      return;
+    }
+    // Fallback: open conversation preview
+    let convId = conversationId;
+    if (!convId) {
+      const urlParams = new URLSearchParams(window.location.search);
+      convId = urlParams.get('conv') || urlParams.get('id') || undefined;
+    }
+    if (convId) {
+      window.open('/preview/' + convId, '_blank');
     }
   };
   return (
     <div
       onClick={handleClick}
-      className="mt-3 rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10 hover:from-primary/10 hover:to-primary/15 px-4 py-3.5 cursor-pointer transition-all group"
+      className="mt-3 rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10 hover:from-primary/10 hover:to-primary/15 px-3 md:px-4 py-3 md:py-3.5 cursor-pointer transition-all group"
     >
-      <div className="flex items-start gap-3">
-        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-primary/15 flex items-center justify-center group-hover:bg-primary/25 transition-colors">
-          <FileSearch className="w-5 h-5 text-primary" />
+      <div className="flex items-start gap-2 md:gap-3">
+        <div className="flex-shrink-0 w-8 h-8 md:w-10 md:h-10 rounded-lg bg-primary/15 flex items-center justify-center group-hover:bg-primary/25 transition-colors">
+          <FileSearch className="w-4 h-4 md:w-5 md:h-5 text-primary" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors truncate">{title}</div>
@@ -248,7 +276,7 @@ function RenderedContent({ content, conversationId, isAssistant }: { content: st
     <>
       {segments.map((seg, i) => {
         if (seg.type === 'code') return <CodeBlock key={i} content={seg.content} lang={seg.lang} />;
-        if (seg.type === 'report-card') return <ReportCard key={i} title={seg.reportTitle || '分析报告'} conversationId={conversationId} />;
+        if (seg.type === 'report-card') return <ReportCard key={i} title={seg.reportTitle || '分析报告'} conversationId={conversationId} artifactId={seg.reportArtifactId} />;
         if (seg.type === 'html-preview' && seg.htmlData) return <HtmlPreviewCard key={i} html={seg.htmlData.html} title={seg.htmlData.title} viewport={seg.htmlData.viewport as any} />;
         if (isAssistant && seg.content.length > 20) {
           return (
@@ -259,8 +287,8 @@ function RenderedContent({ content, conversationId, isAssistant }: { content: st
               prose-code:text-accent prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:before:content-none prose-code:after:content-none
               prose-li:text-foreground prose-li:my-1 prose-li:text-[15px]
               prose-a:text-primary prose-a:underline hover:prose-a:text-accent prose-blockquote:border-primary prose-blockquote:text-muted-foreground
-              prose-table:text-sm prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:text-xs prose-th:font-semibold prose-th:border-b prose-th:border-border prose-th:bg-primary/10
-              prose-td:px-3 prose-td:py-2 prose-td:border-b prose-td:border-border">
+              prose-table:text-sm prose-th:px-2 md:prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:text-xs prose-th:font-semibold prose-th:border-b prose-th:border-border prose-th:bg-primary/10
+              prose-td:px-2 md:prose-td:px-3 prose-td:py-2 prose-td:border-b prose-td:border-border">
               <ReactMarkdown 
               remarkPlugins={[remarkGfm]}
               components={{
@@ -268,8 +296,8 @@ function RenderedContent({ content, conversationId, isAssistant }: { content: st
                 thead: (props) => <thead className="bg-primary/10" {...props}/>,
                 tbody: (props) => <tbody className="divide-y divide-border" {...props}/>,
                 tr: (props) => <tr className="hover:bg-muted/30 even:bg-muted/10" {...props}/>,
-                th: (props) => <th className="px-3 py-2.5 text-left text-xs font-semibold text-foreground border-b border-border whitespace-nowrap" {...props}/>,
-                td: (props) => <td className="px-3 py-2 text-sm text-foreground border-b border-border" {...props}/>,
+                th: (props) => <th className="px-2 md:px-3 py-2.5 text-left text-xs font-semibold text-foreground border-b border-border whitespace-nowrap" {...props}/>,
+                td: (props) => <td className="px-2 md:px-3 py-2 text-sm text-foreground border-b border-border" {...props}/>,
               }}
             >{seg.content}</ReactMarkdown>
             </div>
@@ -291,7 +319,7 @@ function ThinkingBlock({ content }: { content: string }) {
     <div className="mb-3 rounded-lg border border-violet-500/20 bg-violet-500/5 overflow-hidden">
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-violet-400 hover:bg-violet-500/10 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs text-violet-400 hover:bg-violet-500/10 transition-colors min-h-[44px]"
       >
         <Brain className="w-3.5 h-3.5" />
         <span className="font-medium">思考过程</span>
@@ -346,11 +374,11 @@ export function MessageBubble({ message, isStreaming, isEditing, editContent, on
   }, [isPlaying, message.content]);
 
   return (
-    <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-      <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isUser ? 'bg-primary' : 'bg-muted'}`}>
-        {isUser ? <User className="w-4 h-4 text-primary-foreground" /> : <Bot className="w-4 h-4 text-muted-foreground" />}
+    <div className={`flex gap-2 md:gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
+      <div className={`flex-shrink-0 w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center ${isUser ? 'bg-primary' : 'bg-muted'}`}>
+        {isUser ? <User className="w-3.5 h-3.5 md:w-4 md:h-4 text-primary-foreground" /> : <Bot className="w-3.5 h-3.5 md:w-4 md:h-4 text-muted-foreground" />}
       </div>
-      <div className={`flex-1 ${isUser ? 'max-w-[80%]' : 'max-w-[95%]'} rounded-lg px-4 py-3 text-[15px] ${isUser ? 'bg-primary text-primary-foreground' : 'bg-card border border-border overflow-hidden'}`}>
+      <div className={`flex-1 ${isUser ? 'max-w-[90%] md:max-w-[80%]' : 'max-w-full md:max-w-[95%]'} rounded-lg px-3 md:px-4 py-2.5 md:py-3 text-[14px] md:text-[15px] ${isUser ? 'bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-sm shadow-primary/20' : 'bg-card border border-border border-l-2 border-l-primary/30 overflow-hidden'}`}>
         {hasAttachments && (
           <div className={`flex flex-wrap gap-2 mb-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
             {message.attachments!.map(att => <AttachmentItem key={att.id} attachment={att} />)}
@@ -392,7 +420,7 @@ export function MessageBubble({ message, isStreaming, isEditing, editContent, on
             {isUser && message.content && !isEditing && (
               <button
                 onClick={onEdit}
-                className="mt-1.5 flex items-center gap-1 text-[10px] text-primary-foreground/50 hover:text-primary-foreground/90 transition-colors"
+                className="mt-1.5 flex items-center gap-1 text-[10px] text-primary-foreground/50 hover:text-primary-foreground/90 transition-colors min-h-[32px]"
               >
                 <Pencil className="w-2.5 h-2.5" />
                 编辑
@@ -401,7 +429,7 @@ export function MessageBubble({ message, isStreaming, isEditing, editContent, on
             {!isUser && message.content && (
               <button
                 onClick={handleTTS}
-                className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors min-h-[32px]"
               >
                 {isPlaying ? <Square className="w-2.5 h-2.5" /> : <Volume2 className="w-2.5 h-2.5" />}
                 {isPlaying ? '停止' : '朗读'}

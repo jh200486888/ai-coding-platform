@@ -2,6 +2,7 @@
 // AI SDK v7 tool() type inference issue
 import { tool } from 'ai';
 import { z } from 'zod';
+import { logger } from '@/lib/logger';
 
 // Preview HTML content - returns a special marker that the frontend renders as an iframe
 export const preview_html = tool({
@@ -18,7 +19,7 @@ Do NOT use this for markdown or plain text - only for actual HTML that should be
     try {
       const encodedHtml = Buffer.from(html).toString('base64');
       const result = '<!--HTML_PREVIEW\ntitle:' + (title || 'Preview') + '\nviewport:' + viewport + '\nhtml:' + encodedHtml + '\n-->';
-      console.log('[preview_html] Success, output length:', result.length);
+      logger.info('[preview_html] Success, output length:', result.length);
       return result;
     } catch (e: any) {
       console.error('[preview_html] Error:', e.message);

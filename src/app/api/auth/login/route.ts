@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { findUserByEmail, verifyPassword, setSessionCookie, createAccessToken } from '@/lib/auth';
+import { claimAnonymousConversations } from '@/lib/db';
 
 export async function POST(request: NextRequest) {
   try {
@@ -22,6 +23,9 @@ export async function POST(request: NextRequest) {
     const authUser = { id: user.id, email: user.email, name: user.name, role: user.role };
     const token = await createAccessToken(authUser);
     await setSessionCookie(token);
+
+    // Claim anonymous conversations for this user (sync mobile/desktop)
+    try { await claimAnonymousConversations(user.id); } catch {}
 
     return NextResponse.json({ 
       success: true, 

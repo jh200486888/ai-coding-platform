@@ -117,10 +117,9 @@ export function useChatLogic(options: {
         const mediaTypeMatch = dataUrl.match(/^data:(image\/[^;]+);/);
         const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : 'image/png';
         imageFiles.push({ type: 'file', mediaType, url: dataUrl });
-      } else if (att.content) {
-        fileTextParts.push(`[文件: ${att.name}]\n${att.content.slice(0, 8000)}`);
-      } else if (att.url) {
-        fileTextParts.push(`[文件: ${att.name}]`);
+      } else if (att.content || att.url) {
+        // 文件附件：只在消息中显示文件名，内容通过body.attachments传递
+        fileTextParts.push(`[附件: ${att.name}]`);
       }
     }
 

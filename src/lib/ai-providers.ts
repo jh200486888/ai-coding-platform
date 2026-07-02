@@ -82,6 +82,7 @@ export const PROVIDER_ALIASES: Record<string, string[]> = {
   doubao: ['volcengine'],
   'openai-image': ['openai'],
   'qwen-image': ['qwen'],
+  'agnes-image': ['agnes'],
 };
 
 // 获取提供商配置
@@ -99,7 +100,7 @@ const OPENAI_COMPAT_PROVIDERS = new Set([
   'deepseek', 'dashscope', 'zhipu', 'moonshot', 'yi',
   'minimax', 'doubao', 'qianfan', 'hunyuan', 'openrouter',
   'together', 'groq', 'mistral', 'xai', 'baidu', 'qwen',
-  'volcengine', 'cohere',
+  'volcengine', 'cohere', 'agnes',
 ]);
 
 // 根据提供商获取模型配置（用于 AI SDK）

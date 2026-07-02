@@ -17,7 +17,7 @@ export const imageTools = {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt,
-            model: model || 'wan2.6-t2i',
+            model: model || 'qwen-image-2.0',
             size: '1:1',
             resolution: '1k',
             n: 1,

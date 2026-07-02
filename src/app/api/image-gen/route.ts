@@ -1,10 +1,20 @@
 import { NextRequest } from 'next/server';
 import { query, queryOne } from '@/lib/db';
 import { decodeApiKey, PROVIDER_ALIASES } from '@/lib/ai-providers';
+import { logger } from '@/lib/logger';
+
+// Increase body size limit for large reference images (base64 can be >10MB)
+export const config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '50mb',
+    },
+  },
+};
 
 // Model configurations - interface
 interface ModelConfig {
-  provider: 'openai' | 'qwen' | 'volcengine' | 'zhipu';
+  provider: 'openai' | 'qwen' | 'volcengine' | 'zhipu' | 'agnes';
   sizes: Record<string, string[]>;
   defaultSize: string;
   maxN: number;
@@ -33,8 +43,8 @@ const FALLBACK_MODEL_CONFIGS: Record<string, ModelConfig> = {
   },
   'wan2.6-t2i': {
     provider: 'qwen', dashScopeModel: 'wanx-v1',
-    sizes: { '1k': ['1280*1280', '720*1280', '1280*720'], '2k': ['1440*1440', '1024*1440', '1440*1024'] },
-    defaultSize: '1280*1280', maxN: 4, supportsEdit: true, apiType: 'multimodal',
+    sizes: { '1k': ['1024*1024', '720*1280', '1280*720', '768*1152', '1152*768'], '2k': ['1440*1440', '1024*1440', '1440*1024'] },
+    defaultSize: '1024*1024', maxN: 4, supportsEdit: true, apiType: 'text2image',
   },
   'wanx-v1-edit': {
     provider: 'qwen', dashScopeModel: 'wanx-v1',
@@ -46,6 +56,17 @@ const FALLBACK_MODEL_CONFIGS: Record<string, ModelConfig> = {
     sizes: { '1k': ['1024x1024', '768x1024', '1024x768', '576x1024', '1024x576'], '2k': ['2048x2048', '1536x2048', '2048x1536'] },
     defaultSize: '1024x1024', maxN: 4, supportsEdit: false, apiType: 'openai-edit',
   },
+  'agnes-image-2.0-flash': {
+    provider: 'agnes',
+    sizes: { '1k': ['1024x1024', '1024x768', '768x1024'], '2k': ['2048x2048', '2048x1536', '1536x2048'] },
+    defaultSize: '1024x1024', maxN: 4, supportsEdit: true, apiType: 'openai-edit',
+  },
+  'agnes-image-2.1-flash': {
+    provider: 'agnes',
+    sizes: { '1k': ['1024x1024', '1536x1024', '1024x1536', '768x1024', '1024x768'], '2k': ['2048x2048', '2048x1536', '1536x2048'], '3k': ['3072x3072', '3072x2304', '2304x3072'], '4k': ['4096x4096', '4096x3072', '3072x4096'] },
+    defaultSize: '1024x1024', maxN: 4, supportsEdit: true, apiType: 'openai-edit',
+  },
+
 };
 
 // Cache for DB-loaded configs (refreshed every 5 minutes)
@@ -139,17 +160,34 @@ async function getApiKey(provider: string): Promise<{ key: string; baseUrl: stri
   return null;
 }
 
+
+// 将用户选择的比例(1:1/3:4等)映射为text2image端点支持的像素尺寸
+// wanx-v1 text2image支持: 1024*1024, 720*1280, 1280*720, 768*1152, 1152*768
+function mapMultimodalToText2ImgSize(ratio: string): string {
+  const sizeMap: Record<string, string> = {
+    '1:1': '1024*1024',
+    '3:4': '768*1152',
+    '4:3': '1152*768',
+    '16:9': '1280*720',
+    '9:16': '720*1280',
+  };
+  return sizeMap[ratio] || '1024*1024';
+}
+
 // ============ 万相2.7/2.6 Multimodal Generation 图生图 ============
 // 使用 multimodal-generation 端点，content数组同时传text和image
 async function generateWanMultimodal(
   apiKey: string, model: string, prompt: string,
   size: string, n: number, referenceImage: string
 ): Promise<{ images: Array<{ id: string; url: string; revised_prompt: string }> }> {
-  // 构建content数组 - 这是图生图的核心
+  // 构建content数组 - 图生图时包含参考图，文生图时只传文字
   const content: Array<Record<string, string>> = [
     { text: prompt },
-    { image: referenceImage },
   ];
+  // 只在有参考图时才添加image字段，空字符串会导致API报"url error"
+  if (referenceImage) {
+    content.push({ image: referenceImage });
+  }
 
   const requestBody = {
     model,
@@ -165,7 +203,7 @@ async function generateWanMultimodal(
     },
   };
 
-  console.log(`[ImageGen] Wan Multimodal: model=${model}, size=${size}, n=${n}, hasRefImage=true`);
+  logger.info(`[ImageGen] Wan Multimodal: model=${model}, size=${size}, n=${n}, hasRefImage=${!!referenceImage}`);
 
   const submitResponse = await fetch(
     'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
@@ -190,7 +228,7 @@ async function generateWanMultimodal(
   const taskId = submitData?.output?.task_id;
   if (!taskId) throw new Error('万相Multimodal API 未返回任务 ID');
 
-  console.log(`[ImageGen] Wan Multimodal task submitted: ${taskId}`);
+  logger.info(`[ImageGen] Wan Multimodal task submitted: ${taskId}`);
 
   // 轮询等待结果
   const maxAttempts = 60;
@@ -284,14 +322,69 @@ async function generateOpenAICompatible(
   return { images };
 }
 
+// Agnes AI 图生图（image参数必须放在extra_body中，不能放顶层）
+async function generateAgnesImg2Img(
+  baseUrl: string, apiKey: string, model: string, prompt: string,
+  size: string, outputFormat: string, referenceImage: string
+): Promise<{ images: Array<{ id: string; url: string; revised_prompt: string }> }> {
+  const requestBody: Record<string, unknown> = {
+    model,
+    prompt,
+    size,
+  };
+
+  // 图生图: image参数必须放在extra_body中
+  const extraBody: Record<string, unknown> = {
+    response_format: 'url',
+  };
+
+  if (referenceImage) {
+    // 参考图：支持base64 data URI和URL格式
+    if (referenceImage.startsWith('data:')) {
+      extraBody.image = [referenceImage];
+    } else {
+      extraBody.image = [referenceImage];
+    }
+  }
+
+  requestBody.extra_body = extraBody;
+
+  const response = await fetch(baseUrl + '/images/generations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    const errorMsg = (errorData as Record<string, unknown>)?.error
+      ? ((errorData as Record<string, Record<string, string>>).error.message || 'Unknown error')
+      : 'HTTP ' + response.status;
+    throw new Error('Agnes图生图错误: ' + errorMsg);
+  }
+
+  const data = await response.json();
+  const mimeType = outputFormat === 'jpeg' ? 'image/jpeg' : outputFormat === 'webp' ? 'image/webp' : 'image/png';
+  const images = (data.data || []).map((item: Record<string, string>, index: number) => ({
+    id: 'agnes-img2img-' + Date.now() + '-' + index,
+    url: item.b64_json ? 'data:' + mimeType + ';base64,' + item.b64_json : item.url || '',
+    revised_prompt: item.revised_prompt || prompt,
+  }));
+  return { images };
+}
+
 // DashScope async image generation (qwen/通义千问 text2image)
 async function generateDashScopeAsync(
   apiKey: string, dashScopeModel: string, prompt: string,
   size: string, n: number, referenceImage?: string
 ): Promise<{ images: Array<{ id: string; url: string; revised_prompt: string }> }> {
   const input: Record<string, unknown> = { prompt };
-  if (referenceImage) {
-    input.image = referenceImage;
+  // text2image端点的参考图字段是 ref_img（不是 image），且只接受 URL 不接受 base64
+  // 如果参考图是 base64 data URI，text2image 端点无法处理，应该走 multimodal 端点
+  if (referenceImage && referenceImage.startsWith('http')) {
+    input.ref_img = referenceImage;
+    // ref_strength: 参考图相似度 0.0-1.0，默认0.5
+    // ref_mode: repaint=基于参考图内容生成, refonly=基于参考图风格生成
   }
 
   const submitResponse = await fetch(
@@ -434,17 +527,32 @@ export async function POST(request: NextRequest) {
     // ============ 图生图流程 ============
     if (referenceImage) {
       const apiType = modelConfig.apiType || 'text2image';
-      console.log(`[ImageGen] Image-to-Image: model=${model}, apiType=${apiType}, hasRefImage=true`);
+      logger.info(`[ImageGen] Image-to-Image: model=${model}, apiType=${apiType}, hasRefImage=true`);
 
-      // 万相2.6/2.7 multimodal-generation 端点
+      // 万相2.6/2.7: 有参考图走multimodal端点，纯文生图走text2image端点
       if (apiType === 'multimodal') {
-        const actualSize = resolveDashScopeSize(model, size, resolution, MODEL_CONFIGS);
-        const result = await generateWanMultimodal(
-          apiKey, modelConfig.dashScopeModel || model, prompt, actualSize, n, referenceImage
-        );
-        return new Response(JSON.stringify({
-          success: true, images: result.images, model, size: actualSize,
-        }), { headers: { 'Content-Type': 'application/json' } });
+        const dashScopeModel = modelConfig.dashScopeModel || model;
+        if (referenceImage) {
+          // 图生图: 走multimodal端点（size用标签如1K/2K）
+          const actualSize = resolveDashScopeSize(model, size, resolution, MODEL_CONFIGS);
+          const result = await generateWanMultimodal(
+            apiKey, dashScopeModel, prompt, actualSize, n, referenceImage
+          );
+          return new Response(JSON.stringify({
+            success: true, images: result.images, model, size: actualSize,
+          }), { headers: { 'Content-Type': 'application/json' } });
+        } else {
+          // 纯文生图: multimodal端点要求必须有图片输入，走text2image端点
+          // text2image端点需要特定像素尺寸，multimodal的尺寸可能不兼容
+          logger.info(`[ImageGen] Multimodal model without ref, using text2image endpoint`);
+          const text2imgSize = mapMultimodalToText2ImgSize(size);
+          const result = await generateDashScopeAsync(
+            apiKey, dashScopeModel, prompt, text2imgSize, Math.min(n, modelConfig.maxN)
+          );
+          return new Response(JSON.stringify({
+            success: true, images: result.images, model, size: text2imgSize,
+          }), { headers: { 'Content-Type': 'application/json' } });
+        }
       }
 
       // OpenAI gpt-image-2 edits 端点
@@ -454,8 +562,34 @@ export async function POST(request: NextRequest) {
         return handleOpenAIEdit(apiKey, prompt, referenceImage, actualSize, output_format, editBaseUrl);
       }
 
+      // Agnes AI 图生图（image参数必须放在extra_body中）
+      if (modelConfig.provider === 'agnes') {
+        const actualSize = resolveOpenAISize(model, size, resolution, MODEL_CONFIGS);
+        const agnesBaseUrl = keyData?.baseUrl || 'https://apihub.agnes-ai.com/v1';
+        const agnesResult = await generateAgnesImg2Img(
+          agnesBaseUrl, apiKey, model, prompt, actualSize, output_format, referenceImage
+        );
+        return new Response(JSON.stringify({
+          success: true, images: agnesResult.images, model, size: actualSize,
+        }), { headers: { 'Content-Type': 'application/json' } });
+      }
+
       // 百炼 text2image 端点（wanx-v1等老模型）
+      // 注意：text2image端点的ref_img只接受URL不接受base64
+      // 如果参考图是base64，改走multimodal端点（支持base64）
       if (apiType === 'text2image' && modelConfig.provider === 'qwen') {
+        if (referenceImage.startsWith('data:')) {
+          // base64参考图 → 走multimodal端点
+          logger.info(`[ImageGen] text2image model with base64 ref, redirecting to multimodal endpoint`);
+          const actualSize = resolveDashScopeSize(model, size, resolution, MODEL_CONFIGS);
+          const result = await generateWanMultimodal(
+            apiKey, modelConfig.dashScopeModel || model, prompt, actualSize, n, referenceImage
+          );
+          return new Response(JSON.stringify({
+            success: true, images: result.images, model, size: actualSize,
+          }), { headers: { 'Content-Type': 'application/json' } });
+        }
+        // URL参考图 → 走text2image端点的ref_img字段
         const actualSize = resolveDashScopeSize(model, size, resolution, MODEL_CONFIGS);
         const dashScopeModel = modelConfig.dashScopeModel || model;
         const result = await generateDashScopeAsync(
@@ -498,13 +632,13 @@ export async function POST(request: NextRequest) {
         const dashScopeModel = modelConfig.dashScopeModel || model;
         const apiType = modelConfig.apiType || 'text2image';
         
-        // 万相2.6/2.7文生图也走multimodal端点
+        // 万相2.6/2.7文生图: multimodal端点要求图片输入，纯文本走text2image
+        // text2image需要特定像素尺寸
         if (apiType === 'multimodal') {
-          result = await generateWanMultimodal(
-            apiKey, dashScopeModel, prompt, actualSize, imageCount, ''
+          const text2imgSize = mapMultimodalToText2ImgSize(size);
+          result = await generateDashScopeAsync(
+            apiKey, dashScopeModel, prompt, text2imgSize, imageCount
           );
-          // 如果没传参考图但用multimodal，降级到text2image
-          // generateWanMultimodal传空参考图时只发text
         } else {
           result = await generateDashScopeAsync(
             apiKey, dashScopeModel, prompt, actualSize, imageCount
@@ -526,6 +660,15 @@ export async function POST(request: NextRequest) {
         const zhipuBaseUrl = keyData?.baseUrl || 'https://open.bigmodel.cn/api/paas/v4';
         result = await generateOpenAICompatible(
           zhipuBaseUrl, apiKey, model, prompt,
+          actualSize, imageCount, quality, output_format
+        );
+        break;
+      }
+      case 'agnes': {
+        actualSize = resolveOpenAISize(model, size, resolution, MODEL_CONFIGS);
+        const agnesBaseUrl = keyData?.baseUrl || 'https://api.agnes-ai.com/v1';
+        result = await generateOpenAICompatible(
+          agnesBaseUrl, apiKey, model, prompt,
           actualSize, imageCount, quality, output_format
         );
         break;

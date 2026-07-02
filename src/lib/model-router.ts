@@ -1,23 +1,77 @@
 import { getApiKeyByProvider, getModelConfig, getSetting, query } from '@/lib/db';
+import { logger } from '@/lib/logger';
 
-export type IntentType = 'design' | 'code' | 'image' | 'visual' | 'chat';
+export type IntentType = 'design' | 'code' | 'image' | 'visual' | 'chat' | 'coding' | 'analysis' | 'writing';
 
 export function classifyIntent(message: string): IntentType {
   const lower = message.toLowerCase();
   if (['生成图','画图','生图','generate image','draw','create image'].some(kw => lower.includes(kw))) return 'image';
   if (['截图','设计稿','复刻','前端复刻','视觉编程','screenshot','mockup','wireframe','设计图','UI还原','界面还原','界面复刻'].some(kw => lower.includes(kw))) return 'visual';
   if (['设计','海报','logo','封面','UI','界面','配色','排版','布局','design','poster','banner'].some(kw => lower.includes(kw))) return 'design';
+  if (['分析','评估','比较','优化','审查','analyze','evaluate','compare','optimize','review','评估报告','数据分析'].some(kw => lower.includes(kw))) return 'analysis';
+  if (['写','文案','文章','总结','翻译','写作','write','article','summary','translate','draft','文案写作','报告'].some(kw => lower.includes(kw))) return 'writing';
+  if (['代码','函数','API','数据库','部署','debug','修复','编程','code','function','deploy','bug','重构','implement','开发','建站','网站','应用'].some(kw => lower.includes(kw))) return 'coding';
   if (['代码','函数','API','数据库','部署','debug','修复','编程','code','function','deploy','bug'].some(kw => lower.includes(kw))) return 'code';
   return 'chat';
 }
 
-const INTENT_PROVIDER_PRIORITY: Record<IntentType, string[]> = {
-  design: ['deepseek', 'zhipu', 'qwen', 'openai'],
-  visual: ['zhipu', 'deepseek', 'qwen', 'openai'],
-  code: ['deepseek', 'zhipu', 'openai'],
+// === Provider优先级从DB读取 ===
+const DEFAULT_INTENT_PROVIDER_PRIORITY: Record<string, string[]> = {
+  design: ['openai', 'anthropic', 'deepseek', 'qwen', 'zhipu'],
+  visual: ['openai', 'anthropic', 'zhipu', 'deepseek', 'qwen'],
+  code: ['openai', 'anthropic', 'deepseek', 'qwen', 'zhipu'],
+  coding: ['openai', 'anthropic', 'deepseek', 'qwen', 'zhipu'],
+  analysis: ['openai', 'anthropic', 'deepseek', 'qwen', 'zhipu'],
+  writing: ['openai', 'deepseek', 'qwen', 'anthropic', 'zhipu'],
   image: ['openai-image'],
-  chat: ['deepseek', 'zhipu', 'qwen'],
+  chat: ['deepseek', 'qwen', 'zhipu', 'openai'],
 };
+
+let cachedProviderPriority: Record<string, string[]> | null = null;
+let providerCacheExpiry = 0;
+
+async function getIntentProviderPriority(): Promise<Record<string, string[]>> {
+  if (cachedProviderPriority && Date.now() < providerCacheExpiry) return cachedProviderPriority;
+  try {
+    const val = await getSetting('intent_provider_priority');
+    if (val) {
+      cachedProviderPriority = JSON.parse(val);
+      providerCacheExpiry = Date.now() + CACHE_TTL;
+      return cachedProviderPriority!;
+    }
+  } catch {}
+  return DEFAULT_INTENT_PROVIDER_PRIORITY;
+}
+
+// === 智能模型路由：从DB读取，DB无配置时用默认值 ===
+const DEFAULT_INTENT_MODEL_PRIORITY: Record<string, string[]> = {
+  code: ['gpt-4.1', 'claude-sonnet-4-5', 'deepseek-v4-pro', 'deepseek-v4-flash', 'o3-mini', 'qwen-max'],
+  coding: ['gpt-5.5-thinking', 'gpt-5.4-thinking', 'gpt-4.1', 'deepseek-v4-pro', 'claude-sonnet-4-5'],
+  analysis: ['gpt-5.5-thinking', 'gpt-5.4-thinking', 'deepseek-v4-pro', 'claude-sonnet-4-5'],
+  writing: ['gpt-5.5', 'gpt-5.4-mini', 'qwen-max', 'deepseek-v4-flash'],
+  design: ['gpt-4.1', 'claude-sonnet-4-5', 'deepseek-v4-flash', 'qwen-max'],
+  visual: ['gpt-4.1', 'claude-sonnet-4-5', 'glm-5v-turbo', 'deepseek-v4-flash'],
+  chat: ['deepseek-v4-flash', 'gpt-4o-mini', 'qwen-turbo', 'glm-4-flash'],
+  image: ['gpt-image-2'],
+};
+
+// Cache for DB-loaded model priorities
+let cachedModelPriority: Record<string, string[]> | null = null;
+let cacheExpiry = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getIntentModelPriority(): Promise<Record<string, string[]>> {
+  if (cachedModelPriority && Date.now() < cacheExpiry) return cachedModelPriority;
+  try {
+    const val = await getSetting('intent_model_priority');
+    if (val) {
+      cachedModelPriority = JSON.parse(val);
+      cacheExpiry = Date.now() + CACHE_TTL;
+      return cachedModelPriority!;
+    }
+  } catch {}
+  return DEFAULT_INTENT_MODEL_PRIORITY;
+}
 
 export interface ModelRouteResult {
   provider: string;
@@ -41,7 +95,7 @@ const FAIL_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes cooldown
 /** Mark a provider as failed (called by chat route when API returns balance/quota errors) */
 export function markProviderFailed(provider: string, reason?: string) {
   failedProviders.set(provider, Date.now() + FAIL_COOLDOWN_MS);
-  console.log(`[Router] Provider ${provider} marked as failed: ${reason || 'API error'}, will retry after ${FAIL_COOLDOWN_MS/60000}min`);
+  logger.info(`[Router] Provider ${provider} marked as failed: ${reason || 'API error'}, will retry after ${FAIL_COOLDOWN_MS/60000}min`);
 }
 
 /** Check if a provider is currently in cooldown */
@@ -85,12 +139,29 @@ export async function routeModel(message: string, forceIntent?: IntentType): Pro
     }
   } catch {}
 
-  // 2. Try intent-preferred providers, resolving model ID from DB model_configs
-  // Skip providers that are in cooldown (recently failed)
-  const providers = INTENT_PROVIDER_PRIORITY[intent];
+  // 2. Try intent-preferred specific models first (smart routing, DB-driven)
+  const modelPriority = await getIntentModelPriority();
+  const preferredModels = modelPriority[intent] || [];
+  for (const modelId of preferredModels) {
+    try {
+      const config = await getModelConfig(modelId);
+      if (config && isProviderAvailable(config.provider)) {
+        const keyData = await getApiKeyByProvider(config.provider);
+        if (keyData?.api_key_encrypted) {
+          return { provider: config.provider, model: modelId,
+            apiKey: decodeApiKey(keyData.api_key_encrypted), baseUrl: keyData.base_url,
+            intent, routingReason: `smart_route[${intent}] -> ${config.provider}/${modelId}` };
+        }
+      }
+    } catch {}
+  }
+
+  // 3. Try intent-preferred providers (fallback to any active model)
+  const providerPriority = await getIntentProviderPriority();
+  const providers = providerPriority[intent] || [];
   for (const provider of providers) {
     if (!isProviderAvailable(provider)) {
-      console.log(`[Router] Skipping ${provider} (in cooldown)`);
+      logger.info(`[Router] Skipping ${provider} (in cooldown)`);
       continue;
     }
     try {
@@ -106,7 +177,7 @@ export async function routeModel(message: string, forceIntent?: IntentType): Pro
     } catch {}
   }
 
-  // 3. Fallback: default model from settings
+  // 4. Fallback: default model from settings
   try {
     const defaultModel = await getSetting('default_model');
     if (defaultModel) {
@@ -122,8 +193,10 @@ export async function routeModel(message: string, forceIntent?: IntentType): Pro
     }
   } catch {}
 
-  // 4. Last resort: any available provider (skip failed ones)
-  for (const fb of ['deepseek', 'zhipu', 'qwen', 'openai', 'moonshot', 'doubao']) {
+  // 5. Last resort: any available provider (skip failed ones)
+  // Fallback provider list from DB setting, default to common providers
+  const fallbackProviders = (await getSetting('fallback_providers'))?.split(',').map((s:string)=>s.trim()).filter(Boolean) || ['deepseek', 'zhipu', 'qwen', 'openai', 'moonshot', 'doubao'];
+  for (const fb of fallbackProviders) {
     if (!isProviderAvailable(fb)) continue;
     try {
       const keyData = await getApiKeyByProvider(fb);

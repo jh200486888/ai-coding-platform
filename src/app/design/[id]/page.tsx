@@ -201,66 +201,61 @@ export default function DesignEditorPage() {
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
           
-          // Parse stream parts separated by newlines
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || ""; // Keep incomplete line in buffer
+          // Parse SSE events: "data: {...}\n\n" format (AI SDK v7)
+          const sseParts = buffer.split("\n\n");
+          buffer = sseParts.pop() || ""; // Keep incomplete part
           
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            
-            // AI SDK UI stream format: 0:"text" for text deltas
-            if (trimmed.startsWith("0:")) {
+          for (const part of sseParts) {
+            for (const line of part.split("\n")) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith("data:")) continue;
+              const dataStr = trimmed.slice(5).trim();
+              if (dataStr === "[DONE]") continue;
+              
               try {
-                const text = JSON.parse(trimmed.slice(2));
-                assistantContent += text;
-                setMessages(prev => prev.map(m =>
-                  m.id === assistantId ? { ...m, content: assistantContent } : m
-                ));
-              } catch {}
-            }
-            
-            // Tool call results: b:{...}
-            if (trimmed.startsWith("b:")) {
-              try {
-                const toolData = JSON.parse(trimmed.slice(2));
-                const resultStr = typeof toolData.result === "string"
-                  ? toolData.result
-                  : JSON.stringify(toolData.result || "");
+                const event = JSON.parse(dataStr);
                 
-                // Extract HTML preview
-                const htmlMatch = resultStr.match(/<!--HTML_PREVIEW\n([\s\S]*?)\n-->/);
-                if (htmlMatch) {
-                  const meta = htmlMatch[1];
-                  const htmlM = meta.match(/html:(.*)/);
-                  if (htmlM) {
-                    try {
-                      const html = decodeURIComponent(escape(atob(htmlM[1].trim())));
-                      setCanvasHtml(html);
-                      setActiveCanvas("html");
-                    } catch {
-                      try { setCanvasHtml(atob(htmlM[1].trim())); setActiveCanvas("html"); } catch {}
+                // Text delta - accumulate and update UI
+                if (event.type === "text-delta") {
+                  assistantContent += event.delta || "";
+                  setMessages(prev => prev.map(m =>
+                    m.id === assistantId ? { ...m, content: assistantContent } : m
+                  ));
+                }
+                
+                // Tool output - extract HTML preview or generated images
+                if (event.type === "tool-output-available") {
+                  const output = typeof event.output === "string" ? event.output : JSON.stringify(event.output || "");
+                  
+                  // Extract HTML preview
+                  const htmlMatch = output.match(/<!--HTML_PREVIEW\n([\s\S]*?)\n-->/);
+                  if (htmlMatch) {
+                    const meta = htmlMatch[1];
+                    const htmlM = meta.match(/html:(.*)/);
+                    if (htmlM) {
+                      try {
+                        const html = decodeURIComponent(escape(atob(htmlM[1].trim())));
+                        setCanvasHtml(html);
+                        setActiveCanvas("html");
+                      } catch {
+                        try { setCanvasHtml(atob(htmlM[1].trim())); setActiveCanvas("html"); } catch {}
+                      }
                     }
+                  }
+                  
+                  // Extract generated image
+                  const imgMatch = output.match(/IMAGE_GENERATED:(\/generated\/[^\s]+)/);
+                  if (imgMatch) {
+                    const imgUrl = imgMatch[1];
+                    assistantImages.push(imgUrl);
+                    setGeneratedImages(prev => [...new Set([...prev, imgUrl])]);
+                    setActiveCanvas("image");
                   }
                 }
                 
-                // Extract generated image
-                const imgMatch = resultStr.match(/IMAGE_GENERATED:(\/generated\/[^\s]+)/);
-                if (imgMatch) {
-                  const imgUrl = imgMatch[1];
-                  assistantImages.push(imgUrl);
-                  setGeneratedImages(prev => [...new Set([...prev, imgUrl])]);
-                  setActiveCanvas("image");
-                }
-              } catch {}
-            }
-            
-            // Data parts (custom image_generated events)
-            if (trimmed.startsWith("2:")) {
-              try {
-                const dataArr = JSON.parse(trimmed.slice(2));
-                if (Array.isArray(dataArr)) {
-                  for (const d of dataArr) {
+                // Data parts (custom image_generated events)
+                if (event.type === "data" && Array.isArray(event.data)) {
+                  for (const d of event.data) {
                     if (d.type === "image_generated" && d.url) {
                       assistantImages.push(d.url);
                       setGeneratedImages(prev => [...new Set([...prev, d.url])]);

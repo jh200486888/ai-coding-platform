@@ -1,38 +1,99 @@
 import { NextRequest } from 'next/server';
-import { ToolLoopAgent, isStepCount, pruneMessages, streamText, toUIMessageStream, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
+import { ToolLoopAgent, isStepCount, pruneMessages, streamText, generateText, toUIMessageStream, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig, getSetting, setConversationUserId } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 import { z } from 'zod';
 import { tool } from 'ai';
-import { createSubAgentTool } from '@/lib/sub-agents';
+import { createSubAgentTool, createPlanAndExecuteTool, createAggregateResultsTool, createReflectTool, createMemoryMaintenanceTool, setSchedulerSessionId } from '@/lib/task-scheduler';
+import { createGenerateChartTool, createGeneratePptTool, createGenerateDocumentTool } from '@/lib/multimodal-output';
+import { 
+  initAgentStateTable, getAgentState, saveAgentState, recordToolCall, 
+  getStateContext, extractAndSaveProgress, initScheduledTasksTable,
+  createScheduledTask, determineRecoveryStrategy, getRecoveryHint,
+  createTaskPlan, updatePlanStep, getActivePlan, reflectAndSave
+} from '@/lib/agent-state';
 import { routeModel, markProviderFailed } from '@/lib/model-router';
+import { searchKnowledge, getActiveKnowledgeBaseIds } from '@/lib/rag';
 
 import { describeImages } from '@/lib/vision-proxy';
 // === 自主智能：SSH工具 + 技能系统 ===
 import { serverTools } from '@/lib/server-tools';
-import { skillTools, generateSkillsCatalog } from '@/lib/skills';
+import { dynamicTools } from '@/lib/dynamic-tool-runner';
+import { browserTools } from '@/lib/browser-automation';
+import { crossMemoryTools } from '@/lib/cross-session-memory';
+import { skillTools, generateSkillsCatalog, initConversationTracking, clearConversationTracking } from '@/lib/skills';
 import { webTools } from '@/lib/web-scraper';
 import { previewTools } from '@/lib/preview-tool';
+import { dbTools, githubTools } from '@/lib/mcp-native-tools';
 // ============ 日志中间件（AI SDK 原生 Middleware） ============
 const loggingMiddleware: LanguageModelMiddleware = {
   wrapGenerate: async ({ doGenerate, params, model }) => {
     const startTime = Date.now();
-    console.log(`[AI] ${model?.modelId || 'unknown'} request started`);
+    logger.info(`[AI] ${model?.modelId || 'unknown'} request started`);
     const result = await doGenerate();
     const duration = Date.now() - startTime;
-    console.log(`[AI] ${model?.modelId || 'unknown'} completed in ${duration}ms`);
+    logger.info(`[AI] ${model?.modelId || 'unknown'} completed in ${duration}ms`);
     return result;
   },
   wrapStream: async ({ doStream, params, model }) => {
     const startTime = Date.now();
-    console.log(`[AI] ${model?.modelId || 'unknown'} stream started`);
+    logger.info(`[AI] ${model?.modelId || 'unknown'} stream started`);
     const result = await doStream();
     const duration = Date.now() - startTime;
-    console.log(`[AI] ${model?.modelId || 'unknown'} stream completed in ${duration}ms`);
+    logger.info(`[AI] ${model?.modelId || 'unknown'} stream completed in ${duration}ms`);
     return result;
   },
 };
+
+// ============ P76: 消息格式标准化 (Message Sanitizer) ============
+// 统一所有进入模型的消息schema：role合法 + tool content为数组 + 无system混入
+function sanitizeMessages(messages: any[]): any[] {
+  const result: any[] = [];
+  for (const m of messages) {
+    const rawRole = String(m.role || '').toLowerCase().trim();
+    if (rawRole === 'system' || rawRole === 'developer') {
+      console.log('[P76] Sanitizer: removed ' + rawRole + ' message');
+      continue;
+    }
+    if (rawRole === 'tool') {
+      let content = m.content;
+      if (typeof content === 'string') {
+        try { const parsed = JSON.parse(content); if (Array.isArray(parsed)) { content = parsed; } } catch {}
+      }
+      if (typeof content === 'string') {
+        const tcid = (m as any).toolCallId || (m as any).tool_call_id || '';
+        const tname = (m as any).toolName || (m as any).tool_name || 'unknown';
+        content = [{ type: 'tool-result' as const, toolCallId: tcid, toolName: tname, output: { type: 'text' as const, value: content } }];
+      }
+      if (Array.isArray(content)) {
+        for (const part of content) {
+          if (part && typeof part === 'object' && part.type === 'tool-result') {
+            if (!part.toolCallId) part.toolCallId = (m as any).toolCallId || (m as any).tool_call_id || '';
+            if (!part.toolName) part.toolName = (m as any).toolName || (m as any).tool_name || 'unknown';
+            if (!part.output) part.output = { type: 'text' as const, value: '' };
+            if (part.output && typeof part.output.value === 'undefined') { part.output.value = part.output.result || ''; }
+          }
+        }
+      }
+      result.push({ ...m, role: 'tool' as const, content, toolCallId: (m as any).toolCallId || (m as any).tool_call_id || '' });
+      continue;
+    }
+    const validRole = rawRole === 'assistant' ? 'assistant' : 'user';
+    let content = m.content;
+    if (validRole === 'assistant' && (content === undefined || content === null)) { content = ''; }
+    result.push({ ...m, role: validRole, content });
+  }
+  const cleaned: any[] = [];
+  let lastRole = '';
+  for (const m of result) {
+    if (m.role === 'tool' && lastRole === 'tool') { cleaned.push({ role: 'assistant', content: '' }); }
+    cleaned.push(m);
+    lastRole = m.role;
+  }
+  console.log('[P76] Sanitizer: ' + messages.length + ' -> ' + cleaned.length + ' messages (all schema-valid)');
+  return cleaned;
+}
 
 // ============ 工具执行函数 ============
 const PROJECT_DIR = process.env.PROJECT_DIR || '/www/wwwroot/agent.piyiguo.com';
@@ -109,13 +170,36 @@ async function execDeploy(): Promise<string> {
   const { execSync } = await import('child_process');
   const steps = ['pnpm install', 'pnpm build', 'pm2 restart ai-coding-platform'];
   const results: string[] = [];
+  let deploySuccess = true;
   for (const step of steps) {
     try {
       const r = execSync(step, { cwd: PROJECT_DIR, timeout: 180000, encoding: 'utf-8', maxBuffer: 10*1024*1024 });
       results.push(`✅ ${step}: ${r.slice(0, 500)}`);
     } catch (e: any) {
       results.push(`❌ ${step}: ${e.message?.slice(0, 500)}`);
+      deploySuccess = false;
       break;
+    }
+  }
+  // 🚀 部署后即时健康检查：10秒内自动验证服务可用性
+  if (deploySuccess) {
+    results.push('\n🔍 部署后健康检查...');
+    // 等待PM2进程启动
+    await new Promise(r => setTimeout(r, 3000));
+    try {
+      const healthStart = Date.now();
+      const healthRes = await fetch('http://127.0.0.1:5000', { 
+        signal: AbortSignal.timeout(10000),
+        headers: { 'User-Agent': 'HealthCheck/1.0' }
+      });
+      const healthMs = Date.now() - healthStart;
+      if (healthRes.ok) {
+        results.push(`✅ 健康检查通过: HTTP ${healthRes.status} (${healthMs}ms)`);
+      } else {
+        results.push(`⚠️ 健康检查异常: HTTP ${healthRes.status} (${healthMs}ms) - 服务可能未正常启动`);
+      }
+    } catch (e: any) {
+      results.push(`❌ 健康检查失败: ${e.message?.slice(0, 200)} - 服务可能未启动，请检查PM2日志`);
     }
   }
   return results.join('\n');
@@ -124,28 +208,88 @@ async function execDeploy(): Promise<string> {
 // ============ 联网搜索 ============
 async function execSearchWeb(query: string): Promise<string> {
   try {
-    const url = 'https://www.bing.com/search?q=' + encodeURIComponent(query) + '&count=8&cc=cn';
+    // 1. Try Tavily API first (best quality)
+    try {
+      const keyInfo = await getApiKeyByProvider('tavily');
+      if (keyInfo && keyInfo.api_key_encrypted && keyInfo.is_active) {
+        const tavilyKey = Buffer.from(keyInfo.api_key_encrypted, 'base64').toString('utf-8');
+        const res = await fetch('https://api.tavily.com/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_key: tavilyKey, query, search_depth: 'basic', max_results: 5, include_answer: true, include_raw_content: false }),
+          signal: AbortSignal.timeout(12000),
+        });
+        if (res.ok) {
+          const data = await res.json() as any;
+          const parts: string[] = [];
+          if (data.answer) parts.push(`💡 AI摘要: ${data.answer}\n`);
+          const results = (data.results || []).slice(0, 5);
+          for (let i = 0; i < results.length; i++) {
+            const r = results[i];
+            parts.push(`${i+1}. **${r.title||'无标题'}**\n   URL: ${r.url||''}\n   ${r.content||''}`);
+          }
+          if (parts.length > 0) return `🔍 搜索结果（Tavily - ${query}）：\n\n` + parts.join('\n\n');
+        }
+      }
+    } catch {}
+
+    // 2. Fallback: Bing HTML scraping (enhanced with URL + snippet)
+    const url = 'https://www.bing.com/search?q=' + encodeURIComponent(query) + '&count=8&cc=cn&setmkt=zh-CN';
     const res = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
         'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         'Accept': 'text/html,application/xhtml+xml',
       },
+      signal: AbortSignal.timeout(10000),
     });
     const html = await res.text();
     const results: string[] = [];
-    // Bing搜索结果解析 - 匹配 h2 标签中的链接标题
-    const titleMatches = html.matchAll(/<h2[^>]*><a[^>]*>([\s\S]*?)<\/a><\/h2>/g);
+
+    // Extract from b_algo blocks (most reliable)
+    const algoBlocks = html.matchAll(/<li class="b_algo"[^>]*>([\s\S]*?)<\/li>/g);
     let count = 0;
-    for (const m of titleMatches) {
+    for (const block of algoBlocks) {
       if (count >= 8) break;
-      const title = m[1].replace(/<[^>]+>/g, '').trim();
-      if (title && title.length > 2 && !title.includes('Microsoft') && !title.includes('Bing')) {
-        count++;
-        results.push(count + '. ' + title);
+      const blkContent = block[1];
+      const titleMatch = blkContent.match(/<h2[^>]*><a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a><\/h2>/);
+      if (!titleMatch) continue;
+      const linkUrl = titleMatch[1];
+      const title = titleMatch[2].replace(/<[^>]+>/g, '').trim();
+      if (!title || title.length < 2 || title.includes('Microsoft') || title.includes('Bing')) continue;
+      let snippet = '';
+      const snippetMatch = blkContent.match(/<p[^>]*>([\s\S]*?)<\/p>/) || blkContent.match(/class="b_caption[^"]*"[^>]*>([\s\S]*?)<\/div>/);
+      if (snippetMatch) snippet = snippetMatch[1].replace(/<[^>]+>/g, '').trim().slice(0, 200);
+      count++;
+      results.push(`${count}. **${title}**\n   URL: ${linkUrl}${snippet ? '\n   ' + snippet : ''}`);
+    }
+
+    // Fallback to simple h2 extraction if b_algo failed
+    if (results.length === 0) {
+      const titleMatches = html.matchAll(/<h2[^>]*><a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a><\/h2>/g);
+      let sc = 0;
+      for (const m of titleMatches) {
+        if (sc >= 8) break;
+        const t = m[2].replace(/<[^>]+>/g, '').trim();
+        if (t && t.length > 2 && !t.includes('Microsoft') && !t.includes('Bing')) {
+          sc++;
+          results.push(`${sc}. **${t}**\n   URL: ${m[1]}`);
+        }
       }
     }
-    if (results.length > 0) return '搜索结果（' + query + '）：\n' + results.join('\n');
+
+    if (results.length > 0) {
+      // P74: Detect dictionary-like results (single char defs) and provide hint
+      const dictPattern = /^(星|即|流|梦|设|计|平|台|的|了|是|和|不|在|有|人|我|他|她|它|这|那|要|会|能|可|与|对|为|从|到|被|把|让|向|比|等|很|都|也|就|才|又|还|已|曾|正|将|最|更|太|真|好|大|小|多|少|长|短|高|低|新|旧|快|慢|早|晚|远|近|深|浅|轻|重|强|弱|冷|热|干|湿|明|暗|美|丑|善|恶|优|劣|贫|富|贵|贱|难|易|安|危|静|动|开|关|进|出|上|下|左|右|前|后|内|外|中|东|西|南|北)(_百度百科|的意思|的拼音|的部首|怎么读|的笔顺|的读音|的组词|的释义|的详细解释|的近义词|汉语文字|汉语国学|新华字典|维基百科)/;
+      const isDictResults = results.length > 0 && results.every(r => dictPattern.test(r.replace(/\*\*/g, '')));
+      if (isDictResults) {
+        return `⚠️ 搜索引擎未找到"${query}"的产品结果（返回了字典释义），该产品可能在搜索引擎中索引不足。建议：\\n1. 提供产品官网URL让我直接读取\\n2. 在后台配置Tavily API Key获得更好搜索质量\\n\\n已有搜索结果（可能不相关）：\\n\\n` + results.join('\\n\\n');
+      }
+      return `🔍 搜索结果（Bing - ${query}）：\\n\\n` + results.join('\\n\\n');
+    }
+
+
+
     return '未找到搜索结果，请尝试换个关键词';
   } catch (e: any) {
     return '搜索失败: ' + (e.message || '未知错误');
@@ -265,7 +409,6 @@ const tools = {
 let enhancedTools: Record<string, any> = {};
 try { const { memoryTools } = await import('@/lib/memory-tools'); Object.assign(enhancedTools, memoryTools); } catch {}
 try { const { workflowTools } = await import('@/lib/ai-workflows'); Object.assign(enhancedTools, workflowTools); } catch {}
-try { const { subAgentTools } = await import('@/lib/sub-agents'); Object.assign(enhancedTools, subAgentTools); } catch {}
 try { const { imageTools } = await import('@/lib/image-generation'); Object.assign(enhancedTools, imageTools); } catch {}
 
 // MCP 工具
@@ -277,142 +420,27 @@ try {
 
 // ============ Provider URL 映射（从 models.ts 统一导入） ============
 import { PROVIDER_URLS } from '@/lib/models';
+import { logger } from '@/lib/logger';
 
 // ============ 系统提示词 ============
-const SYSTEM_PROMPT = `你是一个专业的AI编程助手，运行在服务器上，可以直接操作文件和执行命令。
+// ============ 系统提示词（DB读取为主，此处仅作极简fallback） ============
+const SYSTEM_PROMPT = '';
 
-【核心原则】
-1. 直接行动，不要犹豫——你真实运行在服务器上，不是模拟
-2. 修完必须验证——代码改动后用 runCommand 执行构建和重启，确认结果
-3. 出错自动修复——构建失败时读取错误，修复后重新构建，最多重试2次
-4. 信息足够就输出——每步工具调用后评估，信息够了立即停止调用
-
-【行为规范】
-- 禁止说"我无法访问/执行"——你已经在服务器上
-- 禁止说"无法访问外部链接"——用 runCommand 执行 curl 或 searchWeb 搜索
-- 禁止只说明步骤让用户自己操作——必须用工具直接执行
-- 禁止输出DSML标签、XML格式的工具调用代码
-- 完成后用1-3句话总结做了什么、结果如何
-
-【编码工作流】
-1. 理解需求 → 先用 readFile 查看相关代码
-2. 方案设计 → 思考改动点，不要盲目修改
-3. 执行修改 → 用 createFile/editFile 工具
-4. 验证结果 → runCommand 执行 pnpm build，确认无报错
-5. 部署生效 → 用 deploy 工具或 runCommand 执行 pm2 restart
-6. 总结回复 → 简洁说明改了什么、结果如何
-
-【自主闭环工作流——必须严格执行】
-当收到编程/修复/部署任务时，你必须自主完成全流程，不中途停下来问用户：
-1. 写代码 → 用 createFile/editFile 直接修改，不要只说方案
-2. 找Bug → 构建失败时，读错误日志定位问题，自动修复，最多重试3次
-3. 提交 → 修复确认后，用 runCommand 执行 git add . && git commit -m '描述'
-4. 修复 → 如果构建/部署失败，分析错误原因，修改代码，重新构建
-5. 部署 → 用 runCommand 执行 pm2 restart ai-coding-platform，然后用 runCommand 执行 curl -s -o /dev/null -w '%{http_code}' http://localhost:5000 确认返回200
-6. 失败继续 → 部署失败时，读PM2日志(pm2 logs --lines 30)，找根因，修复后重新部署
-7. 直到成功 → HTTP 200且功能正常才算完成，否则继续排查修复
-- 禁止在失败时说请手动检查——你必须自己排查到底
-- 禁止在构建报错时停下来——必须自动修复错误并重新构建
-- 每次修复后必须重新构建验证，不能跳过验证步骤
-
-【失败策略切换——重试3次仍失败时必须换策略】
-当同一问题连续修复3次仍然失败时，禁止继续用相同方法重试，必须切换策略：
-1. 换思路 → 如果改某文件失败，尝试重写整个文件而非局部修改
-2. 换工具 → 如果editFile失败，改用createFile覆盖；如果heredoc注入失败，改用Python脚本写入
-3. 降级验证 → 如果完整build失败，先只验证语法(tsx --noEmit)定位类型错误
-4. 拆分问题 → 如果大面积修改失败，拆成多个小修改逐步验证
-5. 换文件格式 → 如果写入TS代码转义冲突，改用Python脚本或base64编码写入
-6. 回滚重来 → 如果改坏到无法修复，用git checkout恢复文件，从更小的改动重新开始
-策略切换时，先说明之前的策略为什么失败，再说明新策略是什么
-
-【输出格式】
-- 代码相关：用代码块 + 简要说明
-- 分析报告：用 Markdown 格式，## 标题分章节，表格对比数据，**加粗**重点
-- 日常对话：简洁自然，不需要格式化
-
-【工具使用策略】
-- 工具调用控制在15步以内
-- 多个独立操作可以合并为一条 runCommand（用 && 连接）
-- readFile 大文件时先估计行数，分段读取
-- 每次工具调用后评估：信息是否足够？足够则停止，开始输出文字
-
-【HTML预览规则】
-- 生成HTML代码后，必须调用 preview_html 工具渲染预览
-- 不要只输出HTML代码块，必须同时用 preview_html 让用户看到实际效果
-- 如果HTML代码较长，先输出代码，再调用 preview_html 预览`;
-
-// ============ 模式系统提示词 ============
+// ============ 模式系统提示词（DB读取为主，此处仅作极简fallback） ============
 const MODE_PROMPTS: Record<string, string> = {
   coding: SYSTEM_PROMPT,
-  writing: `你是一个专业文案写作助手，擅长各类文案创作。
-
-【能力】
-- 广告文案、品牌slogan、产品描述
-- 公众号文章、小红书文案、短视频脚本
-- 商务邮件、公文、报告
-- 翻译（中英日韩）、改写润色、起标题
-
-【规则】
-- 直接给出内容，不要说"我来帮你写"
-- 根据场景调整语气：活泼/正式/专业/幽默
-- 如果用户没指定风格，给出2-3个版本供选择
-- 完成后用1-2句话总结你做了什么`,
-
-  analysis: `你是一个数据分析与策略顾问，擅长深度分析和结构化思考。
-
-【能力】
-- 数据分析、趋势解读、竞品对比
-- 商业策略、市场洞察、可行性评估
-- 问题诊断、方案设计、决策支持
-- 报告撰写、要点提炼、逻辑梳理
-
-【输出格式】
-- 用 Markdown 格式输出结构化报告
-- ## 二级标题划分章节（概述、核心分析、关键发现、总结与建议）
-- 数据对比用 Markdown 表格（| 列1 | 列2 |）
-- 重点用 **加粗** 突出，条目用 - 列表
-- 结构清晰，先给结论再展开
-
-【规则】
-- 有数据支撑时注明来源或标注"估算"
-- 不确定的内容明确说明，不要编造
-- 完成后用1-2句话总结核心结论
-
-【工具使用规则】
-- 使用工具收集信息后，必须输出完整的文字分析报告
-- 工具调用控制在10-15次以内，收集到足够信息后立即输出分析
-- 禁止无限制地调用工具而不输出文字内容
-- 每次工具调用后评估：信息是否足够？足够则停止调用，开始撰写分析`,
-
-  design: `你是一个UI/UX设计顾问，擅长界面设计和视觉方案。
-
-【能力】
-- 页面布局方案、组件设计建议
-- 配色方案、字体搭配、间距规范
-- 交互流程、用户体验优化
-- 设计系统搭建、组件库规划
-
-【规则】
-- 描述要具体可执行，给出数值（如间距16px、圆角8px）
-- 可以推荐参考设计趋势或竞品
-- 理解用户需求后给出完整方案，不要一步步追问
-- 完成后用1-2句话总结方案要点`,
-
-  chat: `你是一个智能助手，可以聊天、问答、头脑风暴、知识科普。
-
-【规则】
-- 回答简洁自然，像朋友聊天
-- 有问有答，主动但不啰嗦
-- 不确定的说"我不太确定"，不要编造
-- 长回答最后用1句话总结要点`,
+  writing: '',
+  analysis: '',
+  design: '',
+  chat: '',
 };
 
 const MODE_TOOLS: Record<string, string[]> = {
-  coding: ['createFile', 'editFile', 'deleteFile', 'readFile', 'runCommand', 'deploy', 'searchWeb', 'saveMemory', 'delegate_task'],
-  writing: ['searchWeb', 'saveMemory', 'delegate_task'],
-  analysis: ['searchWeb', 'saveMemory', 'delegate_task'],
-  design: ['saveMemory'],
-  chat: ['searchWeb', 'saveMemory', 'delegate_task'],
+  coding: ['createFile', 'editFile', 'deleteFile', 'readFile', 'runCommand', 'deploy', 'searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_click', 'browser_fill', 'browser_extract', 'browser_screenshot', 'browser_execute_js', 'save_cross_memory', 'search_cross_memory', 'list_cross_memories', 'delete_cross_memory', 'reflect_and_improve', 'memory_maintenance'],
+  writing: ['searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_click', 'browser_fill', 'browser_extract', 'browser_screenshot', 'browser_execute_js', 'save_cross_memory', 'search_cross_memory', 'list_cross_memories', 'delete_cross_memory'],
+  analysis: ['searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_extract', 'browser_screenshot', 'save_cross_memory', 'search_cross_memory', 'save_cross_memory', 'search_cross_memory'],
+  design: ['smart_search', 'read_url', 'analyze_image', 'saveMemory'],
+  chat: ['searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_click', 'browser_fill', 'browser_extract', 'browser_screenshot', 'browser_execute_js', 'reflect_and_improve', 'memory_maintenance'],
 };
 
 const TOOL_NAME_ZH_CHAT: Record<string, string> = {
@@ -429,6 +457,32 @@ const TOOL_NAME_ZH_CHAT: Record<string, string> = {
   run_code_review: '代码审查',
   run_refactor: '重构代码',
   delegate_task: '委派子智能体',
+  plan_and_execute: '规划并执行多任务',
+  aggregate_results: '汇总子智能体结果',
+  generate_chart: '生成图表',
+  generate_ppt: '生成PPT',
+  generate_document: '生成文档',
+  schedule_task: '创建定时任务',
+  think_and_plan: '规划任务步骤',
+  update_progress: '更新执行进度',
+  reflect_and_schedule: '反思与调度',
+  smart_search: '智能搜索',
+  read_url: '读取网页',
+  analyze_image: '图片理解',
+  execute_code: '执行代码',
+  create_dynamic_tool: '创建动态工具',
+  call_dynamic_tool: '调用动态工具',
+  list_dynamic_tools: '列出动态工具',
+  browser_navigate: '浏览器打开网页',
+  browser_click: '浏览器点击',
+  browser_fill: '浏览器填写',
+  browser_extract: '浏览器提取数据',
+  browser_screenshot: '浏览器截图',
+  browser_execute_js: '浏览器执行JS',
+  save_cross_memory: '保存跨对话记忆',
+  search_cross_memory: '搜索跨对话记忆',
+  list_cross_memories: '列出跨对话记忆',
+  delete_cross_memory: '删除跨对话记忆',
   generate_image: '生成图片',
   saveMemory_enhanced: '保存记忆',
   searchMemory: '搜索记忆',
@@ -450,6 +504,8 @@ const MODEL_IDENTITY: Record<string, string> = {
   doubao: '豆包 (Doubao)',
   groq: 'Groq (Llama)',
   banana: 'Banana',
+  agnes: 'Agnes AI',
+  'agnes-image': 'Agnes Image',
 };
 
 export async function POST(request: NextRequest) {
@@ -470,7 +526,7 @@ export async function POST(request: NextRequest) {
     const messages = (rawMessages || []).map((m: any) => {
       if (m.parts && Array.isArray(m.parts)) {
         // Check if there are image/file parts (AI SDK native multimodal)
-        const hasImageParts = m.parts.some((p: any) => p.type === 'file' && p.data);
+        const hasImageParts = m.parts.some((p: any) => p.type === 'file' && (p.data || p.url));
         // Check if there are reasoning parts (DeepSeek thinking mode)
         const hasReasoningParts = m.parts.some((p: any) => p.type === 'reasoning');
         if (hasImageParts) {
@@ -495,16 +551,25 @@ export async function POST(request: NextRequest) {
       }
       return m;
     });
-    let model_id = rawModelId || rawModelId2 || '';
+    let model_id = rawModelId || rawModelId2 || 'auto';
+    logger.info("[ModelSelect] User selected model: " + (rawModelId || rawModelId2 || "auto"));
 
-    // Detect if user sent image attachments (from body or message markers)
+    // Detect if user sent image attachments (from body, message parts, or text markers)
     const hasImageAttachments = (bodyAttachments && bodyAttachments.some((a: any) => a.type === 'image')) ||
       messages.some((m: any) => {
+        // Check parts array for file/image parts (AI SDK native multimodal)
+        if (m.parts && Array.isArray(m.parts)) {
+          return m.parts.some((p: any) => p.type === 'file' && (p.data || p.url));
+        }
+        // Check text content for legacy image markers
         const c = typeof m.content === 'string' ? m.content : '';
         return c.includes('[image:');
       });
     // Multimodal model candidates (preferred order)
-    const MULTIMODAL_MODEL_ORDER = ['gpt-4o', 'gpt-4.1', 'gemini-2.5-pro', 'gemini-2.5-flash', 'qwen-max', 'qwen-plus', 'claude-sonnet-4-5', 'glm-4.5-flash', 'glm-5.2'];
+    // 多模态模型队列从DB读取
+    const defaultMultimodalOrder = ['gpt-4o', 'gpt-4.1', 'gemini-2.5-pro', 'gemini-2.5-flash', 'qwen-vl-plus', 'qwen-vl-max', 'claude-sonnet-4-5', 'glm-4v-plus', 'glm-5v-turbo'];
+    let MULTIMODAL_MODEL_ORDER = defaultMultimodalOrder;
+    try { const mmo = await getSetting('multimodal_model_order'); if (mmo) MULTIMODAL_MODEL_ORDER = mmo.split(',').map((s:string)=>s.trim()).filter(Boolean); } catch {}
 
     // === Smart Model Router Integration ===
     // Use routeModel for intelligent model selection with automatic fallback
@@ -516,14 +581,15 @@ export async function POST(request: NextRequest) {
         routingResult = await routeModel(userMsg);
         if (routingResult) {
           model_id = routingResult.model;
-          console.log(`[Router] Auto: ${routingResult.routingReason}`);
+          logger.info(`[Router] Auto: ${routingResult.routingReason}`);
         }
       } catch (e: any) {
-        console.log(`[Router] routeModel failed: ${e.message}`);
+        logger.info(`[Router] routeModel failed: ${e.message}`);
       }
       // Fallback to old logic if router fails
       if (model_id === 'auto') {
-        const preferredOrder = ['deepseek-v4-flash', 'gpt-4.1', 'qwen-max', 'glm-4.5-flash'];
+        // Fallback preferred order从DB读取
+        const preferredOrder = (await getSetting('fallback_model_order'))?.split(',').map((s:string)=>s.trim()).filter(Boolean) || ['deepseek-v4-flash', 'gpt-4.1', 'qwen-max', 'glm-4.5-flash'];
         for (const candidate of preferredOrder) {
           const cfg = await getModelConfig(candidate);
           if (cfg) {
@@ -546,6 +612,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 获取模型和 API Key 配置
+    logger.info("[ModelSelect] Final model: " + model_id); console.log("[CHAT] model=" + model_id + " hasImage=" + hasImageAttachments);
     let modelConfig = await getModelConfig(model_id);
     if (!modelConfig) {
       return new Response(JSON.stringify({ error: `模型 ${model_id} 未配置` }), {
@@ -554,29 +621,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Auto-switch to multimodal model if user sent images but current model doesn't support it
-    if (hasImageAttachments) {
-      const MULTIMODAL_PROVIDERS = ['openai', 'anthropic', 'google', 'qwen', 'zhipu'];
-      const isMultimodal = MULTIMODAL_PROVIDERS.includes(modelConfig.provider) || 
-        MULTIMODAL_MODEL_ORDER.some(m => model_id.includes(m));
-      
-      if (!isMultimodal) {
-        // Try to find an available multimodal model
-        for (const candidate of MULTIMODAL_MODEL_ORDER) {
-          const cfg = await getModelConfig(candidate);
-          if (cfg) {
-            const keyData = await getApiKeyByProvider(cfg.provider);
-            if (keyData && keyData.is_active) {
-              console.log(`[Multimodal] Auto-switching from ${model_id} to ${candidate} for image input`);
-              model_id = candidate;
-              modelConfig = cfg;
-              break;
-            }
-          }
-        }
-      }
-    }
-
+    // Image handling strategy: 
+    // Multimodal models (gpt-4o, claude, gemini, qwen-vl etc) receive images directly
+    // Non-multimodal models (deepseek, qwen-turbo etc) use Vision Proxy (qwen-vl-plus) to describe images
+    // No auto-switching to avoid quota/availability issues
+    
     const apiKeyData = await getApiKeyByProvider(modelConfig.provider);
     if (!apiKeyData || !apiKeyData.is_active) {
       return new Response(JSON.stringify({ error: `请先在后台配置 ${modelConfig.provider} 的 API Key` }), {
@@ -613,7 +662,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ====== 从 settings 读取可配置参数 ======
-    let maxSteps = 20;
+    let maxSteps = 30;
     let temperature: number | undefined = undefined;
 
     try {
@@ -633,10 +682,14 @@ export async function POST(request: NextRequest) {
       }
     } catch {}
 
-    // 如果没从 settings 获取到温度，使用默认值
+    // 优先级: settings mode_temperatures > model_configs default_temperature > 兜底0.3
+    if (temperature === undefined && modelConfig.default_temperature !== null && modelConfig.default_temperature !== undefined) {
+      temperature = Number(modelConfig.default_temperature);
+    }
     if (temperature === undefined) {
-      const defaultTemps: Record<string, number> = { coding: 0, writing: 0.7, analysis: 0.1, design: 0.3, chat: 0.5 };
-      temperature = defaultTemps[mode] ?? 0.3;
+// 兜底温度从DB读取
+      const defaultTemp = parseFloat(await getSetting('default_temperature') || '0.3');
+      temperature = defaultTemp;
     }
 
     // ====== 读取超时、重试和模型生成参数 ======
@@ -648,13 +701,14 @@ export async function POST(request: NextRequest) {
     let frequencyPenalty: number | undefined = undefined;
     let seed: number | undefined = undefined;
     // Per-provider maxOutputTokens limits (some models reject values above their max)
-    const PROVIDER_MAX_TOKENS: Record<string, number> = {
-      deepseek: 16384,      // DeepSeek V4 Flash/Pro max is 8192
-      groq: 8192,          // Groq models typically max 8192
-      moonshot: 8192,      // Kimi/Moonshot max 8192
-      zhipu: 8192,         // GLM models typically 4096
-    };
-    let maxOutputTokens = PROVIDER_MAX_TOKENS[modelConfig.provider] || 16384;
+    // Provider max tokens从DB读取
+    const DEFAULT_PROVIDER_MAX_TOKENS: Record<string, number> = { deepseek: 16384, groq: 8192, moonshot: 8192, zhipu: 8192, qwen: 8192, openai: 16384, anthropic: 16384, google: 8192, doubao: 8192, agnes: 16384, 'agnes-image': 4096 };
+    let PROVIDER_MAX_TOKENS = DEFAULT_PROVIDER_MAX_TOKENS;
+    try { const pmt = await getSetting('provider_max_tokens'); if (pmt) PROVIDER_MAX_TOKENS = JSON.parse(pmt); } catch {}
+    let maxOutputTokens = modelConfig.default_max_tokens || PROVIDER_MAX_TOKENS[modelConfig.provider] || 16384;
+    // Always cap by provider max limit
+    const providerMaxCap = PROVIDER_MAX_TOKENS[modelConfig.provider];
+    if (providerMaxCap && maxOutputTokens > providerMaxCap) maxOutputTokens = providerMaxCap;
 
     try {
       const advStr2 = await getSetting('advanced_config');
@@ -667,7 +721,12 @@ export async function POST(request: NextRequest) {
         if (adv2.presencePenalty !== undefined && adv2.presencePenalty !== 0) presencePenalty = adv2.presencePenalty;
         if (adv2.frequencyPenalty !== undefined && adv2.frequencyPenalty !== 0) frequencyPenalty = adv2.frequencyPenalty;
         if (adv2.seed !== undefined && adv2.seed !== -1) seed = adv2.seed;
-        if (adv2.max_output_tokens !== undefined) maxOutputTokens = Math.min(adv2.max_output_tokens, PROVIDER_MAX_TOKENS[modelConfig.provider] || 65536);
+        if (adv2.max_output_tokens !== undefined) {
+          maxOutputTokens = Math.min(adv2.max_output_tokens, PROVIDER_MAX_TOKENS[modelConfig.provider] || 65536);
+          // Always respect provider hard cap
+          const pCap = PROVIDER_MAX_TOKENS[modelConfig.provider];
+          if (pCap && maxOutputTokens > pCap) maxOutputTokens = pCap;
+        }
       }
     } catch {}
 
@@ -679,12 +738,27 @@ export async function POST(request: NextRequest) {
     });
     const model = provider.languageModel(model_id);
 
-    // Check if model supports multimodal (image input)
-    const MULTIMODAL_PROVIDERS = ['openai', 'anthropic', 'google', 'qwen', 'zhipu'];
-    const supportsMultimodal = MULTIMODAL_PROVIDERS.includes(modelConfig.provider) || 
-      MULTIMODAL_MODEL_ORDER.some(m => model_id.includes(m));
-
-    // 构建系统提示词 — 优先读后台设置，fallback到硬编码
+    // Check if model supports multimodal (image input) - based on specific model capabilities, NOT provider
+    // Only models with actual vision support should be flagged as multimodal:
+    // openai: gpt-4o, gpt-4.1, gpt-4-turbo (NOT o1, o3, gpt-3.5)
+    // anthropic: claude-3+, all support vision
+    // google: gemini, all support vision
+    // qwen: ONLY qwen-vl models (qwen-turbo/plus/max are TEXT-ONLY)
+    // zhipu: ONLY glm-4v, glm-4.5v models (glm-4-flash is TEXT-ONLY)
+    const MULTIMODAL_MODEL_PATTERNS = [
+      'gpt-4o', 'gpt-4.1', 'gpt-4-turbo',  // OpenAI vision models
+      'claude',                                // All Claude models support vision
+      'gemini',                                // All Gemini models support vision
+      'qwen-vl', 'qwen2-vl', 'qvq',          // Qwen vision models ONLY (NOT qwen-turbo/plus/max)
+      'glm-4v', 'glm-4.5v', 'glm-5v',         // Zhipu vision models ONLY
+      'agnes-1.5-flash',                       // Agnes AI 1.5 Flash supports vision
+      'agnes-2.0-flash',                       // Agnes AI 2.0 Flash supports vision
+    ];
+    const TEXT_ONLY_PATTERNS = ['o1-mini', 'o1-preview', 'o3-mini', 'o3', 'deepseek', 'gpt-3.5'];
+    const supportsMultimodal = MULTIMODAL_MODEL_PATTERNS.some(p => model_id.toLowerCase().includes(p))
+      && !TEXT_ONLY_PATTERNS.some(p => model_id.toLowerCase().includes(p));
+    
+    // 构建系统提示词 — 全部从DB读取
     const identityName = MODEL_IDENTITY[modelConfig.provider] || modelConfig.provider;
     let modePrompt = MODE_PROMPTS[mode] || SYSTEM_PROMPT; // fallback default
     let dbFollowupPrompt = "";
@@ -710,31 +784,77 @@ export async function POST(request: NextRequest) {
         modePrompt = modePrompt + '\n\n' + sharedRules;
       }
     } catch (e) {
-      console.log('[Prompt] Failed to read DB prompts, using hardcoded:', (e as any)?.message);
+      logger.info('[Prompt] Failed to read DB prompts, using hardcoded:', (e as any)?.message);
     }
     const lastUserMsg = messages.filter((m: any) => m.role === 'user').pop()?.content || ''; const memories = await getMemories(typeof lastUserMsg === 'string' ? lastUserMsg : '');
-    const memorySection = memories ? '\n\n【用户记忆】\n' + memories + '\n\n当用户提到与记忆相关的内容时，参考这些信息。用户说"记住"时，用 saveMemory 工具保存。' : '';
-    const dynamicPrompt = modePrompt + memorySection + `\n\n【身份】你是 ${identityName} 的 ${model_id} 模型。当用户问你是谁时，如实回答。`;
+    const memorySection = memories ? '\n\n以下是关于这个用户的一些信息：\n' + memories + '\n\n用户说"记住"时，用 saveMemory 工具保存。' : '';
+    // RAG 知识库检索
+    let ragSection = "";
+    try {
+      const activeKbIds = await getActiveKnowledgeBaseIds();
+      if (activeKbIds.length > 0 && lastUserMsg && typeof lastUserMsg === 'string' && lastUserMsg.trim().length > 10) {
+        const ragResults = await searchKnowledge(lastUserMsg, activeKbIds, 5);
+        if (ragResults.length > 0) {
+          const ragChunks = ragResults.map((r: any, i: number) => (i + 1) + ". " + r.content).join("\n");
+          ragSection = "\n\n以下是从知识库检索到的相关信息，请参考：\n" + ragChunks;
+          logger.info("[RAG] Injected " + ragResults.length + " knowledge chunks");
+        }
+      }
+    } catch (e: any) {
+      logger.info("[RAG] Knowledge search failed:", e?.message);
+    }
+        // 获取对话级状态上下文（跨对话恢复）
+    let stateContext = '';
+    try {
+      if (convId) {
+        stateContext = await getStateContext(convId);
+      }
+    } catch {}
+    const dynamicPrompt = modePrompt + memorySection + ragSection + stateContext + `\n\n你是 ${identityName} 的 ${model_id}。`;
+
+    // P54: 斜杠命令激活子智能体/技能
+    let slashActivation = '';
+    if (typeof lastUserMsg === 'string') {
+      const slashMatch = lastUserMsg.trim().match(/^\/(\w+)\s*(.*)/);
+      if (slashMatch) {
+        const [, cmd, rest] = slashMatch;
+        const slashMap: Record<string, string> = {
+          'researcher': 'researcher', 'coder': 'coder', 'reviewer': 'reviewer',
+          'writer': 'writer', 'tester': 'tester', 'planner': 'planner',
+          'deployer': 'deployer', 'analyst': 'analyst', 'debugger': 'debugger',
+          'deploy': 'deploy-service', 'fix': 'fix-bug', 'review': 'code-review',
+          'security': 'security-audit', 'migrate': 'database-migration',
+          'optimize': 'performance-optimization', 'skills': '__list__',
+        };
+        if (slashMap[cmd] === '__list__') {
+          slashActivation = '\n\n[用户使用了 /skills 命令] 请调用 get_available_skills 列出所有可用技能。';
+        } else if (slashMap[cmd]) {
+          slashActivation = `\n\n[用户使用了 /${cmd} 命令] 请调用 activate_skill 加载技能 \"${slashMap[cmd]}\" 的完整指令（参数: skillId=\"${slashMap[cmd]}\", conversationId=\"${convId || ''}\"），然后按照指令执行。${rest ? ' 用户附加要求：' + rest : ''}`;
+        }
+      }
+    }
+    const finalDynamicPrompt = dynamicPrompt + slashActivation;
 
     // Filter out system messages (AI SDK v7 requires system via system option only)
     const userAssistantMessages = messages.filter((m: any) => {
       const role = String(m.role || "").toLowerCase().trim();
-      return role !== "system" && role !== "developer" && role !== "tool";
-    }).map((m: any) => ({
-      ...m,
-      role: String(m.role || "").toLowerCase().trim() === "assistant" ? "assistant" : "user",
-    }));
+      return role !== "system" && role !== "developer";
+    }).map((m: any) => {
+      const role = String(m.role || "").toLowerCase().trim();
+      if (role === "tool") return { ...m, role: "tool" as const };
+      return { ...m, role: role === "assistant" ? "assistant" : "user" };
+    });
 
     // Build messages with multi-modal support (images, PDFs, files, body attachments)
-    const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; data?: string; mediaType?: string; image?: any }>; reasoning_content?: string }>= [];
+    const chatMessages: Array<{ role: string; content: string | Array<{ type: string; text?: string; data?: string | { type: string; data: string }; mediaType?: string; image?: any }>; reasoning_content?: string }>= [];
       // Process messages with async support for vision proxy
       for (let msgIdx = 0; msgIdx < userAssistantMessages.length; msgIdx++) {
         const m = userAssistantMessages[msgIdx];
         const idx = msgIdx;
         // Check for native image/file parts (AI SDK multimodal)
         const nativeParts = (m as any).parts || [];
-        const nativeImageParts = nativeParts.filter((p: any) => p.type === 'file' && p.data);
-        const nativeFileParts = nativeParts.filter((p: any) => p.type === 'text' && p.text?.startsWith('[文件:'));
+                const nativeImageParts = nativeParts.filter((p: any) => p.type === 'file' && (p.data || p.url));
+                const nativeFileParts = nativeParts.filter((p: any) => p.type === 'text' && p.text?.startsWith('[文件:'));
         
         // Legacy: Match image markers: [image:data:image/png;base64,...]
         const imageMatches = [...(m.content || '').matchAll(/\[image:([\s\S]*?)\]/g)];
@@ -748,7 +868,7 @@ export async function POST(request: NextRequest) {
         const hasBodyAttachments = isLastUserMsg && bodyAttachments && bodyAttachments.length > 0;
         
         if (m.role === 'user' && (hasAttachments || hasBodyAttachments)) {
-          const parts: Array<{ type: string; text?: string; data?: string; mediaType?: string; image?: any }> = [];
+          const parts: Array<{ type: string; text?: string; data?: string | { type: string; data: string }; mediaType?: string; image?: any }> = [];
           // Extract text: from native parts or from content with markers removed
           let textContent = '';
           if (nativeParts.length > 0) {
@@ -771,10 +891,18 @@ export async function POST(request: NextRequest) {
           // Add native image parts (AI SDK multimodal)
           const collectedImages: Array<{ base64Data: string; mediaType: string }> = [];
           for (const np of nativeImageParts) {
-            if (supportsMultimodal) {
-              parts.push({ type: 'file', data: np.data, mediaType: np.mediaType || 'image/png' });
+            // AI SDK sends file parts with 'url' (data URL) or 'data' (raw base64)
+            let base64Data = np.data || '';
+            let mediaType = np.mediaType || 'image/png';
+            if (!base64Data && np.url) {
+              const urlMatch = String(np.url).match(/^data:(image\/[^;]+);base64,([\s\S]*)$/);
+              if (urlMatch) { mediaType = urlMatch[1]; base64Data = urlMatch[2]; }
+              else { base64Data = np.url.split(',')[1] || ''; }
+            }
+                        if (supportsMultimodal) {
+              parts.push({ type: 'file', data: { type: 'data', data: base64Data }, mediaType });
             } else {
-              collectedImages.push({ base64Data: np.data, mediaType: np.mediaType || 'image/png' });
+              collectedImages.push({ base64Data, mediaType });
             }
           }
           // Add native file text parts
@@ -790,7 +918,7 @@ export async function POST(request: NextRequest) {
               const base64Data = imgUrl.split(',')[1] || '';
               if (supportsMultimodal) {
                 // Multimodal model: send image directly
-                parts.push({ type: 'file', data: base64Data, mediaType });
+                parts.push({ type: 'file', data: { type: 'data', data: base64Data }, mediaType });
               } else {
                 // Non-multimodal model: collect for vision proxy
                 collectedImages.push({ base64Data, mediaType });
@@ -816,7 +944,7 @@ export async function POST(request: NextRequest) {
                 const mediaType = mediaTypeMatch ? mediaTypeMatch[1] : 'image/png';
                 const base64Data = imgUrl.split(',')[1] || '';
                 if (supportsMultimodal) {
-                  parts.push({ type: 'file', data: base64Data, mediaType });
+                  parts.push({ type: 'file', data: { type: 'data', data: base64Data }, mediaType });
                 } else {
                   // Non-multimodal model: collect for vision proxy
                   collectedImages.push({ base64Data, mediaType });
@@ -827,7 +955,7 @@ export async function POST(request: NextRequest) {
             }
           }
           
-          // Vision proxy: if non-multimodal model and images collected, describe them via vision model
+          console.log("[CHAT] collectedImages=" + collectedImages.length + " parts=" + parts.length); // Vision proxy: if non-multimodal model and images collected, describe them via vision model
           if (!supportsMultimodal && collectedImages.length > 0) {
             try {
               const imageDescription = await describeImages(collectedImages, textContent || undefined);
@@ -837,7 +965,23 @@ export async function POST(request: NextRequest) {
             }
           }
           
-          chatMessages.push({ role: m.role, content: parts.length > 0 ? parts : m.content });
+                    chatMessages.push({ role: m.role, content: parts.length > 0 ? parts : m.content });
+        } else if (m.role === 'tool') {
+          // P73b: Tool messages - AI SDK v7 ToolLoopAgent expects content in tool-result array format
+          // P75: Handle JSON-stringified array content (AI SDK v7 tool-approval)
+          if (typeof m.content === 'string') {
+            try {
+              const parsed = JSON.parse(m.content);
+              if (Array.isArray(parsed)) {
+                chatMessages.push({ role: 'tool', content: parsed, toolCallId: (m as any).tool_call_id || (m as any).toolCallId || '' } as any);
+                continue;
+              }
+            } catch {}
+          }
+          const toolContent = typeof m.content === 'string' ? m.content : JSON.stringify(m.content || '');
+          const toolCallId = (m as any).tool_call_id || (m as any).toolCallId || '';
+          const toolResultParts = [{ type: 'tool-result' as const, toolCallId, toolName: (m as any).tool_name || 'unknown', output: { type: 'text' as const, value: toolContent } }];
+          chatMessages.push({ role: 'tool', content: toolResultParts, toolCallId } as any);
         } else {
           // For assistant messages with reasoning, include it for DeepSeek thinking mode
           if (m.role === 'assistant' && (m as any).reasoning) {
@@ -861,6 +1005,7 @@ export async function POST(request: NextRequest) {
 
     // 合并工具：基础工具 + 增强工具 + MCP工具
     const baseToolNames = MODE_TOOLS[mode] || [];
+    setSchedulerSessionId(convId || Date.now().toString());
     const activeTools: Record<string, any> = {};
     for (const name of baseToolNames) {
       if (tools[name as keyof typeof tools]) activeTools[name] = tools[name as keyof typeof tools];
@@ -869,9 +1014,12 @@ export async function POST(request: NextRequest) {
     for (const name of Object.keys(enhancedTools)) {
       if (baseToolNames.includes(name)) activeTools[name] = enhancedTools[name];
     }
-    // 添加 MCP 工具（仅限当前模式允许的工具）
-    for (const name of Object.keys(mcpToolsMap)) {
-      if (baseToolNames.includes(name)) activeTools[name] = mcpToolsMap[name];
+    // 添加 MCP 工具（MCP工具自动在coding/writing/analysis/chat模式可用，无需MODE_TOOLS白名单）
+    const mcpEnabledModes = ['coding', 'writing', 'analysis', 'chat', 'design'];
+    if (mcpEnabledModes.includes(mode)) {
+      for (const [name, tool] of Object.entries(mcpToolsMap)) {
+        activeTools[name] = tool;
+      }
     }
 
     // 联网搜索开关：关闭时移除 searchWeb 工具
@@ -879,13 +1027,153 @@ export async function POST(request: NextRequest) {
       delete activeTools.searchWeb;
     }
 
+    // === 自主智能：SSH服务器工具 + 技能工具（必须在子智能体工具之前注册） ===
+    Object.assign(activeTools, serverTools, dynamicTools, browserTools, crossMemoryTools, skillTools, webTools, previewTools, dbTools, githubTools);
+
     // 子智能体工具（AI SDK 原生 ToolLoopAgent）- 委派任务给专门的子智能体
     if (baseToolNames.includes('delegate_task')) {
       activeTools.delegate_task = createSubAgentTool(model, activeTools);
     }
+    // 并行任务调度工具 - 支持多子智能体并行执行
+    if (baseToolNames.includes('plan_and_execute')) {
+      activeTools.plan_and_execute = createPlanAndExecuteTool(model, activeTools);
+    }
+    if (baseToolNames.includes('aggregate_results')) {
+      activeTools.aggregate_results = createAggregateResultsTool();
+      activeTools.reflect_and_improve = createReflectTool(model);
+      activeTools.memory_maintenance = createMemoryMaintenanceTool();
+    }
+    if (baseToolNames.includes('generate_chart')) {
+      activeTools.generate_chart = createGenerateChartTool();
+    }
+    if (baseToolNames.includes('generate_ppt')) {
+      activeTools.generate_ppt = createGeneratePptTool();
+    }
+    if (baseToolNames.includes('generate_document')) {
+      activeTools.generate_document = createGenerateDocumentTool();
+    }
 
-    // === 自主智能：SSH服务器工具 + 技能工具 ===
-    Object.assign(activeTools, serverTools, skillTools, webTools, previewTools);
+    // === 定时任务工具 ===
+    if (baseToolNames.includes('schedule_task')) {
+      activeTools.schedule_task = tool({
+        description: '创建定时/周期任务。任务会按设定的时间自动执行。支持：每N分钟/小时、每天固定时间、每周固定时间。示例："every_N_minutes:30" 每30分钟、"daily:09:00" 每天9点、"weekly:mon:10:00" 每周一10点。',
+        inputSchema: z.object({
+          task_name: z.string().describe('任务名称'),
+          task_description: z.string().describe('任务的详细描述，包含执行步骤'),
+          cron_expression: z.string().describe('调度规则：every_N_minutes:30 / every_N_hours:2 / daily:09:00 / weekly:mon:10:00'),
+          max_runs: z.number().optional().describe('最大执行次数，不填则无限执行'),
+        }),
+        execute: async ({ task_name, task_description, cron_expression, max_runs }) => {
+          const taskId = await createScheduledTask({
+            conversation_id: convId!,
+            task_name,
+            task_description,
+            cron_expression,
+            max_runs,
+          });
+          return `✅ 定时任务已创建 [${taskId}]
+名称: ${task_name}
+规则: ${cron_expression}
+${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
+
+定时任务需要配置cron触发器才会自动执行。触发URL: /api/cron?secret=ai-platform-cron-2026`;
+        },
+      });
+    }
+
+    // === 自主任务规划工具 ===
+    if (baseToolNames.includes('think_and_plan')) {
+      activeTools.think_and_plan = tool({
+        description: '为复杂任务创建结构化执行计划。当你面对需要多个步骤的任务时，先用此工具规划，然后按计划逐步执行。简单任务（单步操作）不需要规划，直接执行。',
+        inputSchema: z.object({
+          goal: z.string().describe('任务总目标，一句话描述'),
+          steps: z.array(z.string()).describe('执行步骤列表，按顺序排列，每步一句话描述要做什么').min(2).max(10),
+        }),
+        execute: async ({ goal, steps }) => {
+          const plan = await createTaskPlan(convId!, goal, steps);
+          let output = '📋 任务计划已创建\n\n';
+          output += '目标: ' + plan.goal + '\n\n';
+          for (const step of plan.steps) {
+            output += '  ⬜ [' + step.id + '] ' + step.description + '\n';
+          }
+          output += '\n请按步骤执行，每完成一步用 update_progress 更新状态。';
+          return output;
+        },
+      });
+    }
+
+    if (baseToolNames.includes('update_progress')) {
+      activeTools.update_progress = tool({
+        description: '更新任务计划中某个步骤的执行状态。完成一步就更新一步，保持进度可追踪。',
+        inputSchema: z.object({
+          step_id: z.string().describe('步骤ID，如 step_1, step_2'),
+          status: z.enum(['in_progress', 'completed', 'skipped', 'failed']).describe('步骤状态'),
+          result: z.string().optional().describe('步骤执行结果摘要，50字以内'),
+        }),
+        execute: async ({ step_id, status, result }) => {
+          const plan = await updatePlanStep(convId!, step_id, status, result);
+          if (!plan) return '⚠️ 未找到活跃的任务计划，请先用 think_and_plan 创建';
+          let output = '📊 进度更新\n\n';
+          const completed = plan.steps.filter(s => s.status === 'completed').length;
+          for (const step of plan.steps) {
+            const icons: Record<string,string> = { completed: '✅', in_progress: '🔄', failed: '❌', skipped: '⏭️', pending: '⬜' };
+            output += '  ' + (icons[step.status] || '⬜') + ' [' + step.id + '] ' + step.description;
+            if (step.result) output += ' → ' + step.result;
+            output += '\n';
+          }
+          output += '\n进度: ' + completed + '/' + plan.steps.length;
+          if (completed === plan.steps.length) output += ' 🎉 全部完成！';
+          return output;
+        },
+      });
+    }
+
+    if (baseToolNames.includes('reflect_and_schedule')) {
+      activeTools.reflect_and_schedule = tool({
+        description: '任务完成后进行反思总结，并可选地创建后续定时任务。适合在完成重要工作后调用，记录关键决策和安排后续检查。',
+        inputSchema: z.object({
+          summary: z.string().describe('本次工作的总结，做了什么、结果如何'),
+          key_decisions: z.array(z.string()).optional().describe('做出的关键决策列表'),
+          followups: z.array(z.object({
+            task_name: z.string().describe('后续任务名称'),
+            task_description: z.string().describe('后续任务描述'),
+            cron_expression: z.string().describe('调度规则'),
+            reason: z.string().describe('为什么需要这个后续任务'),
+          })).optional().describe('需要后续跟进的定时任务'),
+        }),
+        execute: async ({ summary, key_decisions, followups }) => {
+          await reflectAndSave(convId!, summary, key_decisions || []);
+          let output = '📝 反思总结已记录\n\n' + summary + '\n';
+          if (key_decisions && key_decisions.length > 0) {
+            output += '\n关键决策:\n';
+            for (const d of key_decisions) output += '  • ' + d + '\n';
+          }
+          if (followups && followups.length > 0) {
+            output += '\n已创建后续任务:\n';
+            for (const f of followups) {
+              try {
+                const taskId = await createScheduledTask({
+                  conversation_id: convId!,
+                  task_name: f.task_name,
+                  task_description: f.task_description,
+                  cron_expression: f.cron_expression,
+                });
+                output += '  ✅ [' + taskId + '] ' + f.task_name + ' (' + f.cron_expression + ') - ' + f.reason + '\n';
+              } catch (e: any) {
+                output += '  ❌ ' + f.task_name + ': ' + (e.message || '创建失败') + '\n';
+              }
+            }
+          }
+          return output;
+        },
+      });
+    }
+
+
+    // === 初始化Agent状态表 + 技能追踪(P51) ===
+    try { initConversationTracking(convId || Date.now().toString()); } catch {}
+    try { await initAgentStateTable(); } catch {}
+    try { await initScheduledTasksTable(); } catch {}
 
     // ====== AI SDK v7 原生 Middleware + Telemetry ======
     const streamStartTime = Date.now();
@@ -904,9 +1192,24 @@ export async function POST(request: NextRequest) {
     const combinedSignal = AbortSignal.any([request.signal, stepAbortController.signal]);
 
     // AI SDK v7 ToolLoopAgent: official agent loop with stopWhen + prepareStep
-    const agent = new ToolLoopAgent({
+    // Shared writer reference for real-time tool call progress
+    let currentStreamWriter: any = null;
+    // Tool name map for Chinese display
+    const toolNameCn: Record<string, string> = {
+      searchWeb: '联网搜索', smart_search: '智能搜索', read_url: '读取网页',
+      createFile: '创建文件', editFile: '修改文件', readFile: '读取文件',
+      deleteFile: '删除文件', runCommand: '执行命令', deploy: '部署',
+      delegate_task: '委派子智能体', analyze_image: '图片分析',
+      saveMemory: '保存记忆', searchMemory: '搜索记忆',
+      save_cross_memory: '保存跨轮记忆', search_cross_memory: '搜索跨轮记忆',
+      generate_chart: '生成图表', generate_ppt: '生成PPT', generate_document: '生成文档',
+      think_and_plan: '思考规划', execute_code: '执行代码',
+      browser_navigate: '浏览器导航', browser_screenshot: '浏览器截图',
+      create_dynamic_tool: "创建动态工具", call_dynamic_tool: "调用动态工具", health_check: "健康检查", ssh_execute: "执行命令", ssh_read_file: "读取文件", ssh_write_file: "写入文件", build_project: "构建项目", deploy_service: "部署服务", git_commit: "提交代码", web_scrape: "网页抓取", web_search: "网页搜索", diagnose_error: "错误诊断", read_skill_file: "读取技能", get_available_skills: "可用技能", activate_skill: "激活技能", reflect_and_improve: "反思改进",
+    };
+    const agentConfig: any = {
       model: wrappedModel,
-      instructions: dynamicPrompt + (generateSkillsCatalog() ? "\n\n" + generateSkillsCatalog() : ""),
+      instructions: dynamicPrompt + (await generateSkillsCatalog() ? "\n\n" + await generateSkillsCatalog() : ""),
       tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
       // AI SDK official toolApproval - dynamic approval based on tool input
       toolApproval: {
@@ -928,40 +1231,307 @@ export async function POST(request: NextRequest) {
         ssh_read_file: 'approved',
         health_check: 'approved',
         get_available_skills: 'approved',
-        use_skill: 'approved',
+                activate_skill: 'approved',
+      reflect_and_improve: 'approved',
+      memory_maintenance: 'approved',
         read_skill_file: 'approved',
         diagnose_error: 'approved',
         web_scrape: 'approved',
         web_search: 'approved',
+        smart_search: 'approved',
+        read_url: 'approved',
+        analyze_image: 'approved',
+        execute_code: 'approved',
+        create_dynamic_tool: 'approved',
+        call_dynamic_tool: 'approved',
+        list_dynamic_tools: 'approved',
+        browser_navigate: 'approved',
+        browser_click: 'approved',
+        browser_fill: 'approved',
+        browser_extract: 'approved',
+        browser_screenshot: 'approved',
+        browser_execute_js: 'approved',
+        save_cross_memory: 'approved',
+        search_cross_memory: 'approved',
+        list_cross_memories: 'approved',
+        delete_cross_memory: 'user-approval',
         preview_html: 'approved',
+      db_list_tables: 'approved',
+      db_describe_table: 'approved',
+      db_query: 'approved',
+      db_table_data: 'approved',
+      github_search_code: 'approved',
+      github_list_issues: 'approved',
+      github_create_issue: 'user-approval',
+      github_list_prs: 'approved',
+      github_get_repo: 'approved',
       },
       stopWhen: isStepCount(Math.max(maxSteps, 15)),
-      // prepareStep: context compression when conversation gets too long
-      prepareStep: async ({ messages, stepNumber }) => {
+      // prepareStep: 摘要式上下文压缩 - 保留关键信息，避免粗暴删减导致质量衰减
+      prepareStep: async ({ messages, stepNumber }: any) => {
+
+        // 第1层：工具输出过长自动截断（阈值从DB读取）
+        const advCfgForCompress = await (async () => { try { const s = await getSetting('advanced_config'); return s ? JSON.parse(s) : {}; } catch { return {}; } })();
+        const MAX_TOOL_OUTPUT_CHARS = advCfgForCompress.max_tool_output_chars || 8000;
+        const COMPRESS_THRESHOLD = advCfgForCompress.context_compress_threshold || 80000;
+        const COMPRESS_RATIO = advCfgForCompress.context_compress_ratio || 0.5;
+        // P75: Fix tool message content format - AI SDK v7 requires array format
+        for (const msg of messages) {
+          if (msg.role === 'tool') {
+            // First: ensure tool content is in array format
+            if (typeof msg.content === 'string') {
+              // P75: Try JSON.parse first (AI SDK v7 tool-approval stringifies arrays)
+              try {
+                const parsed = JSON.parse(msg.content);
+                if (Array.isArray(parsed)) {
+                  (msg as any).content = parsed;
+                  continue;
+                }
+              } catch {}
+              const tcid = (msg as any).toolCallId || (msg as any).tool_call_id || '';
+              const tname = (msg as any).toolName || (msg as any).tool_name || 'unknown';
+              (msg as any).content = [{ type: 'tool-result', toolCallId: tcid, toolName: tname, output: { type: 'text', value: msg.content } }];
+              (msg as any).toolCallId = tcid;
+            }
+            // Second: truncate if too long, but keep array format
+            const toolArr = Array.isArray(msg.content) ? msg.content : [];
+            for (const part of toolArr) {
+              if (part.type === 'tool-result' && part.output?.type === 'text' && part.output.value.length > MAX_TOOL_OUTPUT_CHARS) {
+                part.output.value = part.output.value.substring(0, MAX_TOOL_OUTPUT_CHARS) + '\n...[输出已截断，原始长度:' + part.output.value.length + '字符]';
+              }
+            }
+          }
+        }
+
         const estimatedTokens = JSON.stringify(messages).length / 4;
-        if (estimatedTokens > 100000) {
-          console.log(`[AI] Context compression at step ${stepNumber}: ${Math.round(estimatedTokens)} tokens, pruning...`);
+        
+        // 第2层：摘要式压缩 - 用AI摘要替代粗暴删除
+        if (estimatedTokens > COMPRESS_THRESHOLD) {
+          logger.info(`[AI] Summary-based compression at step ${stepNumber}: ${Math.round(estimatedTokens)} tokens`);
+          
+          try {
+
+            // 分离：前半段要压缩的 + 后半段保留完整的
+            const splitPoint = Math.floor(messages.length * COMPRESS_RATIO);
+            const oldMessages = messages.slice(0, splitPoint);
+
+            // P52: 保护 <skill_content> 内容，提取后保留
+            const protectedSkillMsgs = oldMessages.filter((m: any) => {
+              const c = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+              return c.includes('<skill_content');
+            });
+            const recentMessages = messages.slice(splitPoint);
+            
+            // 提取前半段的关键信息用于生成摘要
+            const oldContent = oldMessages.map((m: any) => {
+              const role = m.role;
+              let text = '';
+              if (typeof m.content === 'string') text = m.content;
+              else if (Array.isArray(m.content)) {
+                text = m.content.filter((p: any) => p.type === 'text').map((p: any) => p.text).join(' ');
+              } else text = JSON.stringify(m.content);
+              return `[${role}] ${text.substring(0, 300)}`;
+            }).join('\n');
+            
+            // 用轻量模型生成摘要（替代粗暴删除，保留关键决策和上下文）
+            const summaryModel = await (async () => {
+              try {
+                const { routeModel } = await import('@/lib/model-router');
+                const r = await routeModel('summarize conversation context');
+                if (r?.model) {
+                  const modelCfg = await getModelConfig(r.model);
+                  const keyData = await getApiKeyByProvider(modelCfg?.provider || '');
+                  if (keyData?.api_key_encrypted && modelCfg) {
+                    const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
+                    const baseUrl = keyData.base_url || PROVIDER_URLS[modelCfg.provider as keyof typeof PROVIDER_URLS] || 'https://api.openai.com/v1';
+                    const apiKey = Buffer.from(keyData.api_key_encrypted, 'base64').toString('utf-8');
+                    return createOpenAICompatible({ name: 'summary-provider', baseURL: baseUrl, apiKey }).languageModel(r.model);
+                  }
+                }
+              } catch {}
+              // Fallback: 用当前模型（已经初始化好的）
+              return null;
+            })();
+            
+            let conversationSummary = '';
+            if (summaryModel && oldContent.length > 100) {
+              try {
+                const summaryResult = await generateText({
+                  model: summaryModel,
+                  prompt: `请用中文总结以下对话的关键信息，保留：1)用户的核心需求和目标 2)已做出的关键决策 3)已完成的步骤 4)未完成的事项。控制在300字以内。\n\n${oldContent.substring(0, 6000)}`,
+                  maxOutputTokens: 500,
+                  temperature: 0.3,
+                });
+                conversationSummary = summaryResult.text;
+                logger.info(`[AI] Context summary generated: ${conversationSummary.length} chars`);
+              } catch (e: any) {
+                logger.info(`[AI] Summary generation failed: ${e.message}, falling back to extract`);
+              }
+            }
+            
+            // 如果摘要生成失败，手动提取关键信息
+            if (!conversationSummary) {
+              const userMsgs = oldMessages
+                .filter((m: any) => m.role === 'user')
+                .map((m: any) => typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
+                .slice(-5);
+              const assistantMsgs = oldMessages
+                .filter((m: any) => m.role === 'assistant')
+                .map((m: any) => typeof m.content === 'string' ? m.content : '')
+                .filter((s: any) => s.length > 0)
+                .slice(-2);
+              conversationSummary = '用户需求：' + userMsgs.join('; ') + '\n已执行：' + assistantMsgs.map((s: any) => s.substring(0, 150)).join('; ');
+            }
+            
+            // 用摘要消息替换前半段，保留后半段完整
+            // AI SDK v7 forbids system role in messages - use user role with clear marker
+            const summaryMessage = {
+              role: 'user' as const,
+              content: `[对话历史摘要] 以下是之前对话的关键信息：\n${conversationSummary}\n请基于以上摘要和后续消息继续执行。不要重复已完成的工作。`,
+            };
+            // Add assistant acknowledgment to maintain conversation flow
+            const summaryAck = {
+              role: 'assistant' as const,
+              content: '收到，我会基于以上摘要继续执行。',
+            };
+            
+            const compressedMessages = [summaryMessage, summaryAck, ...protectedSkillMsgs, ...recentMessages];
+            const newTokenEst = JSON.stringify(compressedMessages).length / 4;
+            logger.info(`[AI] Compression result: ${Math.round(estimatedTokens)} → ${Math.round(newTokenEst)} tokens (saved ${Math.round((1 - newTokenEst/estimatedTokens)*100)}%)`);
+            
+            // 如果压缩后仍然过大，追加pruneMessages兜底
+            if (newTokenEst > 100000) {
+              logger.info(`[AI] Post-summary still large, applying pruneMessages`);
+              return {
+                messages: pruneMessages({
+                  messages: compressedMessages,
+                  reasoning: 'before-last-message',
+                  toolCalls: 'before-last-3-messages',
+                  emptyMessages: 'remove',
+                }),
+              };
+            }
+            
+            return { messages: compressedMessages };
+            
+          } catch (e: any) {
+            logger.info(`[AI] Summary compression failed: ${e.message}, falling back to pruneMessages`);
+            // 降级到原来的pruneMessages方案
+            return {
+              messages: pruneMessages({
+                messages,
+                reasoning: 'all',
+                toolCalls: 'before-last-2-messages',
+                emptyMessages: 'remove',
+              }),
+            };
+          }
+        } else if (estimatedTokens > COMPRESS_THRESHOLD * 0.75) {
+          // 轻度压缩：只删空消息和旧推理
+          logger.info(`[AI] Light context compression at step ${stepNumber}: ${Math.round(estimatedTokens)} tokens`);
           return {
             messages: pruneMessages({
               messages,
-              reasoning: 'all',
-              toolCalls: 'before-last-3-messages',
+              reasoning: 'before-last-message',
+              toolCalls: 'before-last-5-messages',
               emptyMessages: 'remove',
             }),
           };
+        }
+        // P73: Narration detection - if model narrated without tool calls, inject stronger hint
+        if (stepNumber >= 2) {
+          const lastAsstMsg = [...messages].reverse().find((m: any) => m.role === "assistant");
+          if (lastAsstMsg) {
+            const asstText = typeof lastAsstMsg.content === "string" ? lastAsstMsg.content : "";
+            const narratePatterns = ["让我", "我先", "我准备", "我来", "好，让我", "我来分析", "我来查看", "我来搜索", "我来收集", "我来读", "我来看", "首先让我", "先看一下"];
+            const hasNarration = narratePatterns.some(p => asstText.includes(p));
+            const hasToolCall = asstText.includes("tool_call_id") || messages.some((m: any) => m.role === "tool" && messages.indexOf(m) > messages.indexOf(lastAsstMsg));
+            if (hasNarration && !hasToolCall && asstText.length < 300) {
+              logger.info("[P73] Narration without action detected at step " + stepNumber + ": " + asstText.substring(0, 80));
+              const forceAction = "\n\n⚠️ 你上一条回复是空转叙述（说了要做但没调工具），现在必须立刻调用工具执行！禁止再说任何话，直接调工具！";
+              return {
+                messages,
+                instructions: (dynamicPrompt || "") + forceAction,
+              };
+            }
+          }
+        }
+        // P75: Safety net - ensure ALL tool messages have array-format content
+        for (const msg of messages) {
+          if (msg.role === 'tool' && typeof msg.content === 'string') {
+            // Try to parse as JSON array first (AI SDK v7 sometimes JSON.stringifies tool content)
+            try {
+              const parsed = JSON.parse(msg.content);
+              if (Array.isArray(parsed)) {
+                (msg as any).content = parsed;
+                continue;
+              }
+            } catch {}
+            // Fallback: wrap string in tool-result array
+            const tcid = (msg as any).toolCallId || (msg as any).tool_call_id || '';
+            const tname = (msg as any).toolName || (msg as any).tool_name || 'unknown';
+            (msg as any).content = [{ type: 'tool-result', toolCallId: tcid, toolName: tname, output: { type: 'text', value: msg.content } }];
+            if (tcid) (msg as any).toolCallId = tcid;
+          }
         }
         return {};
       },
       temperature,
       maxOutputTokens,
       maxRetries,
-      onToolExecutionStart: ({ toolCall }) => {
-        console.log(`[AI] Tool executing: ${toolCall.toolName}`);
+      onToolExecutionStart: ({ toolCall }: any) => {
+        logger.info(`[AI] Tool executing: ${toolCall.toolName}`);
+        // Write tool call progress to UI stream in real-time
+        if (currentStreamWriter) {
+          const displayName = toolNameCn[toolCall.toolName] || toolCall.toolName;
+          try {
+            // P72: Tool status handled by ToolCallDisplay component, no raw log in UI stream
+          } catch {}
+        }
       },
-      onToolExecutionEnd: ({ toolCall, toolOutput, toolExecutionMs }) => {
+      onToolExecutionEnd: async ({ toolCall, toolOutput, toolExecutionMs }: any) => {
         const status = toolOutput.type === 'tool-error' ? 'ERROR' : 'OK';
-        const errorDetail = toolOutput.type === 'tool-error' ? ` error: ${JSON.stringify(toolOutput.error)?.slice(0, 200)}` : '';
-        console.log(`[AI] Tool completed: ${toolCall.toolName} [${status}] ${toolExecutionMs}ms${errorDetail}`);
+        const isSuccess = toolOutput.type !== 'tool-error';
+        const errorDetail = !isSuccess ? ` error: ${JSON.stringify(toolOutput.error)?.slice(0, 200)}` : '';
+        logger.info(`[AI] Tool completed: ${toolCall.toolName} [${status}] ${toolExecutionMs}ms${errorDetail}`);
+        // Write tool completion to UI stream
+        if (currentStreamWriter) {
+          const displayName = toolNameCn[toolCall.toolName] || toolCall.toolName;
+          try {
+            // P72: Tool completion handled by ToolCallDisplay component
+          } catch {}
+        }
+        
+        // 记录工具调用到Agent状态
+        if (convId) {
+          try {
+            const inputStr = JSON.stringify((toolCall as any).args || (toolCall as any).input)?.slice(0, 200) || '';
+            const outputStr = (isSuccess ? String(toolOutput.output || '').slice(0, 200) : JSON.stringify(toolOutput.error)?.slice(0, 200)) || '';
+            await recordToolCall(convId, toolCall.toolName, inputStr, outputStr, isSuccess, toolExecutionMs);
+            
+            // 智能错误自修复：失败时附加恢复建议
+            if (!isSuccess) {
+              const state = await getAgentState(convId);
+              if (state && state.error_count >= 2) {
+                const strategy = determineRecoveryStrategy(toolCall.toolName, outputStr, state.error_count, state.tool_history);
+                const hint = getRecoveryHint(strategy);
+                await saveAgentState({
+                  conversation_id: convId,
+                  next_step: `上次${toolCall.toolName}失败(${state.error_count}次)。${hint}。${strategy.suggested_tool ? '建议改用' + strategy.suggested_tool : ''}`,
+                  blocked_reason: strategy.action === 'report_stuck' ? `${toolCall.toolName}连续${state.error_count}次失败` : undefined,
+                });
+              }
+            } else {
+              await saveAgentState({
+                conversation_id: convId,
+                phase: 'executing',
+                current_task: `${toolCall.toolName} - ${inputStr.slice(0, 80)}`,
+              });
+            }
+          } catch (e: any) {
+            logger.info(`[AgentState] Tool tracking failed: ${e.message}`);
+          }
+        }
       },
       telemetry: {
         isEnabled: true,
@@ -971,11 +1541,19 @@ export async function POST(request: NextRequest) {
       ...(presencePenalty !== undefined && { presencePenalty }),
       ...(frequencyPenalty !== undefined && { frequencyPenalty }),
       ...(seed !== undefined && { seed }),
-    });
+    };
+    let agent = new ToolLoopAgent(agentConfig);
 
     // AI SDK v7: use createUIMessageStream to enable follow-up stream merging
     const uiStream = createUIMessageStream({
       execute: async ({ writer }) => {
+        // Set shared writer for tool call progress
+        currentStreamWriter = writer;
+        // Send conversationId to client via message metadata so useChat onFinish can pick it up
+        if (convId) {
+          writer.write({ type: 'message-metadata', messageMetadata: { conversationId: convId } });
+        }
+        // P72: Removed tool-progress text section - ToolCallDisplay handles tool status
         // Read all advanced config in one pass (thinking mode + reasoning effort)
         let enableThinking = true;
         let thinkingMode = 'auto';
@@ -992,31 +1570,139 @@ export async function POST(request: NextRequest) {
         const isReasoningModel = model_id.includes('reasoner') || model_id.includes('r1') || model_id.includes('o1') || model_id.includes('o3') || model_id.includes('deepthink');
         const shouldSendReasoning = thinkingMode === 'always' ? true : thinkingMode === 'off' ? false : isReasoningModel || enableThinking;
 
-        const agentResult = await agent.stream({
-          messages: chatMessages as any,
-          ...(reasoningEffort && isReasoningModel ? { providerOptions: { reasoning_effort: reasoningEffort } } : {}),
-          timeout: { totalMs: Math.max(timeoutTotalMs, maxSteps * 30000), stepMs: timeoutStepMs },
-          onStepEnd: ({ finishReason, toolCalls, text }) => {
-            stepCount++;
-            lastFinishReason = finishReason;
-            if (text && text.length > 0) hasProducedText = true;
-            console.log(`[AI] Step ${stepCount}: finishReason=${finishReason}, toolCalls=${toolCalls?.length || 0}, textLen=${text?.length || 0}`);
-          },
-          abortSignal: combinedSignal,
-        });
+      let agentResult: any;
+      // P77: 模型降级路由 — API错误自动换模型重试
+      // ZodError等消息格式错误不重试(P76 sanitizer兜住)
+      const MAX_MODEL_RETRIES = 2;
+      let modelRetryCount = 0;
+      let lastStreamError: any = null;
 
-        // Merge primary stream into the UI stream
-        
-        writer.merge(agentResult.toUIMessageStream({
-          sendReasoning: shouldSendReasoning,
-          messageMetadata: ({ part }: any) => {
-            if (part.type === 'start' || part.type === 'finish') {
-              return { conversationId: convId } as any;
+      while (modelRetryCount <= MAX_MODEL_RETRIES) {
+        try {
+          // P76: 消息格式标准化 - 确保所有消息schema合法
+          const sanitizedMessages = sanitizeMessages(chatMessages);
+          chatMessages.length = 0;
+          chatMessages.push(...sanitizedMessages);
+          agentResult = await agent.stream({
+            messages: chatMessages as any,
+            ...(reasoningEffort && isReasoningModel ? { providerOptions: { reasoning_effort: reasoningEffort } } : {}),
+            timeout: { totalMs: Math.max(timeoutTotalMs, maxSteps * 30000), stepMs: timeoutStepMs },
+            onStepEnd: ({ finishReason, toolCalls, text }: any) => {
+              stepCount++;
+              lastFinishReason = finishReason;
+              if (text && text.length > 0) hasProducedText = true;
+              logger.info(`[AI] Step ${stepCount}: finishReason=${finishReason}, toolCalls=${toolCalls?.length || 0}, textLen=${text?.length || 0}`);
+              if (convId) {
+                try {
+                  const phase = toolCalls && toolCalls.length > 0 ? 'executing' : 
+                                finishReason === 'tool-calls' ? 'planning' : 
+                                finishReason === 'stop' ? 'completed' : 'idle';
+                  saveAgentState({ conversation_id: convId, phase }).catch(() => {});
+                } catch {}
+              }
+            },
+            abortSignal: combinedSignal,
+          });
+          lastStreamError = null;
+          break; // success
+        } catch (streamErr: any) {
+          lastStreamError = streamErr;
+          const errMsg = String(streamErr?.message || streamErr || '').toLowerCase();
+          console.error(`[P77] Stream error (attempt ${modelRetryCount+1}/${MAX_MODEL_RETRIES+1}):`, streamErr?.message || streamErr);
+
+          const isRetriable = (
+            errMsg.includes('429') || errMsg.includes('rate limit') || errMsg.includes('rate_limit') ||
+            errMsg.includes('quota') || errMsg.includes('insufficient') || errMsg.includes('余额') ||
+            errMsg.includes('401') || errMsg.includes('unauthorized') || errMsg.includes('invalid api key') ||
+            errMsg.includes('403') || errMsg.includes('forbidden') ||
+            errMsg.includes('404') || errMsg.includes('model not found') || errMsg.includes('not_found') ||
+            errMsg.includes('500') || errMsg.includes('internal server') || errMsg.includes('server error') ||
+            errMsg.includes('502') || errMsg.includes('bad gateway') ||
+            errMsg.includes('503') || errMsg.includes('service unavailable') || errMsg.includes('overloaded') ||
+            errMsg.includes('timeout') || errMsg.includes('timed out') || errMsg.includes('econnreset') || errMsg.includes('econnrefused') ||
+            errMsg.includes('no output generated') || errMsg.includes('empty response') ||
+            errMsg.includes('context_length_exceeded') || errMsg.includes('token limit') || errMsg.includes('max_tokens')
+          );
+          const isZodError = errMsg.includes('zoderror') || errMsg.includes('zod') || errMsg.includes('validation');
+
+          if (!isRetriable || isZodError || modelRetryCount >= MAX_MODEL_RETRIES) {
+            console.log();
+            break;
+          }
+
+          // Retriable: mark failed, re-route, rebuild model+agent
+          try { markProviderFailed(modelConfig!.provider, errMsg.slice(0, 100)); } catch {}
+          modelRetryCount++;
+          console.log(`[P77] Retrying with different model (attempt ${modelRetryCount})...`);
+          try {
+            const userMsg = chatMessages.filter((m: any) => m.role === 'user').map((m: any) => typeof m.content === 'string' ? m.content : '').join(' ');
+            const newRoute = await routeModel(userMsg);
+            if (newRoute && newRoute.model !== model_id) {
+              console.log(`[P77] Fallback: ${modelConfig.provider}/${model_id} -> ${newRoute.provider}/${newRoute.model}`);
+              model_id = newRoute.model;
+              modelConfig = await getModelConfig(model_id) || modelConfig;
+              const newKeyData = await getApiKeyByProvider(modelConfig.provider);
+              if (newKeyData?.api_key_encrypted) {
+                const newApiKey = Buffer.from(newKeyData.api_key_encrypted, 'base64').toString('utf-8');
+                const newBaseUrl = newKeyData.base_url || PROVIDER_URLS[modelConfig.provider] || `https://api.${modelConfig.provider}.com/v1`;
+                const newProvider = createOpenAICompatible({ name: modelConfig.provider, baseURL: newBaseUrl, headers: { Authorization: `Bearer ${newApiKey}` } });
+                const newModel = newProvider.languageModel(model_id);
+                const newWrappedModel = wrapLanguageModel({ model: newModel, middleware: [loggingMiddleware, extractReasoningMiddleware({ tagName: 'think' })] });
+                agentConfig.model = newWrappedModel;
+                agent = new ToolLoopAgent(agentConfig);
+                console.log(`[P77] Rebuilt agent with ${modelConfig.provider}/${model_id}`);
+              } else { console.log('[P77] No API key for fallback provider'); break; }
+            } else { console.log('[P77] No alternative model found'); break; }
+          } catch (retryErr: any) { console.error('[P77] Fallback failed:', retryErr?.message || String(retryErr)); break; }
+        }
+      }
+
+      // All retries failed — show user-friendly error
+      if (lastStreamError && !agentResult) {
+        const errMsg = String(lastStreamError?.message || lastStreamError || '').toLowerCase();
+        const errorId = "error-" + Date.now();
+        writer.write({ type: "text-start", id: errorId });
+        let errorText = "⚠️ 对话处理出错，请刷新页面重试或切换模型。";
+        if (errMsg.includes('429') || errMsg.includes('rate limit') || errMsg.includes('quota') || errMsg.includes('余额')) {
+          errorText = "⚠️ 模型额度不足或限流，已自动切换尝试其他模型。如仍失败，请手动切换模型。";
+        } else if (errMsg.includes('401') || errMsg.includes('unauthorized')) {
+          errorText = "⚠️ API认证失败，请检查后台API Key配置。";
+        } else if (errMsg.includes('timeout') || errMsg.includes('timed out')) {
+          errorText = "⚠️ 模型响应超时，请稍后重试或切换较快的模型。";
+        } else if (errMsg.includes('context_length') || errMsg.includes('token limit')) {
+          errorText = "⚠️ 对话上下文超出模型限制，请开启新对话或使用支持更长上下文的模型。";
+        }
+        writer.write({ type: "text-delta", id: errorId, delta: errorText });
+        writer.write({ type: "text-end", id: errorId });
+      }
+
+
+        // P70c: Stream text with typewriter effect using textStream
+        // Collect full text while streaming chunks to UI for typewriter effect
+        let text = '';
+        const resultStreamId = 'result-' + Date.now();
+        let hasStartedResultStream = false;
+        try {
+          for await (const chunk of agentResult.textStream) {
+            text += chunk;
+            if (!hasStartedResultStream) {
+              // P72: Removed - no tool-progress section to close
+              writer.write({ type: 'text-start', id: resultStreamId });
+              hasStartedResultStream = true;
             }
-            return undefined;
-          },
-        }));
-        let text = await agentResult.text || '';
+            writer.write({ type: 'text-delta', id: resultStreamId, delta: chunk });
+          }
+          if (hasStartedResultStream) {
+            writer.write({ type: 'text-end', id: resultStreamId });
+          }
+        } catch (e: any) {
+          logger.warn('[AI] textStream error: ' + (e?.message || String(e)));
+          text = await agentResult.text || '';
+        }
+        if (!hasStartedResultStream) {
+          // Fallback: no text was streamed (e.g. tool-only response)
+          // Don't end tool-progress yet, will be handled below
+        }
         // Capture reasoning from the stream result
         let capturedReasoning = '';
         try {
@@ -1029,7 +1715,7 @@ export async function POST(request: NextRequest) {
         // Detect DSML markup (DeepSeek bug: outputs tool calls as text)
         const isDSMLText = text && (text.includes('DSML') || text.includes('tool_calls') || text.includes('invoke name='));
         if (isDSMLText) {
-          console.log('[AI] Detected DSML markup in text, treating as no-text:', text.slice(0, 200));
+          logger.info('[AI] Detected DSML markup in text, treating as no-text:', text.slice(0, 200));
           text = '';
         }
 
@@ -1051,84 +1737,161 @@ export async function POST(request: NextRequest) {
         }).join('\n') : '';
 
         // Save to DB and decide if follow-up is needed
-        // Helper: extract summary from report text
-        const extractSummary = (txt: string): string => {
-          const firstSection = txt.indexOf('\n## ');
-          if (firstSection > 0) {
-            let summary = txt.slice(0, firstSection).trim();
-            if (summary.length > 300) {
-              const sentences = summary.match(/[^\u3002\uff01\uff1f.!?]+[\u3002\uff01\uff1f.!?]/g) || [];
-              summary = sentences.slice(0, 3).join('').trim();
-              if (!summary) summary = txt.slice(0, 200).trim() + '...';
+        // P70: extractSummary removed (no report card)
+
+        // P71: Smart report card detection
+        // Detect structured reports: long text + multiple headers → save as artifact + show card
+        // Normal text → inline display (typewriter effect already streamed)
+        const isStructuredReport = (txt: string): boolean => {
+          if (txt.length < 1500) return false;
+          const headerCount = (txt.match(/^#{1,3} \S/gm) || []).length;
+          return headerCount >= 3;
+        };
+        const extractReportTitle = (txt: string): string => {
+          const firstH1 = txt.match(/^# (.+)$/m);
+          const firstH2 = txt.match(/^## (.+)$/m);
+          if (firstH1) return firstH1[1].slice(0, 50);
+          if (firstH2) return firstH2[1].slice(0, 50);
+          return '分析报告';
+        };
+
+        if (hasStartedResultStream && text && isStructuredReport(text)) {
+          // P71: This is a structured report - save as artifact and show card
+          // The text was already streamed with typewriter effect, now add a report card after it
+          const reportTitle = extractReportTitle(text);
+          const reportId = 'report_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+          try {
+            const { run: runArtifact } = await import('@/lib/db');
+            await runArtifact(
+              'INSERT INTO generated_artifacts (id, type, title, content, created_at) VALUES ($1, $2, $3, $4, NOW())',
+              [reportId, 'markdown', reportTitle, text]
+            );
+          } catch (e: any) {
+            logger.warn('[P71] Failed to save report artifact: ' + (e?.message || String(e)));
+          }
+          // Send report card marker to UI (after the streamed text)
+          const cardId = 'report-card-' + Date.now();
+          const cardContent = '<!--REPORT_CARD\n' + reportTitle + '\n' + reportId + '\n-->点击查看完整报告';
+          writer.write({ type: 'text-start', id: cardId });
+          writer.write({ type: 'text-delta', id: cardId, delta: '\n\n' + cardContent });
+          writer.write({ type: 'text-end', id: cardId });
+          // Save to DB with both text and card marker
+          const savedContent = text + '\n\n' + cardContent + (toolPartsForLog.length > 0 ? '\n<!--EXEC_LOG\n' + execLog + '\n-->' : '');
+          await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
+          logger.info('[P71] Report card created: ' + reportId + ' (' + text.length + ' chars)');
+        } else if (hasStartedResultStream) {
+          // Normal text - already streamed with typewriter effect, just save to DB
+          if (text && toolPartsForLog.length > 0) {
+            const savedContent = text + '\n<!--EXEC_LOG\n' + execLog + '\n-->';
+            await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
+            logger.info('[AI] Response with tools (streamed): ' + text.length + ' chars');
+          } else if (text) {
+            const savedContent = toolPartsForLog.length > 0 ? text + '\n<!--EXEC_LOG\n' + execLog + '\n-->' : text;
+            await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
+            logger.info('[AI] Response (streamed): ' + text.length + ' chars');
+          }
+        } else {
+          // No text was streamed (tool-only or empty response)
+          if (text && toolPartsForLog.length > 0) {
+            const savedContent = text + '\n<!--EXEC_LOG\n' + execLog + '\n-->';
+            await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
+            const resultId = 'result-' + Date.now();
+            writer.write({ type: 'text-start', id: resultId });
+            writer.write({ type: 'text-delta', id: resultId, delta: text });
+            writer.write({ type: 'text-end', id: resultId });
+            logger.info('[AI] Response with tools (fallback): ' + text.length + ' chars');
+          } else if (text) {
+            const savedContent = toolPartsForLog.length > 0 ? text + '\n<!--EXEC_LOG\n' + execLog + '\n-->' : text;
+            await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
+            const resultId = 'result-' + Date.now();
+            writer.write({ type: 'text-start', id: resultId });
+            writer.write({ type: 'text-delta', id: resultId, delta: text });
+            writer.write({ type: 'text-end', id: resultId });
+          // P76: 工具调用闭环 - 工具结果必须回传模型生成自然语言回复
+          // 工具结果只是中间observation，不能作为最终答案直接上屏
+          } else if (!text && (toolPartsForLog.length > 0 || allToolResults.length > 0)) {
+            const MEMORY_TOOL_PATTERNS = ["search_cross_memory", "save_cross_memory", "delete_cross_memory", "list_cross_memories", "searchMemory", "saveMemory", "deleteMemory", "memory_maintenance"];
+            const reportToolResults = allToolResults.filter(r => !MEMORY_TOOL_PATTERNS.some(p => r.startsWith("[" + p + "]")));
+            
+            if (reportToolResults.length > 0) {
+              const toolResultContext = reportToolResults.map((r, i) => {
+                const match = r.match(/^\[(\w+)\]\s*(.*)/);
+                if (!match) return (i+1) + '. ' + r;
+                const [, toolName, output] = match;
+                return (i+1) + '. 工具: ' + toolName + '\n结果: ' + output.slice(0, 2000);
+              }).join('\n\n');
+              
+              try {
+                console.log('[P76] Tool-only response, forcing follow-up for ' + reportToolResults.length + ' tool results');
+                const followupMessages = chatMessages.slice(-8);
+                const followupResult = await generateText({
+                  model: wrappedModel,
+                  system: finalDynamicPrompt,
+                  messages: followupMessages as any,
+                  prompt: '你刚刚执行了以下工具操作并获得了结果。请基于这些结果，用自然语言向用户总结：\n1. 你做了什么\n2. 结果如何\n3. 有什么发现或建议\n\n工具执行结果：\n' + toolResultContext + '\n\n请直接回复用户，不要重复工具原始输出，要有人类可读的解释和分析。',
+                  maxOutputTokens: 2048,
+                  temperature: 0.7,
+                });
+                
+                const followupText = followupResult.text || '';
+                if (followupText.length > 20) {
+                  const followupId = 'followup-' + Date.now();
+                  writer.write({ type: 'text-start', id: followupId });
+                  writer.write({ type: 'text-delta', id: followupId, delta: followupText });
+                  writer.write({ type: 'text-end', id: followupId });
+                  const savedContent = followupText + '\n<!--EXEC_LOG\n' + execLog + '\n-->';
+                  await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
+                  console.log('[P76] Follow-up response: ' + followupText.length + ' chars');
+                  text = followupText;
+                } else {
+                  throw new Error('Follow-up too short: ' + followupText.length);
+                }
+              } catch (followupErr: any) {
+                console.log('[P76] Follow-up failed: ' + (followupErr?.message || String(followupErr)) + ', using fallback');
+                const toolNames = [...new Set(reportToolResults.map(r => {
+                  const m = r.match(/^\[(\w+)\]/);
+                  return m ? (toolNameCn[m[1]] || m[1]) : '操作';
+                }))];
+                const failCount = reportToolResults.filter(r => r.includes('\u274c')).length;
+                const okCount = reportToolResults.length - failCount;
+                let fallbackText = '';
+                if (failCount === 0) {
+                  fallbackText = '\u2705 已完成 ' + toolNames.join('\u3001') + '\uff0c所有操作执行成功\u3002';
+                } else if (okCount === 0) {
+                  fallbackText = '\u274c ' + toolNames.join('\u3001') + ' \u6267\u884c\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u8be6\u60c5\u3002';
+                } else {
+                  fallbackText = '\u26a0\ufe0f ' + toolNames.join('\u3001') + ' \u90e8\u5206\u5931\u8d25(' + okCount + '\u6210\u529f/' + failCount + '\u5931\u8d25)\u3002';
+                }
+                const fallbackId = 'fallback-' + Date.now();
+                writer.write({ type: 'text-start', id: fallbackId });
+                writer.write({ type: 'text-delta', id: fallbackId, delta: fallbackText });
+                writer.write({ type: 'text-end', id: fallbackId });
+                const savedContent = fallbackText + '\n<!--EXEC_LOG\n' + execLog + '\n-->';
+                await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
+              }
             }
-            return summary;
-          }
-          return txt.slice(0, 200).trim() + '...';
-        };
-
-        // Helper: wrap report with FULL_REPORT tags for chat display
-        const wrapReport = (txt: string): string => {
-          const hasMarkdownHeading = /^#{1,6}\s+/m.test(txt);
-          const isLongEnough = txt.length > 800;
-          const hasMultipleSections = (txt.match(/^#{2,3}\s+/gm) || []).length >= 3;
-          const isReportLike = hasMarkdownHeading && isLongEnough && hasMultipleSections;
-          const reportTitle = txt.match(/^#{1,6}\s+(.+)/m)?.[1]?.trim() || '\u5206\u6790\u62a5\u544a';
-          if (txt.includes('<!--FULL_REPORT-->')) return txt;
-          if (isReportLike) {
-            const summary = extractSummary(txt);
-            return summary + '\n\n<!--REPORT_CARD\n' + reportTitle + '\n-->\n<!--FULL_REPORT-->\n' + txt + '\n<!--/FULL_REPORT-->';
-          }
-          return txt;
-        };
-
-        if (text && toolPartsForLog.length > 0) {
-          const wrapped = wrapReport(text);
-          const savedContent = wrapped + '\n<!--EXEC_LOG\n' + execLog + '\n-->';
-          await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
-        } else if (text) {
-          const wrapped = wrapReport(text);
-          const savedContent = toolPartsForLog.length > 0 ? wrapped + '\n<!--EXEC_LOG\n' + execLog + '\n-->' : wrapped;
-          await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
-        } else if (!text && (toolPartsForLog.length > 0 || allToolResults.length > 0)) {
-          console.log('[AI] No text after tools, starting follow-up stream merge...');
-          const toolContext = allToolResults.length > 0
-            ? '\n\n\u4ee5\u4e0b\u662f\u4e4b\u524d\u5de5\u5177\u8c03\u7528\u7684\u7ed3\u679c\u6458\u8981\uff1a\n' + allToolResults.map((r, i) => `${i + 1}. ${r}`).join('\n')
-            : '';
-          // Read follow-up prompt from DB (not hardcoded)
-          let followupSystemSuffix = dbFollowupPrompt || '';
-          if (!followupSystemSuffix || followupSystemSuffix.trim().length < 20) {
-            followupSystemSuffix = '\u4f60\u4e4b\u524d\u5df2\u7ecf\u901a\u8fc7\u5de5\u5177\u6536\u96c6\u4e86\u4fe1\u606f\u3002\u8bf7\u7528\u4e2d\u6587\u5199\u5206\u6790\u62a5\u544a\uff0c\u5148\u5199\u7b80\u77ed\u603b\u7ed3\uff0c\u7136\u540e\u7528<!--FULL_REPORT-->\u683c\u5f0f\u5305\u88f9\u8be6\u7ec6\u5185\u5bb9\u3002';
-          }
-          const followUpResult = streamText({
-            system: dynamicPrompt + '\n\n' + followupSystemSuffix,
-            model: wrappedModel,
-            messages: [
-              ...chatMessages,
-              { role: 'user' as const, content: '\u57fa\u4e8e\u4ee5\u4e0a\u6240\u6709\u5de5\u5177\u8c03\u7528\u6536\u96c6\u5230\u7684\u4fe1\u606f\uff0c\u8bf7\u7528 Markdown \u683c\u5f0f\u8f93\u51fa\u4e2d\u6587\u5206\u6790\u62a5\u544a\u3002\n\n\u8981\u6c42\uff1a\n- \u5148\u51992-3\u53e5\u7b80\u77ed\u603b\u7ed3\n- \u7136\u540e\u7528 <!--REPORT_CARD\n\u62a5\u544a\u6807\u9898\n-->\n<!--FULL_REPORT-->...<!--/FULL_REPORT--> \u683c\u5f0f\u5305\u88f9\u8be6\u7ec6\u5185\u5bb9\n- ## \u4e8c\u7ea7\u6807\u9898\u5212\u5206\u7ae0\u8282\n- \u6570\u636e\u5bf9\u6bd4\u7528 Markdown \u8868\u683c\n- \u91cd\u70b9\u7528 **\u52a0\u7c97**\n- \u7981\u6b62\u8f93\u51fa DSML/XML \u6807\u7b7e\uff0c\u53ea\u5199\u7eaf\u6587\u5b57' + toolContext }
-            ] as any,
-            temperature,
-            maxOutputTokens,
-            maxRetries: 1,
-            timeout: { totalMs: 180000, stepMs: 60000 },
-          });
-          writer.merge(followUpResult.toUIMessageStream({ sendReasoning: shouldSendReasoning }));
-          const followUpText = await followUpResult.text;
-          if (followUpText) {
-            const wrappedFollowup = wrapReport(followUpText);
-            const fullContent = wrappedFollowup + '\n<!--EXEC_LOG\n' + execLog + '\n-->';
-            await createMessage(convId!, 'assistant', fullContent, model_id, capturedReasoning || null);
-            console.log(`[AI] Follow-up report generated and streamed: ${followUpText.length} chars`);
-          } else {
-            const abortContent = '\u26a0\ufe0f \u5de5\u5177\u8c03\u7528\u5df2\u5b8c\u6210\uff0c\u4f46\u751f\u6210\u62a5\u544a\u5931\u8d25\u3002\u8bf7\u53d1\u9001\u201c\u603b\u7ed3\u201d\u91cd\u8bd5\u3002';
-            await createMessage(convId!, 'assistant', abortContent, model_id, capturedReasoning || null);
           }
         }
-        // Telemetry
+        // Telemetry - extract token usage from steps
+        let totalPromptTokens = 0;
+        let totalCompletionTokens = 0;
+        try {
+          const steps = await agentResult.steps;
+          for (const step of steps) {
+            if (step.usage) {
+              totalPromptTokens += step.usage.inputTokens || 0;
+              totalCompletionTokens += step.usage.outputTokens || 0;
+            }
+          }
+        } catch {}
+        const totalTokens = totalPromptTokens + totalCompletionTokens;
+
         try {
           const { telemetry } = await import('@/lib/ai-telemetry');
           telemetry.recordAICall({
             provider: modelConfig.provider, model: model_id,
             operation: 'chat_stream', durationMs: Date.now() - streamStartTime, success: true,
+            tokensUsed: { prompt: totalPromptTokens, completion: totalCompletionTokens, total: totalTokens },
           });
         } catch {}
 
@@ -1140,9 +1903,28 @@ export async function POST(request: NextRequest) {
             mode: mode,
             durationMs: Date.now() - streamStartTime,
             status: 'success',
+            inputTokens: totalPromptTokens,
+            outputTokens: totalCompletionTokens,
+            totalTokens: totalTokens,
           });
         } catch {}
 
+        // === 跨对话记忆：提取关键进度 ===
+        if (convId && (toolPartsForLog.length > 0 || (text && text.length > 100))) {
+          try {
+            const conversationSummary = text ? text.slice(0, 1000) : '';
+            const toolResultSummaries = toolPartsForLog.map(tp => `${tp.name}: ${tp.output.slice(0, 200)}`);
+            await extractAndSaveProgress(convId, model, conversationSummary, toolResultSummaries);
+          } catch (e: any) {
+            logger.info(`[AgentState] Cross-conversation memory extraction failed: ${e.message}`);
+          }
+        }
+        // === 对话结束时更新状态 ===
+        if (convId) {
+          try {
+            await saveAgentState({ conversation_id: convId, phase: 'completed', progress_pct: 100 });
+          } catch {}
+        }
         try { const { mcpManager } = await import('@/lib/mcp-client'); await mcpManager.closeAll(); } catch {}
       },
       onError: (error) => {
@@ -1151,7 +1933,7 @@ export async function POST(request: NextRequest) {
         // Check for balance/insufficient/quota errors - mark provider as failed and suggest switching
         if (msg.includes('余额不足') || msg.includes('insufficient') || msg.includes('quota') || msg.includes('429') || msg.includes('rate limit') || msg.includes('No output generated')) {
           // Mark the current provider as failed so router skips it next time
-          try { markProviderFailed(modelConfig.provider, msg.slice(0, 100)); } catch {}
+          try { markProviderFailed(modelConfig!.provider, msg.slice(0, 100)); } catch {}
           return "⚠️ 当前模型(" + modelConfig.provider + '/' + model_id + ")API额度不足或暂时不可用，已自动标记，下次auto模式将跳过。建议切换到DeepSeek等可用模型。";
         }
         return 'An error occurred during streaming.';

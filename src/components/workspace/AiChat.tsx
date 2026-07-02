@@ -6,8 +6,10 @@ import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { z } from 'zod';
 import type { UIMessage } from 'ai';
-import type { WorkspaceFile, Attachment } from '@/types';
+import type { WorkspaceFile, Attachment, Message } from '@/types';
 import { ToolCallDisplay } from '@/components/chat/tool-call-display';
+import { MessageBubble } from '@/components/chat/MessageBubble';
+import { useFileUpload } from '@/components/chat/hooks/use-file-upload';
 
 interface AiChatProps {
   projectId: string;
@@ -16,26 +18,7 @@ interface AiChatProps {
   onFilesChanged?: () => void;
 }
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
-
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-function classifyFile(file: File): Attachment['type'] {
-  if (file.type.startsWith('image/')) return 'image';
-  const codeExts = ['.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.go', '.rs', '.c', '.cpp', '.h', '.css', '.html', '.json', '.yaml', '.yml', '.toml', '.sql', '.sh', '.bash', '.zsh'];
-  const ext = '.' + file.name.split('.').pop()?.toLowerCase();
-  if (codeExts.includes(ext)) return 'code';
-  return 'document';
-}
-
-// Helper: 从 UIMessage 提取纯文本
+// Helper: extract plain text from UIMessage
 function extractTextContent(msg: any): string {
   if (typeof msg.content === 'string') return msg.content;
   if (Array.isArray(msg.parts)) {
@@ -47,7 +30,7 @@ function extractTextContent(msg: any): string {
   return '';
 }
 
-// 从 UIMessage parts 提取工具调用显示数据
+// Extract tool calls from UIMessage parts
 function extractToolCallsFromMessage(msg: any): Array<{
   callId: string;
   toolName: string;
@@ -91,7 +74,7 @@ function extractToolCallsFromMessage(msg: any): Array<{
     });
 }
 
-// DB 消息 → UIMessage 格式转换
+// DB messages → UIMessage format conversion
 function convertDBMessages(dbMsgs: any[]): UIMessage[] {
   return dbMsgs
     .filter((m: any) => m.role !== 'system')
@@ -140,24 +123,31 @@ function convertDBMessages(dbMsgs: any[]): UIMessage[] {
 }
 
 export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProps) {
-  // Local input state (AI SDK v7 useChat doesn't manage input)
   const [input, setInput] = useState('');
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // AI SDK useChat hook
+  // Reuse shared file upload hook
+  const {
+    attachments,
+    setAttachments,
+    fileInputRef,
+    handleFiles,
+    removeAttachment,
+    clearAttachments,
+  } = useFileUpload({
+    onError: (msg) => toast.error(msg),
+  });
+
+  // AI SDK useChat hook (workspace-specific API endpoint)
   const chat = useChat({
     transport: new DefaultChatTransport({ api: '/api/workspace/chat' }),
     messageMetadataSchema: z.object({ conversationId: z.string().optional() }).optional(),
     async onFinish({ message }) {
-      // 触发文件刷新
       onFilesChanged?.();
     },
     onError(error) {
       toast.error('AI 响应出错，请重试');
-      console.error('[AiChat] error:', error);
     },
   });
 
@@ -177,8 +167,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data) && data.length > 0) {
-            const uiMessages = convertDBMessages(data);
-            chat.setMessages(uiMessages);
+            chat.setMessages(convertDBMessages(data));
           } else {
             chat.setMessages([]);
           }
@@ -189,34 +178,6 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
     };
     loadHistory();
   }, [projectId]);
-
-  const handleFiles = useCallback(async (fileList: FileList | File[]) => {
-    const newAttachments: Attachment[] = [];
-    for (const file of Array.from(fileList)) {
-      if (file.size > MAX_FILE_SIZE) {
-        toast.warning('文件 "' + file.name + '" 超过 5MB 限制');
-        continue;
-      }
-      try {
-        const base64 = await fileToBase64(file);
-        newAttachments.push({
-          id: Date.now() + '-' + Math.random().toString(36).slice(2, 8),
-          name: file.name,
-          type: classifyFile(file),
-          mimeType: file.type || 'application/octet-stream',
-          size: file.size,
-          url: base64,
-        });
-      } catch {
-        toast.error('无法读取文件 "' + file.name + '"');
-      }
-    }
-    setAttachments(prev => [...prev, ...newAttachments]);
-  }, []);
-
-  const removeAttachment = (id: string) => {
-    setAttachments(prev => prev.filter(a => a.id !== id));
-  };
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -244,7 +205,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
 
     const content = input;
     setInput('');
-    setAttachments([]);
+    clearAttachments();
 
     chat.sendMessage(
       { text: content },
@@ -260,9 +221,18 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
     );
   };
 
+  // Convert UIMessage to Message for MessageBubble
+  const toBubbleMessage = (msg: UIMessage): Message => ({
+    id: msg.id,
+    role: msg.role as 'user' | 'assistant',
+    content: extractTextContent(msg),
+    attachments: [],
+    createdAt: (msg as any).createdAt || new Date(),
+  });
+
   return (
     <div
-      className="h-full flex flex-col bg-card border-l border-border relative "
+      className="h-full flex flex-col bg-card border-l border-border relative"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -292,7 +262,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+      <div className="flex-1 overflow-y-auto p-2 md:p-4 space-y-3 md:space-y-4 min-h-0">
         {chat.messages.length === 0 ? (
           <div className="text-center text-foreground/70 text-sm py-8 px-4">
             <div className="text-4xl mb-4">🤖</div>
@@ -301,30 +271,18 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
           </div>
         ) : (
           chat.messages.map((message) => {
-            const textContent = extractTextContent(message);
             const toolCalls = message.role === 'assistant' ? extractToolCallsFromMessage(message) : [];
+            const isStreaming = message.role === 'assistant' && isLoading && message === chat.messages[chat.messages.length - 1];
 
             return (
-              <div
+              <MessageBubble
                 key={message.id}
-                className={'flex ' + (message.role === 'user' ? 'justify-end' : 'justify-start')}
-              >
-                <div
-                  className={'max-w-[90%] rounded-lg px-3 py-2 ' +
-                    (message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted')
-                  }
-                >
-                  {toolCalls.length > 0 && (
-                    <div className="mb-2">
-                      <ToolCallDisplay toolCalls={toolCalls} />
-                    </div>
-                  )}
-
-                  {textContent && (
-                    <div className="text-sm whitespace-pre-wrap break-words">{textContent}</div>
-                  )}
-                </div>
-              </div>
+                message={toBubbleMessage(message)}
+                isStreaming={isStreaming}
+                conversationId={projectId}
+              />
+              /* Tool calls are now rendered inside MessageBubble via RenderedContent.
+                 For workspace-specific tool calls, show them separately below. */
             );
           })
         )}
@@ -352,7 +310,7 @@ export function AiChat({ projectId, modelId, files, onFilesChanged }: AiChatProp
         </div>
       )}
 
-      <div className="border-t border-border p-2">
+      <div className="border-t border-border p-2 safe-area-pb">
         <form onSubmit={onSubmit} className="flex gap-2">
           <input
             ref={fileInputRef}

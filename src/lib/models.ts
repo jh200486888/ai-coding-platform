@@ -72,6 +72,13 @@ export const MODELS: AIModel[] = [
 
   // Banana (1个)
   { id: 'nano-banana-pro', name: 'Nano Banana Pro', provider: 'banana', description: '轻量极速模型' },
+
+  // Agnes AI (5个) - 免费多模态，OpenAI兼容协议
+  { id: 'agnes-1.5-flash', name: 'Agnes 1.5 Flash', provider: 'agnes', description: '免费轻量对话模型,512K上下文' },
+  { id: 'agnes-2.0-flash', name: 'Agnes 2.0 Flash', provider: 'agnes', description: '免费Agent模型,512K上下文,工具调用' },
+  { id: 'agnes-image-2.0-flash', name: 'Agnes Image 2.0', provider: 'agnes-image', description: '文生图/图生图' },
+  { id: 'agnes-image-2.1-flash', name: 'Agnes Image 2.1', provider: 'agnes-image', description: '高级图像生成与编辑' },
+  { id: 'agnes-video-v2.0', name: 'Agnes Video V2.0', provider: 'agnes-image', description: '文生视频/图生视频' },
 ];
 
 // 厂商名称映射
@@ -91,6 +98,8 @@ const providerNames: Record<string, string> = {
   cohere: 'Cohere',
   'openai-image': 'OpenAI Image',
   banana: 'Banana',
+  agnes: 'Agnes AI',
+  'agnes-image': 'Agnes Image',
 };
 
 // 按厂商分组
@@ -154,4 +163,6 @@ export const PROVIDER_URLS: Record<string, string> = {
   mistral: 'https://api.mistral.ai/v1',
   cohere: 'https://api.cohere.ai/v1',
   groq: 'https://api.groq.com/openai/v1',
+  agnes: 'https://apihub.agnes-ai.com/v1',
+  'agnes-image': 'https://apihub.agnes-ai.com/v1',
 };

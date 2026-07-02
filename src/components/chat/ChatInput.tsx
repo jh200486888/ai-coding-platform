@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from 'react';
-import { Send, Paperclip, X, Square, ImageIcon, FileText, Code, Mic, Globe } from 'lucide-react';
+import { Send, Paperclip, X, Square, ImageIcon, FileText, Code, Mic, Globe, MoreHorizontal } from 'lucide-react';
 import type { Attachment } from '@/types';
 import { SpeechInput } from '@/components/chat/SpeechInput';
 
@@ -61,6 +61,7 @@ export function ChatInput({
 }: ChatInputProps) {
   const currentMode = CHAT_MODES.find(m => m.id === selectedMode);
   const canSubmit = input.trim() || attachments.length > 0;
+  const [showExtraActions, setShowExtraActions] = useState(false);
 
   return (
     <>
@@ -105,8 +106,8 @@ export function ChatInput({
       )}
 
       {/* Input area */}
-      <div className="border-t border-border px-3 py-3 md:px-4 md:py-4 shrink-0 safe-area-pb">
-        <form onSubmit={onSubmit} className="flex gap-2 items-center flex-nowrap">
+      <div className="border-t border-border px-2 py-2 md:px-4 md:py-4 shrink-0 safe-area-pb">
+        <form onSubmit={onSubmit} className="flex gap-1.5 md:gap-2 items-center flex-nowrap">
           {/* Hidden file input */}
           <input
             ref={fileInputRef}
@@ -115,7 +116,6 @@ export function ChatInput({
             className="hidden"
             onChange={(e) => {
               if (e.target.files) {
-                // Trigger parent handler via custom event
                 const event = new CustomEvent('files-selected', { detail: e.target.files });
                 e.target.dispatchEvent(event);
               }
@@ -123,19 +123,61 @@ export function ChatInput({
             }}
           />
           
-          {/* Image generation button (design mode only) */}
-          {selectedMode === 'design' && (
-            <button
-              type="button"
-              onClick={onGenerateImage}
-              disabled={isGeneratingImage || !input.trim()}
-              className="p-2 text-amber-400 hover:text-amber-300 transition-colors rounded-lg hover:bg-muted shrink-0 disabled:opacity-50"
-              title="生成图片"
-              aria-label="生成图片"
-            >
-              <ImageIcon className="w-5 h-5" />
-            </button>
+          {/* Mobile: expandable extra actions */}
+          {showExtraActions && (
+            <div className="flex items-center gap-0.5 md:hidden">
+              {/* Image generation button (design mode only) */}
+              {selectedMode === 'design' && (
+                <button
+                  type="button"
+                  onClick={onGenerateImage}
+                  disabled={isGeneratingImage || !input.trim()}
+                  className="p-2 text-amber-400 hover:text-amber-300 transition-colors rounded-lg hover:bg-muted shrink-0 disabled:opacity-50 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                  title="生成图片"
+                  aria-label="生成图片"
+                >
+                  <ImageIcon className="w-5 h-5" />
+                </button>
+              )}
+              {/* Attachment button */}
+              <button
+                type="button"
+                onClick={onFileSelect}
+                className="p-2 text-muted-foreground hover:text-foreground active:text-foreground transition-colors rounded-lg hover:bg-muted active:bg-muted shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                title="上传附件"
+                aria-label="上传附件"
+              >
+                <Paperclip className="w-5 h-5" />
+              </button>
+              {/* Web Search Toggle */}
+              <button
+                type="button"
+                onClick={onToggleSearch}
+                className={`p-2 rounded-lg transition-colors shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center ${enableSearch ? 'text-blue-400 hover:text-blue-300 bg-blue-400/10' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+                title={enableSearch ? '联网搜索已开启（点击关闭）' : '联网搜索已关闭（点击开启）'}
+                aria-label="切换联网搜索"
+              >
+                <Globe className="w-5 h-5" />
+              </button>
+            </div>
           )}
+
+          {/* Desktop: always show all actions */}
+          <div className="hidden md:flex items-center gap-1">
+            {/* Image generation button (design mode only) */}
+            {selectedMode === 'design' && (
+              <button
+                type="button"
+                onClick={onGenerateImage}
+                disabled={isGeneratingImage || !input.trim()}
+                className="p-2 text-amber-400 hover:text-amber-300 transition-colors rounded-lg hover:bg-muted shrink-0 disabled:opacity-50"
+                title="生成图片"
+                aria-label="生成图片"
+              >
+                <ImageIcon className="w-5 h-5" />
+              </button>
+            )}
+          </div>
           
           {/* Voice input */}
           <SpeechInput
@@ -145,22 +187,32 @@ export function ChatInput({
             variant="ghost"
           />
 
-          {/* Attachment button */}
+          {/* Mobile: More button to toggle extra actions */}
+          <button
+            type="button"
+            onClick={() => setShowExtraActions(!showExtraActions)}
+            className={`md:hidden p-2 rounded-lg transition-colors shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center ${showExtraActions ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+            title="更多操作"
+            aria-label="更多操作"
+          >
+            <MoreHorizontal className="w-5 h-5" />
+          </button>
+
+          {/* Desktop: Attachment and Search buttons */}
           <button
             type="button"
             onClick={onFileSelect}
-            className="p-2 text-muted-foreground hover:text-foreground active:text-foreground transition-colors rounded-lg hover:bg-muted active:bg-muted shrink-0"
+            className="hidden md:flex p-2 text-muted-foreground hover:text-foreground active:text-foreground transition-colors rounded-lg hover:bg-muted active:bg-muted shrink-0 items-center justify-center"
             title="上传附件"
             aria-label="上传附件"
           >
             <Paperclip className="w-5 h-5" />
           </button>
 
-          {/* Web Search Toggle */}
           <button
             type="button"
             onClick={onToggleSearch}
-            className={`p-2 rounded-lg transition-colors shrink-0 ${enableSearch ? 'text-blue-400 hover:text-blue-300 bg-blue-400/10' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
+            className={`hidden md:flex p-2 rounded-lg transition-colors shrink-0 items-center justify-center ${enableSearch ? 'text-blue-400 hover:text-blue-300 bg-blue-400/10' : 'text-muted-foreground hover:text-foreground hover:bg-muted'}`}
             title={enableSearch ? '联网搜索已开启（点击关闭）' : '联网搜索已关闭（点击开启）'}
             aria-label="切换联网搜索"
           >
@@ -200,7 +252,7 @@ export function ChatInput({
             <button
               type="button"
               onClick={onStop}
-              className="bg-destructive text-destructive-foreground px-3 py-2 rounded-lg hover:bg-destructive/90 active:bg-destructive/80 shrink-0"
+              className="bg-destructive text-destructive-foreground px-3 py-2 rounded-lg hover:bg-destructive/90 active:bg-destructive/80 shrink-0 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 flex items-center justify-center"
               title="停止生成"
             >
               <Square className="w-5 h-5" />
@@ -209,7 +261,7 @@ export function ChatInput({
             <button
               type="submit"
               disabled={!canSubmit}
-              className="bg-primary text-primary-foreground px-3 py-2 rounded-lg hover:bg-primary/90 active:bg-primary/80 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+              className="bg-primary text-primary-foreground px-3 py-2 rounded-lg hover:bg-primary/90 active:bg-primary/80 disabled:opacity-50 disabled:cursor-not-allowed shrink-0 min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0 flex items-center justify-center"
             >
               <Send className="w-5 h-5" />
             </button>

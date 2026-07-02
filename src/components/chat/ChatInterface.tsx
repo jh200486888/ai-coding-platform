@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   MessageSquare, Plus, Download, Square, ImageIcon, Trash2,
-  Loader2
-, Terminal, PenLine, ChartBar, Palette, MessageCircle } from 'lucide-react';
+  Loader2, Terminal, PenLine, ChartBar, Palette, MessageCircle, MoreVertical, FileText
+} from 'lucide-react';
 import type { Message, Attachment } from '@/types';
 import type { UIMessage } from 'ai';
 
@@ -43,6 +44,7 @@ const CHAT_MODES: ChatMode[] = [
 export function ChatInterface() {
   const { user: authUser } = useAuth();
   const [selectedModel, setSelectedModel] = useState('');
+  const router = useRouter();
 
   // Load default model from admin settings
   useEffect(() => {
@@ -53,7 +55,7 @@ export function ChatInterface() {
           const data = await res.json();
           const defaultModel = data.data?.default_model;
           if (defaultModel) setSelectedModel(defaultModel);
-          else setSelectedModel('deepseek-v4-flash'); // fallback only when no setting
+          else setSelectedModel('deepseek-v4-flash');
         } else {
           setSelectedModel('deepseek-v4-flash');
         }
@@ -71,15 +73,10 @@ export function ChatInterface() {
   const [editContent, setEditContent] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Task panel state
-  const [showTaskPanel, setShowTaskPanel] = useState(false);
-  const [tasks, setTasks] = useState<Array<{id: string; title: string; prompt: string; nextRunAt?: string; isActive: boolean}>>([]);
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskPrompt, setNewTaskPrompt] = useState('');
-  const [newTaskRunIn, setNewTaskRunIn] = useState('1h');
   
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
@@ -148,11 +145,9 @@ export function ChatInterface() {
       const parts = (msg as any).parts || [];
       const msgToolCalls = parts
         .filter((p: any) => {
-          // AI SDK v7: tool-invocation 类型 或 tool-${name} 类型
           return p.type === "tool-invocation" || p.type?.startsWith("tool-") || p.type === "dynamic-tool";
         })
         .map((p: any) => {
-          // AI SDK v7 state: input-streaming, call, input-available, output-available, output-error
           const state = String(p.state || "").toLowerCase();
           const isPreliminary = p.preliminary === true;
           const isStreaming = state === "output-available" && isPreliminary;
@@ -195,7 +190,7 @@ export function ChatInterface() {
     return allToolCalls;
   })();
 
-  // 从parts中提取审批请求卡片（AI SDK official state flow）
+  // 从parts中提取审批请求卡片
   const approvalCards = (() => {
     const cards: Array<{
       toolName: string;
@@ -287,7 +282,6 @@ export function ChatInterface() {
       toast.error('没有可导出的对话');
       return;
     }
-    // Collect assistant text content (skip EXEC_LOG)
     const content = messages
       .filter((m: any) => m.role === 'assistant')
       .map((m: any) => {
@@ -303,8 +297,7 @@ export function ChatInterface() {
     }
 
     if (format === 'preview') {
-      // Open preview page
-      window.open(`/preview/${currentConvId}`, '_blank');
+      router.push(`/preview/${currentConvId}`);
       return;
     }
 
@@ -341,7 +334,6 @@ export function ChatInterface() {
     if (msg && msg.role === 'user') {
       setEditingMessageId(messageId);
       setEditContent((msg as any).content || (msg as any).parts?.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('') || '');
-      // Don't truncate messages here - edit box is shown in-place
     }
   }, [messages]);
 
@@ -352,7 +344,6 @@ export function ChatInterface() {
       return;
     }
     const content = editContent;
-    // Remove the edited message and all following messages, then resend
     if (editingMessageId) {
       const idx = messages.findIndex(m => m.id === editingMessageId);
       if (idx >= 0) {
@@ -403,7 +394,7 @@ export function ChatInterface() {
     
     setIsGeneratingImage(true);
     try {
-      const res = await fetch('/api/generate-image', {
+      const res = await fetch('/api/image-gen', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: input }),
@@ -411,19 +402,28 @@ export function ChatInterface() {
       
       if (res.ok) {
         const data = await res.json();
-        // Add image as attachment
-        const attachment: Attachment = {
-          id: `img-${Date.now()}`,
-          name: 'generated-image.png',
-          type: 'image',
-          mimeType: 'image/png',
-          size: 0,
-          url: data.url || data.data?.url,
-        };
-        setAttachments(prev => [...prev, attachment]);
-        toast.success('图片已生成');
+        if (data.success && data.images?.length > 0) {
+          const imgUrl = data.images[0].url;
+          if (imgUrl) {
+            const attachment: Attachment = {
+              id: `img-${Date.now()}`,
+              name: 'generated-image.png',
+              type: 'image',
+              mimeType: 'image/png',
+              size: 0,
+              url: imgUrl,
+            };
+            setAttachments(prev => [...prev, attachment]);
+            toast.success('图片已生成');
+          } else {
+            toast.error('图片生成返回为空');
+          }
+        } else {
+          toast.error(data.error || '图片生成失败');
+        }
       } else {
-        toast.error('图片生成失败');
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || '图片生成失败');
       }
     } catch {
       toast.error('图片生成失败');
@@ -431,42 +431,6 @@ export function ChatInterface() {
       setIsGeneratingImage(false);
     }
   }, [input, isGeneratingImage, setAttachments]);
-
-  // Task management
-  const handleCreateTask = useCallback(async () => {
-    if (!newTaskTitle.trim() || !newTaskPrompt.trim()) return;
-    
-    try {
-      const res = await fetch('/api/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: newTaskTitle,
-          prompt: newTaskPrompt,
-          runIn: newTaskRunIn,
-        }),
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        setTasks(prev => [...prev, data.data]);
-        setNewTaskTitle('');
-        setNewTaskPrompt('');
-        toast.success('定时任务已创建');
-      }
-    } catch {
-      toast.error('创建任务失败');
-    }
-  }, [newTaskTitle, newTaskPrompt, newTaskRunIn]);
-
-  const handleDeleteTask = useCallback(async (taskId: string) => {
-    try {
-      await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
-      setTasks(prev => prev.filter(t => t.id !== taskId));
-    } catch {
-      toast.error('删除任务失败');
-    }
-  }, []);
 
   const handleFileSelect = useCallback(() => {
     fileInputRef.current?.click();
@@ -484,6 +448,15 @@ export function ChatInterface() {
       fileInputRef.current?.removeEventListener('files-selected', handleFilesEvent);
     };
   }, [fileInputRef, handleFiles]);
+
+  // Close menus on click outside
+  useEffect(() => {
+    if (showMoreMenu || showExportMenu) {
+      const handleClick = () => { setShowMoreMenu(false); setShowExportMenu(false); };
+      document.addEventListener('click', handleClick);
+      return () => document.removeEventListener('click', handleClick);
+    }
+  }, [showMoreMenu, showExportMenu]);
 
   return (
     <div className="flex h-full relative">
@@ -508,11 +481,11 @@ export function ChatInterface() {
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top bar */}
-        <div className="border-b border-border px-3 py-2 md:px-4 md:py-3 shrink-0 flex items-center gap-2">
+        {/* Top bar - mobile optimized */}
+        <div className="border-b border-border px-2 py-1.5 md:px-4 md:py-3 shrink-0 flex items-center gap-1.5 md:gap-2">
           <button
             onClick={() => setShowSidebar(!showSidebar)}
-            className={`p-1.5 rounded-lg transition-colors shrink-0 ${
+            className={`p-2 rounded-lg transition-colors shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center ${
               showSidebar ? 'bg-muted text-foreground' : 'hover:bg-muted text-muted-foreground'
             }`}
             title="对话历史"
@@ -527,17 +500,17 @@ export function ChatInterface() {
             CHAT_MODES={CHAT_MODES}
           />
 
-          {/* Model Selector */}
-          <div className="relative flex-1 max-w-full">
+          {/* Model Selector - hidden on very small screens, shown from sm */}
+          <div className="hidden sm:block relative flex-1 max-w-full">
             <ModelSelector
               selectedModel={selectedModel}
               onModelChange={setSelectedModel}
             />
           </div>
 
-          {/* Actions */}
+          {/* Desktop actions */}
           {currentConvId && (
-            <>
+            <div className="hidden md:flex items-center gap-1">
               <button
                 onClick={() => handleExport('preview')}
                 className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors shrink-0"
@@ -553,7 +526,7 @@ export function ChatInterface() {
               </button>
               <div className="relative">
                 <button
-                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  onClick={(e) => { e.stopPropagation(); setShowExportMenu(!showExportMenu); }}
                   className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground transition-colors shrink-0"
                   title="导出"
                 >
@@ -569,7 +542,7 @@ export function ChatInterface() {
                       { fmt: 'txt', label: '纯文本 (.txt)' },
                     ].map(item => (
                       <button key={item.fmt} onClick={() => { handleExport(item.fmt); setShowExportMenu(false); }}
-                        className="w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors">
+                        className="w-full text-left px-3 py-1.5 text-xs text-foreground hover:bg-muted transition-colors min-h-[36px]">
                         {item.label}
                       </button>
                     ))}
@@ -583,7 +556,61 @@ export function ChatInterface() {
               >
                 <Plus className="w-4 h-4" />
               </button>
-            </>
+            </div>
+          )}
+
+          {/* Mobile "More" menu button */}
+          {currentConvId && (
+            <div className="md:hidden relative ml-auto">
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowMoreMenu(!showMoreMenu); }}
+                className="p-2 rounded-lg hover:bg-muted text-muted-foreground transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+                title="更多操作"
+              >
+                <MoreVertical className="w-5 h-5" />
+              </button>
+              {showMoreMenu && (
+                <div className="absolute right-0 top-full mt-1 bg-card border border-border rounded-lg shadow-lg py-1 z-50 min-w-[160px]">
+                  {/* Model selector in mobile menu */}
+                  <div className="px-3 py-2 border-b border-border">
+                    <div className="text-xs text-muted-foreground mb-1">模型</div>
+                    <ModelSelector
+                      selectedModel={selectedModel}
+                      onModelChange={(model) => { setSelectedModel(model); setShowMoreMenu(false); }}
+                    />
+                  </div>
+                  <button onClick={() => { handleExport('preview'); setShowMoreMenu(false); }}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-foreground hover:bg-muted transition-colors min-h-[44px]">
+                    <FileText className="w-4 h-4" /> 文档预览
+                  </button>
+                  <button onClick={() => { setShowExportMenu(true); setShowMoreMenu(false); }}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-foreground hover:bg-muted transition-colors min-h-[44px]">
+                    <Download className="w-4 h-4" /> 导出对话
+                  </button>
+                  <button onClick={() => { handleNewChat(); setShowMoreMenu(false); }}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-foreground hover:bg-muted transition-colors min-h-[44px]">
+                    <Plus className="w-4 h-4" /> 新建对话
+                  </button>
+                </div>
+              )}
+              {/* Export sub-menu for mobile */}
+              {showExportMenu && (
+                <div className="absolute right-0 top-full mt-1 bg-card border border-border rounded-lg shadow-lg py-1 z-50 min-w-[160px]">
+                  {[
+                    { fmt: 'md', label: 'Markdown (.md)' },
+                    { fmt: 'docx', label: 'Word (.docx)' },
+                    { fmt: 'pdf', label: 'PDF (打印)' },
+                    { fmt: 'html', label: 'HTML (.html)' },
+                    { fmt: 'txt', label: '纯文本 (.txt)' },
+                  ].map(item => (
+                    <button key={item.fmt} onClick={() => { handleExport(item.fmt); setShowExportMenu(false); }}
+                      className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-muted transition-colors min-h-[36px]">
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -610,9 +637,9 @@ export function ChatInterface() {
           CHAT_MODES={CHAT_MODES}
         />
 
-        {/* Tool Approval Cards (AI SDK official approval flow) */}
+        {/* Tool Approval Cards */}
         {approvalCards.length > 0 && (
-          <div className="px-3 md:px-4">
+          <div className="px-2 md:px-4">
             {approvalCards.map((card) => (
               <ToolApprovalCard
                 key={card.callId}
@@ -672,7 +699,7 @@ function ModeSelector({
     <div className="relative shrink-0">
       <button
         onClick={() => setShowMenu(!showMenu)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-input hover:bg-muted transition-colors text-sm"
+        className="flex items-center gap-1 md:gap-1.5 px-2 md:px-2.5 py-1.5 rounded-lg border border-border bg-input hover:bg-muted transition-colors text-sm min-h-[36px] md:min-h-0"
       >
         {currentMode?.icon ? <currentMode.icon className={`w-4 h-4 ${currentMode?.color || ''}`} /> : <span className={`w-4 h-4 ${currentMode?.color || ''}`} />}
         <span className="hidden sm:inline">
@@ -687,7 +714,7 @@ function ModeSelector({
               <button
                 key={m.id}
                 onClick={() => { onModeChange(m.id); setShowMenu(false); }}
-                className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors ${
+                className={`w-full flex items-center gap-2 px-3 py-2.5 md:py-2 text-sm text-left transition-colors min-h-[44px] md:min-h-0 ${
                   selectedMode === m.id ? 'bg-primary/10 text-primary' : 'hover:bg-muted'
                 }`}
               >

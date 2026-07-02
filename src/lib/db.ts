@@ -104,13 +104,13 @@ export async function createMessage(conversationId: string, role: string, conten
 
 export async function listModelConfigs(): Promise<ModelConfig[]> {
   return query<ModelConfig>(
-    'SELECT id, "modelId" as model_id, name as display_name, provider, NULL as description, CASE WHEN "isActive" THEN 1 ELSE 0 END as is_enabled, 0.7 as default_temperature, 4096 as default_max_tokens, "sortOrder" as sort_order, "createdAt" as created_at, "updatedAt" as updated_at FROM model_configs ORDER BY "sortOrder" ASC'
+    'SELECT id, "modelId" as model_id, name as display_name, provider, NULL as description, CASE WHEN "isActive" THEN 1 ELSE 0 END as is_enabled, default_temperature, default_max_tokens, default_top_p, default_presence_penalty, default_frequency_penalty, "sortOrder" as sort_order, "createdAt" as created_at, "updatedAt" as updated_at FROM model_configs ORDER BY "sortOrder" ASC'
   );
 }
 
-export async function getModelConfig(modelId: string): Promise<{ model_id: string; provider: string; display_name: string } | null> {
+export async function getModelConfig(modelId: string): Promise<{ model_id: string; provider: string; display_name: string; default_temperature: number | null; default_max_tokens: number | null; default_top_p: number | null; default_presence_penalty: number | null; default_frequency_penalty: number | null } | null> {
   return queryOne(
-    'SELECT "modelId" as model_id, provider, name as display_name FROM model_configs WHERE "modelId" = $1 AND "isActive" = true',
+    'SELECT "modelId" as model_id, provider, name as display_name, default_temperature, default_max_tokens, default_top_p, default_presence_penalty, default_frequency_penalty FROM model_configs WHERE "modelId" = $1 AND "isActive" = true',
     [modelId]
   );
 }
@@ -123,15 +123,18 @@ export async function upsertModelConfig(input: {
   is_enabled?: number;
   default_temperature?: string;
   default_max_tokens?: number;
+  default_top_p?: number;
+  default_presence_penalty?: number;
+  default_frequency_penalty?: number;
   sort_order?: number;
 }): Promise<ModelConfig> {
   const id = randomUUID();
   const isActive = input.is_enabled !== 0;
   await run(
-    `INSERT INTO model_configs (id, "modelId", name, provider, "isActive", "sortOrder", description, default_temperature, default_max_tokens, "updatedAt")
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-     ON CONFLICT ("modelId") DO UPDATE SET name = $3, provider = $4, "isActive" = $5, "sortOrder" = $6, description = $7, default_temperature = $8, default_max_tokens = $9, "updatedAt" = NOW()`,
-    [id, input.model_id, input.display_name, input.provider, isActive, input.sort_order || 0, input.description || '', parseFloat(input.default_temperature as any) || 0.7, input.default_max_tokens || 4096]
+    `INSERT INTO model_configs (id, "modelId", name, provider, "isActive", "sortOrder", description, default_temperature, default_max_tokens, default_top_p, default_presence_penalty, default_frequency_penalty, "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+     ON CONFLICT ("modelId") DO UPDATE SET name = $3, provider = $4, "isActive" = $5, "sortOrder" = $6, description = $7, default_temperature = $8, default_max_tokens = $9, default_top_p = $10, default_presence_penalty = $11, default_frequency_penalty = $12, "updatedAt" = NOW()`,
+    [id, input.model_id, input.display_name, input.provider, isActive, input.sort_order || 0, input.description || '', parseFloat(input.default_temperature as any) || 0.7, input.default_max_tokens || 4096, input.default_top_p ?? null, input.default_presence_penalty ?? null, input.default_frequency_penalty ?? null]
   );
   return (await getModelConfig(input.model_id)) as unknown as ModelConfig;
 }
@@ -485,9 +488,9 @@ export async function listConversationsByUser(userId: string | null, role?: stri
       []
     );
   }
-  // Regular users see their own conversations
+  // Regular users see their own conversations + anonymous (no userId) conversations
   return query<Conversation>(
-    'SELECT id, title, "modelId" as model_id, "userId", "createdAt" as created_at, "updatedAt" as updated_at FROM conversations WHERE "userId" = $1 ORDER BY "updatedAt" DESC LIMIT 100',
+    'SELECT id, title, "modelId" as model_id, "userId", "createdAt" as created_at, "updatedAt" as updated_at FROM conversations WHERE "userId" = $1 OR "userId" IS NULL ORDER BY "updatedAt" DESC LIMIT 100',
     [userId]
   );
 }
@@ -516,8 +519,9 @@ export async function searchConversationsAndMessages(searchText: string, userId:
   const limitParam = role === 'admin' ? '$2' : '$3';
   const sql = `
     WITH msg_matches AS (
-      SELECT c.id as conversation_id, c.title,
-        ts_headline('simple', m.content, websearch_to_tsquery('simple', $1), 'MaxWords=35,MinWords=15,ShortWord=3,HighlightAll=FALSE') as highlight
+      SELECT c.id, c.title, c."updatedAt",
+        ts_headline('simple', m.content, websearch_to_tsquery('simple', $1), 'MaxWords=35,MinWords=15,ShortWord=3,HighlightAll=FALSE') as snippet,
+        'content' as match_type
       FROM conversations c
       JOIN chat_messages m ON m."conversationId" = c.id
       WHERE ${userFilter}
@@ -526,16 +530,17 @@ export async function searchConversationsAndMessages(searchText: string, userId:
       LIMIT ${limitParam}
     ),
     title_matches AS (
-      SELECT c.id as conversation_id, c.title,
-        ts_headline('simple', c.title, websearch_to_tsquery('simple', $1), 'MaxWords=35,MinWords=15,ShortWord=3,HighlightAll=FALSE') as highlight
+      SELECT c.id, c.title, c."updatedAt",
+        ts_headline('simple', c.title, websearch_to_tsquery('simple', $1), 'MaxWords=35,MinWords=15,ShortWord=3,HighlightAll=FALSE') as snippet,
+        'title' as match_type
       FROM conversations c
       WHERE ${userFilter}
         AND to_tsvector('simple', c.title) @@ websearch_to_tsquery('simple', $1)
-        AND c.id NOT IN (SELECT conversation_id FROM msg_matches)
+        AND c.id NOT IN (SELECT id FROM msg_matches)
       ORDER BY c."updatedAt" DESC
       LIMIT ${limitParam}
     )
-    SELECT * FROM msg_matches UNION ALL SELECT * FROM title_matches ORDER BY title
+    SELECT * FROM msg_matches UNION ALL SELECT * FROM title_matches ORDER BY "updatedAt" DESC
   `;
   return await query(sql, params);
 }
@@ -545,3 +550,13 @@ export function highlightMatch(text: string, keyword: string): string {
   return text.replace(regex, '<mark>$1</mark>');
 }
 
+
+
+// Claim all anonymous conversations for a user (called on login)
+export async function claimAnonymousConversations(userId: string): Promise<number> {
+  const result = await run(
+    'UPDATE conversations SET "userId" = $1, "updatedAt" = NOW() WHERE "userId" IS NULL',
+    [userId]
+  );
+  return (result as any)?.rowCount || 0;
+}

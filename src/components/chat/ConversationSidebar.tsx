@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Search, Plus, Trash2, ChevronLeft, Clock, Pencil, X, Check, LogOut, User } from 'lucide-react';
 import { useAuth } from '@/lib/auth-provider';
 
@@ -50,6 +50,27 @@ export function ConversationSidebar({
   const [searchResults, setSearchResults] = useState<ConversationItem[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const { user: authUser, logout: authLogout } = useAuth();
+  const sidebarRef = useRef<HTMLDivElement>(null);
+  const touchStartX = useRef(0);
+  const touchCurrentX = useRef(0);
+
+  // Touch swipe to close on mobile
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchCurrentX.current = e.touches[0].clientX;
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    touchCurrentX.current = e.touches[0].clientX;
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    const diff = touchCurrentX.current - touchStartX.current;
+    // Swipe left to close (more than 60px)
+    if (diff < -60) {
+      onClose();
+    }
+  }, [onClose]);
 
   // Full-text search via API when logged in
   useEffect(() => {
@@ -69,8 +90,8 @@ export function ConversationSidebar({
             id: r.id,
             title: r.title,
             model_id: r.model_id,
-            created_at: r.created_at,
-            updated_at: r.updated_at,
+            created_at: r.created_at || r.createdAt,
+            updated_at: r.updated_at || r.updatedAt,
             snippet: r.snippet,
             matchType: r.match_type,
           })));
@@ -83,7 +104,7 @@ export function ConversationSidebar({
         );
       }
       setIsSearching(false);
-    }, 300); // Debounce 300ms
+    }, 300);
 
     return () => clearTimeout(timer);
   }, [searchQuery, authUser]);
@@ -117,8 +138,14 @@ export function ConversationSidebar({
         onClick={onClose}
       />
       
-      {/* Sidebar */}
-      <div className="fixed md:relative inset-y-0 left-0 z-50 w-72 bg-card border-r border-border flex flex-col safe-area-pb">
+      {/* Sidebar - mobile: 85vw with slide-in animation; desktop: w-72 relative */}
+      <div
+        ref={sidebarRef}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        className="fixed md:relative inset-y-0 left-0 z-50 w-[85vw] md:w-72 bg-card border-r border-border flex flex-col safe-area-pb animate-slide-in-left md:animate-none"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-3 py-3 border-b border-border">
           <button
@@ -176,15 +203,16 @@ export function ConversationSidebar({
               <div className="flex-1 min-w-0">
                 <div className="text-sm truncate">{conv.title}</div>
                 {conv.snippet && (
-                  <div className="text-xs text-muted-foreground truncate mt-0.5">
-                    {conv.snippet}
-                  </div>
+                  <div
+                    className="text-xs text-muted-foreground truncate mt-0.5 search-snippet"
+                    dangerouslySetInnerHTML={{ __html: conv.snippet }}
+                  />
                 )}
                 <div className="text-xs text-muted-foreground/50 mt-0.5 flex items-center gap-1">
                   <Clock className="w-3 h-3" />
                   {new Date(conv.updated_at).toLocaleDateString()}
                   {conv.matchType === 'content' && (
-                    <span className="text-primary/70 ml-1">内容匹配</span>
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/20 text-primary ml-1">内容</span>
                   )}
                 </div>
               </div>

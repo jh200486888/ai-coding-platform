@@ -15,7 +15,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { model_id, display_name, provider, description, is_enabled, default_temperature, default_max_tokens, sort_order } = body;
+    const { model_id, display_name, provider, description, is_enabled, default_temperature, default_max_tokens, default_top_p, default_presence_penalty, default_frequency_penalty, sort_order } = body;
 
     if (!model_id || !display_name || !provider) {
       return NextResponse.json({ error: 'model_id, display_name, and provider are required' }, { status: 400 });
@@ -29,6 +29,9 @@ export async function POST(request: Request) {
       is_enabled: is_enabled !== undefined ? (is_enabled ? 1 : 0) : 1,
       default_temperature,
       default_max_tokens,
+      default_top_p,
+      default_presence_penalty,
+      default_frequency_penalty,
       sort_order,
     });
     return NextResponse.json({ data: config });

@@ -147,6 +147,7 @@ export const buildProjectTool = tool({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
   }),
   execute: async ({ server }: { server?: string }) => {
+    const effectiveServer = (server === 'production' || server === 'development') ? server : 'production';
     try {
       const result = await sshPool.execute(effectiveServer,
         'NODE_OPTIONS="--max-old-space-size=3072" pnpm build 2>&1 | tail -80',
@@ -192,13 +193,14 @@ export const deployServiceTool = tool({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
   }),
   execute: async ({ server }: { server?: string }) => {
+    const effectiveServer = (server === 'production' || server === 'development') ? server : 'production';
     try {
-      const pm2Service = server === 'production' ? 'ai-coding-platform' : 'ai-coding-dev';
-      const appPort = server === 'production' ? 5000 : 5001;
-      const projectDir = server === 'production' ? '/www/wwwroot/agent.piyiguo.com' : '/www/wwwroot/dev.agent.piyiguo.com';
+      const pm2Service = effectiveServer === 'production' ? 'ai-coding-platform' : 'ai-coding-dev';
+      const appPort = effectiveServer === 'production' ? 5000 : 5001;
+      const projectDir = effectiveServer === 'production' ? '/www/wwwroot/agent.piyiguo.com' : '/www/wwwroot/dev.agent.piyiguo.com';
 
       // 重启PM2
-      const restartResult = await sshPool.execute(server, `pm2 restart ${pm2Service}`);
+      const restartResult = await sshPool.execute(effectiveServer, `pm2 restart ${pm2Service}`);
       if (restartResult.code !== 0) {
         return `❌ PM2重启失败: ${restartResult.stderr}`;
       }
@@ -209,7 +211,7 @@ export const deployServiceTool = tool({
       // 健康检查（最多重试3次）
       let httpCode = '';
       for (let i = 0; i < 3; i++) {
-        const healthResult = await sshPool.execute(server, `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:${appPort} --max-time 10`);
+        const healthResult = await sshPool.execute(effectiveServer, `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:${appPort} --max-time 10`);
         httpCode = healthResult.stdout.trim();
         if (httpCode === '200' || httpCode === '302') break;
         if (i < 2) await new Promise(resolve => setTimeout(resolve, 5000));
@@ -222,11 +224,11 @@ export const deployServiceTool = tool({
         let diagnostic = `⚠️ 部署完成但健康检查异常\n- PM2服务: ${pm2Service} 已重启\n- 健康检查: HTTP ${httpCode} (预期200)\n`;
 
         // 获取PM2状态
-        const pm2Status = await sshPool.execute(server, `pm2 show ${pm2Service} 2>/dev/null | grep -E "status|uptime|restarts" | head -3`);
+        const pm2Status = await sshPool.execute(effectiveServer, `pm2 show ${pm2Service} 2>/dev/null | grep -E "status|uptime|restarts" | head -3`);
         diagnostic += `\n📊 PM2状态:\n${pm2Status.stdout.trim()}`;
 
         // 获取最近错误日志
-        const errorLog = await sshPool.execute(server, `pm2 logs ${pm2Service} --nostream --lines 20 --err 2>/dev/null`);
+        const errorLog = await sshPool.execute(effectiveServer, `pm2 logs ${pm2Service} --nostream --lines 20 --err 2>/dev/null`);
         if (errorLog.stdout.trim()) {
           diagnostic += `\n\n🔴 最近错误日志:\n${errorLog.stdout.trim().slice(0, 2000)}`;
         }
@@ -255,35 +257,37 @@ export const healthCheckTool = tool({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
     checks: z.array(z.enum(['http', 'pm2', 'disk', 'memory', 'db'])).default(['http', 'pm2', 'memory']).describe('要检查的项目'),
   }),
-  execute: async ({ server, checks }: { server?: string; checks: Array<'http' | 'pm2' | 'disk' | 'memory' | 'db'> }) => {
+  execute: async ({ server, checks }: { server?: string; checks?: Array<'http' | 'pm2' | 'disk' | 'memory' | 'db'> }) => {
+    const effectiveServer = (server === 'production' || server === 'development') ? server : 'production';
+    const effectiveChecks = checks || ['http', 'pm2', 'memory'];
     const results: string[] = [];
 
     try {
-      if (checks.includes('http')) {
-        const port = server === 'production' ? 5000 : 5001;
-        const r = await sshPool.execute(server, `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:${port} --max-time 5`);
+      if (effectiveChecks.includes('http')) {
+        const port = effectiveServer === 'production' ? 5000 : 5001;
+        const r = await sshPool.execute(effectiveServer, `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:${port} --max-time 5`);
         results.push(`HTTP: ${r.stdout.trim() === '200' || r.stdout.trim() === '302' ? '✅' : '❌'} 状态码 ${r.stdout.trim()}`);
       }
 
-      if (checks.includes('pm2')) {
-        const pm2Svc = server === 'production' ? 'ai-coding-platform' : 'ai-coding-dev';
-        const r = await sshPool.execute(server, `pm2 show ${pm2Svc} 2>/dev/null | grep -E "status|uptime|restarts" | head -3`);
+      if (effectiveChecks.includes('pm2')) {
+        const pm2Svc = effectiveServer === 'production' ? 'ai-coding-platform' : 'ai-coding-dev';
+        const r = await sshPool.execute(effectiveServer, `pm2 show ${pm2Svc} 2>/dev/null | grep -E "status|uptime|restarts" | head -3`);
         results.push(`PM2: ${r.stdout.trim() || '❌ 进程未找到'}`);
       }
 
-      if (checks.includes('disk')) {
-        const r = await sshPool.execute(server, 'df -h / | tail -1');
+      if (effectiveChecks.includes('disk')) {
+        const r = await sshPool.execute(effectiveServer, 'df -h / | tail -1');
         results.push(`磁盘: ${r.stdout.trim()}`);
       }
 
-      if (checks.includes('memory')) {
-        const r = await sshPool.execute(server, 'free -h | head -2');
+      if (effectiveChecks.includes('memory')) {
+        const r = await sshPool.execute(effectiveServer, 'free -h | head -2');
         results.push(`内存:\n${r.stdout.trim()}`);
       }
 
-      if (checks.includes('db')) {
+      if (effectiveChecks.includes('db')) {
         const port = server === 'production' ? 5432 : 5433;
-        const r = await sshPool.execute(server, `PGPASSWORD=i3m8x5a2e8 psql -h 127.0.0.1 -p ${port} -U agent -d agent -c "SELECT 1" 2>&1 | head -3`);
+        const r = await sshPool.execute(effectiveServer, `PGPASSWORD=i3m8x5a2e8 psql -h 127.0.0.1 -p ${port} -U agent -d agent -c "SELECT 1" 2>&1 | head -3`);
         results.push(`数据库: ${r.stdout.includes('1 row') ? '✅ 连接正常' : '❌ ' + r.stdout.trim()}`);
       }
 
@@ -304,24 +308,25 @@ export const gitCommitTool = tool({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
   }),
   execute: async ({ message, server }: { message: string; server?: string }) => {
+    const effectiveServer = (server === 'production' || server === 'development') ? server : 'production';
     try {
-      const statusResult = await sshPool.execute(server, 'git status --short');
+      const statusResult = await sshPool.execute(effectiveServer, 'git status --short');
       if (!statusResult.stdout.trim()) {
         return 'ℹ️ 没有需要提交的变更';
       }
 
       const escapedMsg = message.replace(/"/g, '\\"');
-      const addResult = await sshPool.execute(server, 'git add -A');
+      const addResult = await sshPool.execute(effectiveServer, 'git add -A');
       if (addResult.code !== 0) {
         return `❌ git add 失败: ${addResult.stderr}`;
       }
 
-      const commitResult = await sshPool.execute(server, `git commit -m "${escapedMsg}"`);
+      const commitResult = await sshPool.execute(effectiveServer, `git commit -m "${escapedMsg}"`);
       if (commitResult.code !== 0) {
         return `❌ git commit 失败: ${commitResult.stderr}`;
       }
 
-      const hashResult = await sshPool.execute(server, 'git rev-parse --short HEAD');
+      const hashResult = await sshPool.execute(effectiveServer, 'git rev-parse --short HEAD');
       return `✅ 提交成功: ${hashResult.stdout.trim()}\n📝 ${message}\n📋 变更文件:\n${statusResult.stdout.trim().slice(0, 1000)}`;
     } catch (error) {
       return `❌ Git操作失败: ${error instanceof Error ? error.message : String(error)}`;
@@ -347,20 +352,21 @@ export const diagnoseErrorTool = tool({
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
     focus: z.enum(['build', 'deploy', 'runtime', 'db', 'all']).default('all').describe('诊断焦点'),
   }),
-  execute: async ({ server, focus }: { server?: string; focus: 'build' | 'deploy' | 'runtime' | 'db' | 'all' }) => {
-    const pm2Service = server === 'production' ? 'ai-coding-platform' : 'ai-coding-dev';
-    const appPort = server === 'production' ? 5000 : 5001;
-    const projectDir = server === 'production' ? '/www/wwwroot/agent.piyiguo.com' : '/www/wwwroot/dev.agent.piyiguo.com';
-    const dbPort = server === 'production' ? 5432 : 5433;
+  execute: async ({ server, focus }: { server?: string; focus?: 'build' | 'deploy' | 'runtime' | 'db' | 'all' }) => {
+    const effectiveServer = (server === 'production' || server === 'development') ? server : 'production';
+    const pm2Service = effectiveServer === 'production' ? 'ai-coding-platform' : 'ai-coding-dev';
+    const appPort = effectiveServer === 'production' ? 5000 : 5001;
+    const projectDir = effectiveServer === 'production' ? '/www/wwwroot/agent.piyiguo.com' : '/www/wwwroot/dev.agent.piyiguo.com';
+    const dbPort = effectiveServer === 'production' ? 5432 : 5433;
     const results: string[] = [`🔍 深度诊断报告 [${server}服务器]\n焦点: ${focus}\n`];
 
     try {
       // 1. PM2状态
       if (focus === 'all' || focus === 'deploy' || focus === 'runtime') {
-        const pm2Show = await sshPool.execute(server, `pm2 show ${pm2Service} 2>/dev/null | grep -E "status|uptime|restarts|memory|cpu" | head -5`);
+        const pm2Show = await sshPool.execute(effectiveServer, `pm2 show ${pm2Service} 2>/dev/null | grep -E "status|uptime|restarts|memory|cpu" | head -5`);
         results.push(`📊 PM2状态:\n${pm2Show.stdout.trim() || '❌ 进程不存在'}`);
 
-        const pm2Logs = await sshPool.execute(server, `pm2 logs ${pm2Service} --nostream --lines 30 --err 2>/dev/null`);
+        const pm2Logs = await sshPool.execute(effectiveServer, `pm2 logs ${pm2Service} --nostream --lines 30 --err 2>/dev/null`);
         if (pm2Logs.stdout.trim()) {
           results.push(`🔴 最近错误日志:\n${pm2Logs.stdout.trim().slice(0, 3000)}`);
         }
@@ -368,37 +374,37 @@ export const diagnoseErrorTool = tool({
 
       // 2. 构建产物
       if (focus === 'all' || focus === 'build' || focus === 'deploy') {
-        const nextDir = await sshPool.execute(server, `ls -la ${projectDir}/.next/ 2>/dev/null | head -5`);
+        const nextDir = await sshPool.execute(effectiveServer, `ls -la ${projectDir}/.next/ 2>/dev/null | head -5`);
         results.push(`📁 构建产物:\n${nextDir.stdout.trim() || '❌ .next目录不存在，需要构建'}`);
 
-        const buildId = await sshPool.execute(server, `cat ${projectDir}/.next/BUILD_ID 2>/dev/null`);
+        const buildId = await sshPool.execute(effectiveServer, `cat ${projectDir}/.next/BUILD_ID 2>/dev/null`);
         results.push(`🏗️ BUILD_ID: ${buildId.stdout.trim() || '❌ 不存在'}`);
       }
 
       // 3. 环境配置
       if (focus === 'all' || focus === 'deploy' || focus === 'runtime') {
-        const envExists = await sshPool.execute(server, `test -f ${projectDir}/.env && echo "EXISTS" || echo "MISSING"`);
+        const envExists = await sshPool.execute(effectiveServer, `test -f ${projectDir}/.env && echo "EXISTS" || echo "MISSING"`);
         results.push(`⚙️ .env文件: ${envExists.stdout.trim()}`);
 
-        const envKeys = await sshPool.execute(server, `grep -c "^[A-Z]" ${projectDir}/.env 2>/dev/null`);
+        const envKeys = await sshPool.execute(effectiveServer, `grep -c "^[A-Z]" ${projectDir}/.env 2>/dev/null`);
         results.push(`📋 .env配置项数: ${envKeys.stdout.trim() || '0'}`);
       }
 
       // 4. 数据库
       if (focus === 'all' || focus === 'db' || focus === 'runtime') {
-        const dbCheck = await sshPool.execute(server, `psql -h 127.0.0.1 -p ${dbPort} -U agent -d agent -c "SELECT count(*) FROM conversations" 2>&1 | head -3`, { timeout: 10000 });
+        const dbCheck = await sshPool.execute(effectiveServer, `psql -h 127.0.0.1 -p ${dbPort} -U agent -d agent -c "SELECT count(*) FROM conversations" 2>&1 | head -3`, { timeout: 10000 });
         results.push(`🗄️ 数据库: ${dbCheck.stdout.includes('1 row') || dbCheck.stdout.includes('count') ? '✅ 连接正常' : '❌ ' + dbCheck.stdout.trim()}`);
       }
 
       // 5. 端口和磁盘
       if (focus === 'all' || focus === 'deploy' || focus === 'runtime') {
-        const portCheck = await sshPool.execute(server, `ss -tlnp | grep ${appPort} | head -3`);
+        const portCheck = await sshPool.execute(effectiveServer, `ss -tlnp | grep ${appPort} | head -3`);
         results.push(`🔌 端口${appPort}: ${portCheck.stdout.trim() || '❌ 未监听'}`);
 
-        const disk = await sshPool.execute(server, 'df -h / | tail -1');
+        const disk = await sshPool.execute(effectiveServer, 'df -h / | tail -1');
         results.push(`💾 磁盘: ${disk.stdout.trim()}`);
 
-        const mem = await sshPool.execute(server, 'free -h | grep Mem');
+        const mem = await sshPool.execute(effectiveServer, 'free -h | grep Mem');
         results.push(`🧠 内存: ${mem.stdout.trim()}`);
       }
 
@@ -411,8 +417,318 @@ export const diagnoseErrorTool = tool({
   },
 });
 
+// ==================== 智能联网搜索（Tavily + Bing fallback） ====================
+export const smartSearchTool = tool({
+  description: `智能联网搜索，获取实时信息。支持多搜索引擎自动切换。
+
+使用场景：
+- 查询最新技术动态、API文档用法
+- 搜索错误信息的解决方案
+- 查询实时数据（价格、新闻、赛事）
+- 查找库/框架的最新版本和用法
+
+搜索技巧：关键词2-5个，简洁精准。需要深入了解时先搜索再配合readUrl读取全文。`,
+  parameters: z.object({
+    query: z.string().describe('搜索关键词，2-5个词最佳'),
+    search_depth: z.enum(['basic', 'advanced']).default('basic').describe('搜索深度：basic=快速概览，advanced=深度搜索（更慢但更全）'),
+    max_results: z.number().default(5).describe('最大结果数，默认5，最多10'),
+  }),
+  execute: async ({ query, information, search_depth = 'basic', max_results = 5 }: { query?: string; information?: string; search_depth?: string; max_results?: number }) => {
+    // Bug fix P74: AI sometimes sends 'information' instead of 'query'
+    const actualQuery = query || information || '';
+    if (!actualQuery) return '❌ 搜索失败: 未提供搜索关键词';
+    // 1. Try Tavily first (best quality, needs API key)
+    try {
+      const { getApiKeyByProvider } = await import('@/lib/db');
+      // Tavily key stored as provider 'tavily' in api_keys table
+      const keyInfo = await getApiKeyByProvider('tavily');
+      if (keyInfo && keyInfo.api_key_encrypted && keyInfo.is_active) {
+        const tavilyKey = Buffer.from(keyInfo.api_key_encrypted, 'base64').toString('utf-8');
+        const res = await fetch('https://api.tavily.com/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            api_key: tavilyKey,
+            query: actualQuery,
+            search_depth,
+            max_results: Math.min(max_results, 10),
+            include_answer: true,
+            include_raw_content: false,
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (res.ok) {
+          const data = await res.json() as any;
+          const parts: string[] = [];
+          if (data.answer) parts.push(`💡 AI摘要: ${data.answer}\n`);
+          const results = (data.results || []).slice(0, max_results);
+          for (let i = 0; i < results.length; i++) {
+            const r = results[i];
+            parts.push(`${i + 1}. **${r.title || '无标题'}**\n   URL: ${r.url || ''}\n   ${r.content || ''}`);
+          }
+          if (parts.length > 0) return `🔍 搜索结果（Tavily - ${actualQuery}）:\n\n` + parts.join('\n\n');
+        }
+      }
+    } catch (e: any) {
+      // Tavily failed, fallback to Bing
+    }
+
+    // 2. Fallback: Bing HTML scraping
+    try {
+      const url = 'https://www.bing.com/search?q=' + encodeURIComponent(actualQuery) + '&count=' + Math.min(max_results, 10) + '&cc=cn&setmkt=zh-CN';
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          'Accept': 'text/html,application/xhtml+xml',
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+      const html = await res.text();
+      const results: string[] = [];
+      // Parse Bing results - extract title + snippet + URL
+      const liMatches = html.matchAll(/<li class="b_algo"[^>]*>([\s\S]*?)<\/li>/g);
+      let count = 0;
+      for (const m of liMatches) {
+        if (count >= max_results) break;
+        const block = m[1];
+        const titleMatch = block.match(/<h2[^>]*><a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a><\/h2>/) || block.match(/<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/);
+        const snippetMatch = block.match(/<p[^>]*>([\s\S]*?)<\/p>/) || block.match(/<div class="b_caption[^"]*"[^>]*>([\s\S]*?)<\/div>/);
+        if (titleMatch) {
+          count++;
+          const title = titleMatch[2].replace(/<[^>]+>/g, '').trim();
+          const link = titleMatch[1];
+          let snippet = '';
+          if (snippetMatch) {
+            snippet = snippetMatch[1].replace(/<[^>]+>/g, '').trim();
+          }
+          results.push(`${count}. **${title}**\n   URL: ${link}\n   ${snippet}`);
+        }
+      }
+      if (results.length > 0) {
+        // P74: Detect dictionary-like results and retry with quoted query
+        const dictPattern = /^(星|即|流|梦|设|计|平|台|的|了|是|和|不|在|有|人|我|他|她|它|这|那|要|会|能|可|与|对|为|从|到|被|把|让|向|比|等|很|都|也|就|才|又|还|已|曾|正|将|最|更|太|真|好|大|小|多|少|长|短|高|低|新|旧|快|慢|早|晚|远|近|深|浅|轻|重|强|弱|冷|热|干|湿|明|暗|美|丑|善|恶|优|劣|贫|富|贵|贱|难|易|安|危|静|动|开|关|进|出|上|下|左|右|前|后|内|外|中|东|西|南|北)(_百度百科|的意思|的拼音|的部首|怎么读|的笔顺|的读音|的组词|的释义|的详细解释|的近义词|汉语文字|汉语国学|新华字典|维基百科)/;
+        const isDictResults = results.length > 0 && results.every(r => dictPattern.test(r.replace(/\*\*/g, '')));
+        if (isDictResults) {
+          try {
+            const retryUrl = 'https://www.bing.com/search?q=' + encodeURIComponent('"' + actualQuery + '"' ) + '&count=8&cc=cn&setmkt=zh-CN';
+            const retryRes = await fetch(retryUrl, {
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                'Accept': 'text/html,application/xhtml+xml',
+              },
+              signal: AbortSignal.timeout(10000),
+            });
+            const retryHtml = await retryRes.text();
+            const retryResults: string[] = [];
+            const retryMatches = [...retryHtml.matchAll(/<li class="b_algo"[^>]*>([\\s\\S]*?)<\/li>/g)];
+            let retryCount = 0;
+            for (const m of retryMatches) {
+              if (retryCount >= max_results) break;
+              const block = m[1];
+              const titleMatch = block.match(/<h2[^>]*><a[^>]*href="([^"]*)"[^>]*>([\\s\\S]*?)<\/a><\/h2>/) || block.match(/<a[^>]*href="([^"]*)"[^>]*>([\\s\\S]*?)<\/a>/);
+              if (titleMatch) {
+                retryCount++;
+                const title = titleMatch[2].replace(/<[^>]+>/g, '').trim();
+                const link = titleMatch[1];
+                if (dictPattern.test(title)) continue;
+                let snippet = '';
+                const snippetMatch = block.match(/<p[^>]*>([\\s\\S]*?)<\/p>/) || block.match(/class="b_caption[^"]*"[^>]*>([\\s\\S]*?)<\/div>/);
+                if (snippetMatch) snippet = snippetMatch[1].replace(/<[^>]+>/g, '').trim();
+                retryResults.push(`${retryResults.length + 1}. **${title}**\\n   URL: ${link}${snippet ? '\\n   ' + snippet : ''}`);
+              }
+            }
+            if (retryResults.length > 0) return `🔍 搜索结果（Bing - ${actualQuery}）：\\n\\n` + retryResults.join('\\n\\n');
+          } catch {}
+          return `⚠️ 搜索引擎未找到"${actualQuery}"的产品结果（返回了字典释义），该产品可能在搜索引擎中索引不足。建议：\\n1. 提供产品官网URL让我直接读取\\n2. 在后台配置Tavily API Key获得更好搜索质量\\n\\n已有搜索结果（可能不相关）：\\n\\n` + results.join('\\n\\n');
+        }
+        return `🔍 搜索结果（Bing - ${actualQuery}）：\\n\\n` + results.join('\\n\\n');
+      }
+
+
+
+      return '未找到相关搜索结果，请尝试换个关键词或用 readUrl 直接访问文档页面';
+    } catch (e: any) {
+      return `❌ 搜索失败: ${e.message || '未知错误'}。请检查网络连接或稍后重试`;
+    }
+  },
+});
+
+// ==================== 网页内容提取（直接fetch + 清洗） ====================
+export const readUrlTool = tool({
+  description: `读取网页内容，提取正文文本。支持技术文档、博客、API文档等页面。
+
+使用场景：
+- 搜索到文档链接后，读取全文获取详细信息
+- 读取GitHub README、npm包文档、Stack Overflow答案
+- 获取API官方文档的具体用法
+
+注意：部分网站可能因反爬机制无法读取，此时会返回错误提示。`,
+  parameters: z.object({
+    url: z.string().describe('要读取的网页URL'),
+    extract_mode: z.enum(['full', 'summary']).default('full').describe('提取模式：full=完整内容，summary=仅提取前2000字'),
+  }),
+  execute: async ({ url, extract_mode = 'full' }: { url: string; extract_mode?: string }) => {
+    // 1. Try Firecrawl first (if API key configured)
+    try {
+      const { getApiKeyByProvider } = await import('@/lib/db');
+      const fcKey = process.env.FIRECRAWL_API_KEY || '';
+      const fcUrl = process.env.FIRECRAWL_API_URL || 'https://api.firecrawl.dev/v1';
+      if (fcKey || true) { // Always try Firecrawl if URL is set
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (fcKey) headers['Authorization'] = `Bearer ${fcKey}`;
+        const res = await fetch(`${fcUrl}/scrape`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ url, formats: ['markdown'], onlyMainContent: true }),
+          signal: AbortSignal.timeout(20000),
+        });
+        if (res.ok) {
+          const data = await res.json() as any;
+          if (data.success && data.data?.markdown) {
+            let content = data.data.markdown;
+            if (extract_mode === 'summary' && content.length > 2000) {
+              content = content.slice(0, 2000) + '\n\n... [内容已截断，使用 extract_mode=full 读取完整内容]';
+            } else if (content.length > 15000) {
+              content = content.slice(0, 15000) + '\n\n... [内容过长已截断]';
+            }
+            return `📄 ${data.data?.metadata?.title || url}\n\n${content}`;
+          }
+        }
+      }
+    } catch {}
+
+    // 2. Fallback: Direct fetch + HTML to text
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) return `❌ 读取失败: HTTP ${res.status}`;
+
+      const contentType = res.headers.get('content-type') || '';
+      let html = await res.text();
+
+      // For non-HTML (JSON, plain text, etc)
+      if (!contentType.includes('html') && !contentType.includes('xml')) {
+        const text = html.slice(0, 15000);
+        return `📄 ${url}\n\n${text}`;
+      }
+
+      // Strip HTML tags and clean up
+      let text = html
+        // Remove scripts and styles
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+        .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+        .replace(/<header[\s\S]*?<\/header>/gi, '')
+        // Convert some HTML to readable text
+        .replace(/<h[1-6][^>]*>/gi, '\n## ')
+        .replace(/<\/h[1-6]>/gi, '\n')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<p[^>]*>/gi, '\n')
+        .replace(/<li[^>]*>/gi, '\n- ')
+        .replace(/<code[^>]*>/gi, '`')
+        .replace(/<\/code>/gi, '`')
+        .replace(/<pre[^>]*>/gi, '\n```\n')
+        .replace(/<\/pre>/gi, '\n```\n')
+        // Remove all remaining tags
+        .replace(/<[^>]+>/g, '')
+        // Decode HTML entities
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        // Clean up whitespace
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+      // Extract title
+      const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+      const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : url;
+
+      if (extract_mode === 'summary' && text.length > 2000) {
+        text = text.slice(0, 2000) + '\n\n... [内容已截断，使用 extract_mode=full 读取完整内容]';
+      } else if (text.length > 15000) {
+        text = text.slice(0, 15000) + '\n\n... [内容过长已截断]';
+      }
+
+      return `📄 ${title}\n\n${text}`;
+    } catch (e: any) {
+      return `❌ 读取失败: ${e.message || '未知错误'}`;
+    }
+  },
+});
+
+// ==================== 图片理解工具 ====================
+export const analyzeImageTool = tool({
+  description: `分析图片内容，识别图片中的文字、UI元素、截图信息等。
+
+使用场景：
+- 用户上传截图，需要理解截图内容
+- 分析UI设计稿，理解布局和元素
+- 识别图片中的文字（OCR）
+- 理解报错截图中的错误信息
+
+注意：如果当前模型支持多模态（如gpt-4o、qwen-max等），图片会直接发给模型处理，无需调用此工具。
+此工具主要用于DeepSeek等纯文本模型需要理解图片的场景。`,
+  parameters: z.object({
+    image_url: z.string().optional().describe('图片URL地址（公网可访问的URL）'),
+    image_base64: z.string().optional().describe('图片base64编码（不含data:image/...前缀）'),
+    media_type: z.string().default('image/png').describe('图片类型：image/png, image/jpeg, image/webp等'),
+    question: z.string().optional().describe('关于图片的问题，如"这个报错是什么意思？"'),
+  }),
+  execute: async ({ image_url, image_base64, media_type = 'image/png', question }: { 
+    image_url?: string; image_base64?: string; media_type?: string; question?: string 
+  }) => {
+    try {
+      const { describeImages } = await import('@/lib/vision-proxy');
+      
+      let base64Data = image_base64 || '';
+      
+      // If URL provided, fetch and convert to base64
+      if (image_url && !base64Data) {
+        try {
+          const imgRes = await fetch(image_url, { signal: AbortSignal.timeout(10000) });
+          if (imgRes.ok) {
+            const buffer = Buffer.from(await imgRes.arrayBuffer());
+            base64Data = buffer.toString('base64');
+          }
+        } catch (e: any) {
+          return `❌ 无法下载图片: ${e.message}`;
+        }
+      }
+
+      if (!base64Data) {
+        return '❌ 请提供 image_url 或 image_base64 参数';
+      }
+
+      const description = await describeImages(
+        [{ base64Data, mediaType: media_type }],
+        question
+      );
+      
+      return description;
+    } catch (e: any) {
+      return `❌ 图片分析失败: ${e.message || '未知错误'}。请确认已配置支持视觉的模型API Key`;
+    }
+  },
+});
+
+
 // ==================== 汇总导出 ====================
 export const serverTools = {
+  smart_search: smartSearchTool,
+  read_url: readUrlTool,
+  analyze_image: analyzeImageTool,
   ssh_execute: sshExecuteTool,
   ssh_read_file: sshReadFileTool,
   ssh_write_file: sshWriteFileTool,

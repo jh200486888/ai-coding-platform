@@ -16,6 +16,7 @@ import { join } from 'path';
 import { createSubAgentTool } from '@/lib/sub-agents';
 import { describeImages } from '@/lib/vision-proxy';
 import { getCurrentUser } from '@/lib/auth';
+import { logger } from '@/lib/logger';
 
 const execAsync = promisify(exec);
 
@@ -96,18 +97,18 @@ const MODEL_IDENTITY: Record<string, string> = {
 const loggingMiddleware: LanguageModelMiddleware = {
   wrapGenerate: async ({ doGenerate, model }) => {
     const startTime = Date.now();
-    console.log(`[AI] ${model.modelId} request started`);
+    logger.info(`[AI] ${model.modelId} request started`);
     const result = await doGenerate();
     const duration = Date.now() - startTime;
-    console.log(`[AI] ${model.modelId} completed in ${duration}ms`);
+    logger.info(`[AI] ${model.modelId} completed in ${duration}ms`);
     return result;
   },
   wrapStream: async ({ doStream, model }) => {
     const startTime = Date.now();
-    console.log(`[AI] ${model.modelId} stream started`);
+    logger.info(`[AI] ${model.modelId} stream started`);
     const result = await doStream();
     const duration = Date.now() - startTime;
-    console.log(`[AI] ${model.modelId} stream completed in ${duration}ms`);
+    logger.info(`[AI] ${model.modelId} stream completed in ${duration}ms`);
     return result;
   },
 };
@@ -581,9 +582,10 @@ export async function POST(request: NextRequest) {
     const wsCombinedSignal = AbortSignal.any([request.signal, wsStepAbortController.signal]);
 
     // AI SDK v7 ToolLoopAgent: official agent loop with stopWhen + prepareStep
+    const wsSkillsCatalog = await generateSkillsCatalog();
     const agent = new ToolLoopAgent({
       model: wrappedModel,
-      instructions: fullSystemPrompt + (generateSkillsCatalog() ? "\n\n" + generateSkillsCatalog() : ""),
+      instructions: fullSystemPrompt + (wsSkillsCatalog ? "\n\n" + wsSkillsCatalog : ""),
       tools: Object.keys(activeTools).length > 0 ? activeTools : undefined,
       // AI SDK official toolApproval - dynamic approval based on tool input
       toolApproval: {
@@ -612,7 +614,7 @@ export async function POST(request: NextRequest) {
       prepareStep: async ({ messages, stepNumber }) => {
         const estimatedTokens = JSON.stringify(messages).length / 4;
         if (estimatedTokens > 100000) {
-          console.log(`[WS-AI] Context compression at step ${stepNumber}: ${Math.round(estimatedTokens)} tokens, pruning...`);
+          logger.info(`[WS-AI] Context compression at step ${stepNumber}: ${Math.round(estimatedTokens)} tokens, pruning...`);
           return {
             messages: pruneMessages({
               messages,
@@ -628,11 +630,11 @@ export async function POST(request: NextRequest) {
       maxOutputTokens: wsMaxOutputTokens,
       ...(wsTopP !== undefined && { topP: wsTopP }),
       onToolExecutionStart: ({ toolCall }) => {
-        console.log(`[WS-AI] Tool executing: ${toolCall.toolName}`);
+        logger.info(`[WS-AI] Tool executing: ${toolCall.toolName}`);
       },
       onToolExecutionEnd: ({ toolCall, toolOutput, toolExecutionMs }) => {
         const status = toolOutput.type === 'tool-error' ? 'ERROR' : 'OK';
-        console.log(`[WS-AI] Tool completed: ${toolCall.toolName} [${status}] ${toolExecutionMs}ms`);
+        logger.info(`[WS-AI] Tool completed: ${toolCall.toolName} [${status}] ${toolExecutionMs}ms`);
       },
       telemetry: {
         isEnabled: true,
@@ -648,7 +650,7 @@ export async function POST(request: NextRequest) {
           timeout: { totalMs: Math.max(300000, maxSteps * 30000), stepMs: 30000 },
           onStepEnd: ({ finishReason, toolCalls, text }) => {
             wsStepCount++;
-            console.log(`[WS-AI] Step ${wsStepCount}: finishReason=${finishReason}, toolCalls=${toolCalls?.length || 0}, textLen=${text?.length || 0}`);
+            logger.info(`[WS-AI] Step ${wsStepCount}: finishReason=${finishReason}, toolCalls=${toolCalls?.length || 0}, textLen=${text?.length || 0}`);
           },
           abortSignal: wsCombinedSignal,
         });
@@ -667,7 +669,7 @@ export async function POST(request: NextRequest) {
         const isDSMLText = text && (text.includes('DSML') || text.includes('tool_calls') || text.includes('invoke name='));
         const effectiveText = isDSMLText ? '' : text;
         if (isDSMLText) {
-          console.log('[WS-AI] Detected DSML markup, treating as no-text:', text.slice(0, 200));
+          logger.info('[WS-AI] Detected DSML markup, treating as no-text:', text.slice(0, 200));
         }
 
         // Extract tool results from steps
@@ -706,7 +708,7 @@ export async function POST(request: NextRequest) {
             console.error('[WS-AI] Save assistant message error:', e);
           }
         } else if (!effectiveText && (toolPartsForLog.length > 0 || allToolResults.length > 0)) {
-          console.log('[WS-AI] No text after tools, starting follow-up stream merge...');
+          logger.info('[WS-AI] No text after tools, starting follow-up stream merge...');
           const toolContext = allToolResults.length > 0
             ? '\n\n以下是之前工具调用的结果摘要：\n' + allToolResults.map((r, i) => `${i + 1}. ${r}`).join('\n')
             : '';
@@ -740,7 +742,7 @@ export async function POST(request: NextRequest) {
                 'INSERT INTO workspace_messages (id, "conversationId", role, content, "modelId", "createdAt") VALUES ($1, $2, $3, $4, $5, NOW())',
                 [msgId, projectId, 'assistant', fullContent, modelId]
               );
-              console.log(`[WS-AI] Follow-up report generated: ${followUpText.length} chars`);
+              logger.info(`[WS-AI] Follow-up report generated: ${followUpText.length} chars`);
             } catch (e) {
               console.error('[WS-AI] Save follow-up error:', e);
             }

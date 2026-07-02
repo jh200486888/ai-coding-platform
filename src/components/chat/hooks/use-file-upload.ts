@@ -46,6 +46,23 @@ function classifyFile(file: File): Attachment['type'] {
   return 'document';
 }
 
+
+/** Extract text from .docx files using mammoth */
+
+
+/** Extract text from .docx files using mammoth */
+async function extractDocxText(file: File): Promise<string> {
+  try {
+    const mammoth = await import('mammoth');
+    const arrayBuffer = await file.arrayBuffer();
+    const result = await mammoth.extractRawText({ arrayBuffer });
+    return result.value || '[Word文档内容为空]';
+  } catch (e: any) {
+    try { const text = await file.text(); if (text && text.length > 20) return text.slice(0, 8000); } catch {}
+    return '[Word文档解析失败: ' + (e.message || '未知错误') + ']';
+  }
+}
+
 interface UseFileUploadOptions {
   onError?: (message: string) => void;
 }
@@ -83,6 +100,10 @@ export function useFileUpload(options: UseFileUploadOptions = {}) {
           attachment.content = await file.text();
         } else if (file.type === 'application/pdf' || file.name.endsWith('.pdf')) {
           attachment.content = await extractPdfText(file);
+        } else if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || file.name.endsWith('.docx')) {
+          attachment.content = await extractDocxText(file);
+        } else if (file.type === 'application/msword' || file.name.endsWith('.doc')) {
+          try { attachment.content = (await file.text()).slice(0, 8000); } catch { attachment.content = '[旧版Word文档，建议转换为.docx格式]'; }
         } else if (file.type === 'application/json' || file.name.endsWith('.json')) {
           attachment.content = await file.text();
         } else if (file.type.startsWith('application/') && file.size < 500000) {
