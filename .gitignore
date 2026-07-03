@@ -166,3 +166,9 @@ moshop-saas/
 hello.py
 public/cute-sheep.svg
 src/storage/
+
+# Backup files
+*.bak*
+*.orig
+*.dump
+*.sql.bak
