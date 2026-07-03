@@ -145,20 +145,21 @@ export async function PUT(request: Request) {
     const decodedKey = Buffer.from(apiKey, "base64").toString("utf-8");
 
     // Test with minimal chat/completions request (universal endpoint)
+    // Use provider-appropriate test model
+    const testModels: Record<string, string> = {
+      openai: "gpt-3.5-turbo", zhipu: "glm-4-flash", qwen: "qwen-turbo",
+      deepseek: "deepseek-chat", google: "gemini-2.0-flash", anthropic: "claude-3-haiku-20240307",
+      moonshot: "moonshot-v1-8k", doubao: "doubao-pro-4k", yi: "yi-lightning",
+      baidu: "ernie-speed-128k", spark: "generalv3.5", minimax: "abab5.5-chat",
+    };
+    const testModel = testModels[prov] || "gpt-3.5-turbo";
+
     const res = await fetch(`${url}/chat/completions`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${decodedKey}`,
         "Content-Type": "application/json",
       },
-      // Use provider-appropriate test model
-      const testModels: Record<string, string> = {
-        openai: "gpt-3.5-turbo", zhipu: "glm-4-flash", qwen: "qwen-turbo",
-        deepseek: "deepseek-chat", google: "gemini-2.0-flash", anthropic: "claude-3-haiku-20240307",
-        moonshot: "moonshot-v1-8k", doubao: "doubao-pro-4k", yi: "yi-lightning",
-        baidu: "ernie-speed-128k", spark: "generalv3.5", minimax: "abab5.5-chat",
-      };
-      const testModel = testModels[prov] || "gpt-3.5-turbo";
       body: JSON.stringify({
         model: testModel,
         messages: [{ role: "user", content: "hi" }],
@@ -172,7 +173,7 @@ export async function PUT(request: Request) {
     } else {
       const text = await res.text().catch(() => "");
       // 404 with invalid model but valid key still means auth works
-      if (res.status === 404 && text.includes("model")) {
+      if ((res.status === 404 || res.status === 400) && (text.includes("model") || text.includes("does not exist") || text.includes("模型不存在"))) {
         return NextResponse.json({ success: true, message: "✅ Key 有效（该端点不支持测试模型，但认证通过）" });
       }
       return NextResponse.json({ success: false, message: `❌ HTTP ${res.status}: ${text.slice(0, 200)}` });
