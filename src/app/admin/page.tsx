@@ -584,6 +584,27 @@ function ApiKeysPanel() {
     await fetchKeys();
   };
 
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ id: string; success: boolean; message: string } | null>(null);
+
+  const handleTestKey = async (key: ApiKey) => {
+    setTestingId(key.id);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/admin/keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: key.provider, apiKey: key.api_key_encrypted || '', baseUrl: key.base_url }),
+      });
+      const data = await res.json();
+      setTestResult({ id: key.id, success: data.success, message: data.message || (data.success ? '连接成功' : '连接失败') });
+    } catch (e: any) {
+      setTestResult({ id: key.id, success: false, message: e.message || '网络错误' });
+    }
+    setTestingId(null);
+    setTimeout(() => setTestResult(prev => prev?.id === key.id ? null : prev), 5000);
+  };
+
   const filteredProviders = PROVIDERS.filter(p => 
     p.id.toLowerCase().includes(searchProvider.toLowerCase()) ||
     p.name.toLowerCase().includes(searchProvider.toLowerCase()) ||
@@ -703,6 +724,21 @@ function ApiKeysPanel() {
               {key.base_url && <div className="text-xs text-muted-foreground mt-1">{key.base_url}</div>}
             </div>
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => handleTestKey(key)}
+                disabled={testingId === key.id}
+                className="p-2 rounded-lg hover:bg-primary/10 transition-colors relative group"
+                title="测试连接"
+              >
+                {testingId === key.id ? <Loader2 size={16} className="animate-spin text-blue-400" /> :
+                 testResult?.id === key.id ? (testResult.success ? <CheckCircle2 size={16} className="text-green-400" /> : <XCircle size={16} className="text-red-400" />) :
+                 <Zap size={16} className="text-muted-foreground" />}
+                {testResult?.id === key.id && (
+                  <span className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] rounded bg-card border border-border whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                    {testResult.message}
+                  </span>
+                )}
+              </button>
               <button
                 onClick={() => handleEditKey(key)}
                 className="p-2 rounded-lg hover:bg-primary/10 text-primary transition-colors"
