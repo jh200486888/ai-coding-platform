@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * Notification Service - Send alerts to IM channels (DingTalk, Feishu, WeChat Work, Custom Webhook)
+ * Notification Service - Send alerts to IM channels (DingTalk, Feishu, Custom Webhook)
  */
 import { loadNotificationConfig } from './config-defaults';
 import { getSetting } from './db';
@@ -91,29 +91,6 @@ async function sendCustom(webhook: any, payload: AlertPayload): Promise<boolean>
   }
 }
 
-async function sendWechat(webhook: any, payload: AlertPayload): Promise<boolean> {
-  try {
-    const { url } = webhook;
-    if (!url) return false;
-
-    const levelEmoji = payload.level === 'error' ? '🚨' : payload.level === 'warning' ? '⚠️' : 'ℹ️';
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        msgtype: 'markdown',
-        markdown: {
-          content: `### ${levelEmoji} ${payload.title}\n\n${payload.content}\n\n> ${payload.timestamp || new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`,
-        },
-      }),
-    });
-    return res.ok;
-  } catch (e) {
-    console.error('[Notification] WeChat Work send failed:', e);
-    return false;
-  }
-}
-
 export async function sendAlert(payload: AlertPayload): Promise<{ sent: number; failed: number }> {
   const config = await loadNotificationConfig(getSetting);
   if (!config.enabled) return { sent: 0, failed: 0 };
@@ -126,7 +103,6 @@ export async function sendAlert(payload: AlertPayload): Promise<{ sent: number; 
     switch (webhook.type) {
       case 'dingtalk': success = await sendDingtalk(webhook, payload); break;
       case 'feishu': success = await sendFeishu(webhook, payload); break;
-      case 'wechat': success = await sendWechat(webhook, payload); break;
       case 'custom': success = await sendCustom(webhook, payload); break;
     }
     if (success) sent++; else failed++;

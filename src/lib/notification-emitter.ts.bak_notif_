@@ -25,27 +25,6 @@ export async function emitNotification(event: string, data: any) {
     const broadcast = await getBroadcast();
     broadcast(event, data);
   } catch {}
-
-  // Bridge important events to IM push
-  const IM_EVENTS: Record<string, { title: string; level: 'info' | 'warning' | 'error' }> = {
-    task_complete: { title: '定时任务完成', level: 'info' },
-    task_failed: { title: '定时任务失败', level: 'error' },
-    job_failed: { title: '后台任务失败', level: 'error' },
-    subagent_complete: { title: '子智能体完成', level: 'info' },
-    patrol_alert: { title: '巡检告警', level: 'warning' },
-  };
-
-  const imConfig = IM_EVENTS[event];
-  if (imConfig) {
-    try {
-      const { sendAlert } = await import('@/lib/notification');
-      await sendAlert({
-        title: imConfig.title,
-        content: data.title || data.message || data.error || JSON.stringify(data).slice(0, 200),
-        level: imConfig.level,
-      });
-    } catch {}
-  }
 }
 
 // Convenience functions for common events
