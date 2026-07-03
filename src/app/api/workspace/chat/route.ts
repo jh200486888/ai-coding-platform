@@ -46,6 +46,7 @@ async function saveSystemPrompt(prompt: string): Promise<void> {
        ON CONFLICT (key) DO UPDATE SET value = $1, "updatedAt" = NOW()`,
       [prompt]
     );
+    cacheDelete('setting:system_prompt');
     try {
       writeFileSync(SYSTEM_PROMPT_FILE, prompt, 'utf-8');
     } catch (fileErr) {

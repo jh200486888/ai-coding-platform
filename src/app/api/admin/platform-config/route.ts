@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAdminAuthenticated } from '@/lib/auth';
 import { getSetting, run } from '@/lib/db';
+import { cacheDelete } from '@/lib/cache';
 import { DEFAULT_PROVIDER_URLS, DEFAULT_RUNTIME_CONFIG, DEFAULT_MODE_TOOLS, DEFAULT_MODEL_IDENTITY, DEFAULT_TOOL_NAME_ZH, DEFAULT_PATROL_CONFIG, DEFAULT_PROVIDER_MAX_TOKENS, DEFAULT_WS_PROVIDER_MAX_TOKENS, DEFAULT_TOOL_SAFETY_TIERS, DEFAULT_SSH_SAFE_COMMANDS, DEFAULT_NOTIFICATION_CONFIG } from '@/lib/config-defaults';
 
 const ALL_VALID_KEYS = [
@@ -75,6 +76,7 @@ export async function POST(request: NextRequest) {
       `INSERT INTO settings (key, value, "updatedAt") VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = $2, "updatedAt" = NOW()`,
       [key, jsonValue]
     );
+    cacheDelete(`setting:${key}`);
     return NextResponse.json({ success: true });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message }, { status: 500 });
