@@ -26,6 +26,7 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
   const [showTerminal, setShowTerminal] = useState(false);
   const [selectedModelId, setSelectedModelId] = useState('');
   const [models, setModels] = useState<DbModel[]>([]);
+  const [mobileView, setMobileView] = useState<'chat' | 'files' | 'editor'>('chat');
 
   // Panel widths (px) - user can drag to resize
   const [leftWidth, setLeftWidth] = useState(260);
@@ -165,13 +166,13 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
     <div className="h-screen flex flex-col overflow-hidden">
       {/* Top toolbar: model selection */}
       <div className="h-10 shrink-0 border-b border-border bg-card flex items-center px-4 gap-3">
-        <Link href="/admin" className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors bg-primary/10 px-2.5 py-1 rounded-md hover:bg-primary/20"><ArrowLeft size={14} /> 返回项目管理</Link>
-        <Link href="/" className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors bg-primary/10 px-2.5 py-1 rounded-md hover:bg-primary/20"><ArrowLeft size={14} /> 返回首页</Link>
-        <span className="text-sm text-muted-foreground ml-2">模型:</span>
+        <Link href="/admin" className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors bg-primary/10 px-2.5 py-1 rounded-md hover:bg-primary/20"><ArrowLeft size={14} /> 返回项目管理</Link>
+        <Link href="/" className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors bg-primary/10 px-2.5 py-1 rounded-md hover:bg-primary/20"><ArrowLeft size={14} /> 首页</Link>
+        <span className="hidden sm:inline text-sm text-muted-foreground ml-2">模型:</span>
         <select
           value={selectedModelId}
           onChange={(e) => setSelectedModelId(e.target.value)}
-          className="bg-background border border-border rounded px-2 py-1 text-sm"
+          className="bg-background border border-border rounded px-2 py-1 text-sm max-w-[120px] sm:max-w-none"
         >
           {models.length === 0 && <option value="">未配置模型</option>}
           {models.map(m => (
@@ -179,15 +180,31 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
           ))}
         </select>
         <div className="flex-1" />
-        <span className="text-xs text-muted-foreground">
+        <span className="hidden sm:inline text-xs text-muted-foreground">
           {files.filter(f => f.type === 'file').length} 个文件
         </span>
       </div>
 
-      {/* Main content area - custom resizable */}
+      {/* Mobile view switcher */}
+      <div className="md:hidden flex items-center gap-1 px-2 py-1 border-b border-border bg-card">
+        <button onClick={() => setMobileView('chat')} className={`flex-1 py-1.5 text-xs rounded ${mobileView === 'chat' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>
+          对话
+        </button>
+        <button onClick={() => setMobileView('files')} className={`flex-1 py-1.5 text-xs rounded ${mobileView === 'files' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>
+          文件
+        </button>
+        <button onClick={() => setMobileView('editor')} className={`flex-1 py-1.5 text-xs rounded ${mobileView === 'editor' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}>
+          编辑器
+        </button>
+      </div>
+
+      {/* Main content area */}
       <div className="flex-1 min-h-0 flex" ref={containerRef}>
         {/* Left: File tree */}
-        <div style={{ width: leftWidth, minWidth: 200 }} className="shrink-0 h-full overflow-hidden">
+        <div
+          style={{ width: leftWidth, minWidth: 200 }}
+          className={`shrink-0 h-full overflow-hidden ${mobileView !== 'files' ? 'hidden md:block' : ''}`}
+        >
           <FileTree
             files={files}
             activeFile={activeFile}
@@ -199,14 +216,14 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
 
         {/* Left drag handle */}
         <div
-          className="w-1.5 shrink-0 cursor-col-resize bg-border hover:bg-primary/50 active:bg-primary transition-colors flex items-center justify-center"
+          className="w-1.5 shrink-0 cursor-col-resize bg-border hover:bg-primary/50 active:bg-primary transition-colors items-center justify-center hidden md:flex"
           onMouseDown={handleMouseDown('left')}
         >
           <div className="w-0.5 h-8 bg-muted-foreground/30 rounded-full" />
         </div>
 
         {/* Center: Code editor */}
-        <div className="flex-1 min-w-[200px] h-full overflow-hidden">
+        <div className={`flex-1 min-w-[200px] h-full overflow-hidden ${mobileView !== 'editor' ? 'hidden md:block' : ''}`}>
           <CodeEditor
             file={activeFile}
             onChange={content => {
@@ -217,14 +234,17 @@ export function WorkspaceLayout({ projectId }: WorkspaceLayoutProps) {
 
         {/* Right drag handle */}
         <div
-          className="w-1.5 shrink-0 cursor-col-resize bg-border hover:bg-primary/50 active:bg-primary transition-colors flex items-center justify-center"
+          className="w-1.5 shrink-0 cursor-col-resize bg-border hover:bg-primary/50 active:bg-primary transition-colors items-center justify-center hidden md:flex"
           onMouseDown={handleMouseDown('right')}
         >
           <div className="w-0.5 h-8 bg-muted-foreground/30 rounded-full" />
         </div>
 
         {/* Right: AI Chat */}
-        <div style={{ width: rightWidth, minWidth: 200 }} className="shrink-0 h-full overflow-hidden">
+        <div
+          style={{ width: rightWidth, minWidth: 200 }}
+          className={`shrink-0 h-full overflow-hidden ${mobileView !== 'chat' ? 'hidden md:block' : ''}`}
+        >
           <AiChat
             projectId={projectId}
             modelId={selectedModelId}

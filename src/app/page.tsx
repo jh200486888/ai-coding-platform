@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ChatInterface } from '@/components/chat/ChatInterface';
 import Link from 'next/link';
 import { Code2, MessageSquare, Palette, FolderOpen, Image, X, File, Folder, ChevronRight, ChevronDown, Plus, Menu } from 'lucide-react';
@@ -145,9 +145,61 @@ function ProjectPanel({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
   );
 }
 
+/* ── Onboarding tooltip ── */
+function OnboardingGuide({ onFinish }: { onFinish: () => void }) {
+  const [step, setStep] = useState(0);
+  const steps = [
+    { text: '选择模型和模式开始对话', anchor: 'model-selector' },
+    { text: '点击 starter prompts 快速开始', anchor: 'starter-prompts' },
+    { text: '按 @ 可以引用文件和对话', anchor: 'chat-input' },
+  ];
+
+  const next = () => {
+    if (step < steps.length - 1) setStep(step + 1);
+    else onFinish();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/40" onClick={onFinish} />
+
+      {/* Tooltip card */}
+      <div className="relative z-10 bg-card border border-border rounded-xl shadow-2xl px-5 py-4 max-w-xs mx-4 animate-in fade-in zoom-in-95">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">{step + 1}</span>
+          <span className="text-xs text-muted-foreground">共 {steps.length} 步</span>
+        </div>
+        <p className="text-sm font-medium leading-relaxed mb-4">{steps[step].text}</p>
+        <div className="flex items-center justify-between">
+          <button onClick={onFinish} className="text-xs text-muted-foreground hover:text-foreground transition-colors">跳过</button>
+          <button onClick={next} className="px-3 py-1.5 text-xs font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+            {step < steps.length - 1 ? '下一步' : '开始使用'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function HomePage() {
   const [showPanel, setShowPanel] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    try {
+      const visited = localStorage.getItem('onboarding_done');
+      if (!visited) setShowOnboarding(true);
+    } catch {
+      // localStorage not available (e.g. artifact env)
+    }
+  }, []);
+
+  const completeOnboarding = () => {
+    try { localStorage.setItem('onboarding_done', 'true'); } catch {}
+    setShowOnboarding(false);
+  };
 
   return (
     <div className="flex flex-col h-screen">
@@ -162,22 +214,34 @@ export default function HomePage() {
         </div>
 
         {/* Desktop nav */}
-        <nav className="hidden md:flex items-center gap-2">
-          <Link href="/design" className="flex items-center gap-1.5 px-2.5 py-2 text-sm font-medium rounded-md hover:bg-muted transition-colors">
-            <Palette className="w-4 h-4 shrink-0" />
-            <span>设计工坊</span>
-          </Link>
-          <Link href="/design?mode=quick" className="flex items-center gap-1.5 px-2.5 py-2 text-sm font-medium rounded-md hover:bg-muted transition-colors">
-            <Palette className="w-4 h-4 shrink-0" />
-            <span>图片生成</span>
-          </Link>
-          <Link href="/workspace" className="flex items-center gap-1.5 px-2.5 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+        <nav className="hidden md:flex items-center gap-1">
+          {/* AI 创作 dropdown */}
+          <div className="relative group">
+            <button className="flex items-center gap-1.5 px-2.5 py-2 text-sm font-medium rounded-md hover:bg-muted transition-colors">
+              <Palette className="w-4 h-4 shrink-0" />
+              <span>AI 创作</span>
+              <ChevronDown className="w-3 h-3 opacity-50" />
+            </button>
+            <div className="absolute top-full left-0 mt-1 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[140px] opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
+              <Link href="/design" className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors">
+                <Palette className="w-4 h-4" /> 设计工坊
+              </Link>
+              <Link href="/design?mode=quick" className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors">
+                <Image className="w-4 h-4" /> 图片生成
+              </Link>
+            </div>
+          </div>
+
+          {/* 工作区 - secondary style */}
+          <Link href="/workspace" className="flex items-center gap-1.5 px-2.5 py-2 text-sm font-medium rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
             <Code2 className="w-4 h-4 shrink-0" />
-            <span>编程工作区</span>
+            <span>工作区</span>
           </Link>
+
+          {/* 项目 */}
           <button
             onClick={() => setShowPanel(!showPanel)}
-            className={`flex items-center gap-1.5 px-2.5 py-2 text-sm font-medium rounded-md transition-colors ${showPanel ? 'bg-accent text-foreground' : 'hover:bg-muted text-muted-foreground'}`}
+            className={`flex items-center gap-1.5 px-2.5 py-2 text-sm font-medium rounded-md transition-colors ${showPanel ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}
             title="项目文件"
           >
             <FolderOpen className="w-4 h-4 shrink-0" />
@@ -185,15 +249,29 @@ export default function HomePage() {
           </button>
         </nav>
 
-        {/* Mobile: icon-only nav + menu button */}
+        {/* Mobile: icon nav + menu button */}
         <div className="flex md:hidden items-center gap-0.5">
-          <Link href="/design" className="p-2 rounded-lg hover:bg-muted transition-colors" title="设计工坊">
-            <Palette className="w-5 h-5 text-muted-foreground" />
-          </Link>
-          <Link href="/design?mode=quick" className="p-2 rounded-lg hover:bg-muted transition-colors" title="图片生成">
-            <Image className="w-5 h-5 text-muted-foreground" />
-          </Link>
-          <Link href="/workspace" className="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors" title="编程工作区">
+          {/* AI 创作 dropdown for mobile */}
+          <div className="relative">
+            <button onClick={() => setShowMobileMenu(!showMobileMenu)} className="p-2 rounded-lg hover:bg-muted transition-colors" title="AI 创作">
+              <Palette className="w-5 h-5 text-muted-foreground" />
+            </button>
+            {showMobileMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowMobileMenu(false)} />
+                <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[140px] z-50">
+                  <Link href="/design" onClick={() => setShowMobileMenu(false)} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors">
+                    <Palette className="w-4 h-4" /> 设计工坊
+                  </Link>
+                  <Link href="/design?mode=quick" onClick={() => setShowMobileMenu(false)} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors">
+                    <Image className="w-4 h-4" /> 图片生成
+                  </Link>
+                </div>
+              </>
+            )}
+          </div>
+
+          <Link href="/workspace" className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground" title="工作区">
             <Code2 className="w-5 h-5" />
           </Link>
           <button
@@ -212,6 +290,9 @@ export default function HomePage() {
         </div>
         <ProjectPanel isOpen={showPanel} onClose={() => setShowPanel(false)} />
       </main>
+
+      {/* Onboarding */}
+      {showOnboarding && <OnboardingGuide onFinish={completeOnboarding} />}
     </div>
   );
 }
