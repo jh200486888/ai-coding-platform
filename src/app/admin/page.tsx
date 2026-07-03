@@ -594,7 +594,7 @@ function ApiKeysPanel() {
       const res = await fetch('/api/admin/keys', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: key.provider, apiKey: key.api_key_encrypted || '', baseUrl: key.base_url }),
+        body: JSON.stringify({ id: key.id, provider: key.provider }),
       });
       const data = await res.json();
       setTestResult({ id: key.id, success: data.success, message: data.message || (data.success ? '连接成功' : '连接失败') });

@@ -144,18 +144,30 @@ export async function PUT(request: Request) {
     // Decode base64-encoded API key
     const decodedKey = Buffer.from(apiKey, "base64").toString("utf-8");
 
-    // Try a simple models/list request
-    const res = await fetch(`${url}/models`, {
-      method: "GET",
-      headers: { "Authorization": `Bearer ${decodedKey}` },
-      signal: AbortSignal.timeout(10000),
+    // Test with minimal chat/completions request (universal endpoint)
+    const res = await fetch(`${url}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${decodedKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-3.5-turbo",
+        messages: [{ role: "user", content: "hi" }],
+        max_tokens: 1,
+      }),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (res.ok) {
-      return NextResponse.json({ success: true, message: "连接成功", status: res.status });
+      return NextResponse.json({ success: true, message: "✅ 连接成功，API Key 有效" });
     } else {
       const text = await res.text().catch(() => "");
-      return NextResponse.json({ success: false, message: `HTTP ${res.status}: ${text.slice(0, 200)}`, status: res.status });
+      // 404 with invalid model but valid key still means auth works
+      if (res.status === 404 && text.includes("model")) {
+        return NextResponse.json({ success: true, message: "✅ Key 有效（该端点不支持测试模型，但认证通过）" });
+      }
+      return NextResponse.json({ success: false, message: `❌ HTTP ${res.status}: ${text.slice(0, 200)}` });
     }
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e.message || String(e) }, { status: 500 });
