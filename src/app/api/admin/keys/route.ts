@@ -131,20 +131,30 @@ export async function PUT(request: Request) {
   if (!(await isAdminAuthenticated())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const body = await request.json();
-    const { provider, apiKey, baseUrl } = body;
-    if (!provider || !apiKey) {
-      return NextResponse.json({ error: "provider and apiKey required" }, { status: 400 });
+    const { id, provider } = body;
+    if (!id && !provider) {
+      return NextResponse.json({ error: "id or provider required" }, { status: 400 });
     }
 
-    // Get default base URL
+    // Look up real key from DB (frontend only has masked version)
+    const { queryOne } = await import("@/lib/db");
+    let row: any;
+    if (id) {
+      row = await queryOne('SELECT provider, "apiKey", "baseUrl" FROM api_keys WHERE id = $1', [id]);
+    } else {
+      row = await queryOne('SELECT provider, "apiKey", "baseUrl" FROM api_keys WHERE provider = $1 AND "isActive" = true', [provider]);
+    }
+    if (!row || !row.apiKey) {
+      return NextResponse.json({ success: false, message: "\u672a\u627e\u5230\u8be5 API Key" });
+    }
+
+    const decodedKey = Buffer.from(row.apiKey, "base64").toString("utf-8");
+    const prov = row.provider || provider;
+
     const { DEFAULT_PROVIDER_URLS } = await import("@/lib/config-defaults");
-    const defaultBaseUrl = DEFAULT_PROVIDER_URLS[provider] || `https://api.${provider}.com/v1`;
-    const url = (baseUrl || defaultBaseUrl).replace(/\/+$/, "");
+    const defaultBaseUrl = DEFAULT_PROVIDER_URLS[prov] || `https://api.${prov}.com/v1`;
+    const url = (row.baseUrl || defaultBaseUrl).replace(/\/+$/, "");
 
-    // Decode base64-encoded API key
-    const decodedKey = Buffer.from(apiKey, "base64").toString("utf-8");
-
-    // Test with minimal chat/completions request (universal endpoint)
     // Use provider-appropriate test model
     const testModels: Record<string, string> = {
       openai: "gpt-3.5-turbo", zhipu: "glm-4-flash", qwen: "qwen-turbo",
@@ -169,14 +179,13 @@ export async function PUT(request: Request) {
     });
 
     if (res.ok) {
-      return NextResponse.json({ success: true, message: "✅ 连接成功，API Key 有效" });
+      return NextResponse.json({ success: true, message: "\u2705 \u8fde\u63a5\u6210\u529f\uff0cAPI Key \u6709\u6548" });
     } else {
       const text = await res.text().catch(() => "");
-      // 404 with invalid model but valid key still means auth works
-      if ((res.status === 404 || res.status === 400) && (text.includes("model") || text.includes("does not exist") || text.includes("模型不存在"))) {
-        return NextResponse.json({ success: true, message: "✅ Key 有效（该端点不支持测试模型，但认证通过）" });
+      if ((res.status === 404 || res.status === 400) && (text.includes("model") || text.includes("does not exist") || text.includes("\u6a21\u578b\u4e0d\u5b58\u5728"))) {
+        return NextResponse.json({ success: true, message: "\u2705 Key \u6709\u6548\uff0c\u8ba4\u8bc1\u901a\u8fc7" });
       }
-      return NextResponse.json({ success: false, message: `❌ HTTP ${res.status}: ${text.slice(0, 200)}` });
+      return NextResponse.json({ success: false, message: `\u274c HTTP ${res.status}: ${text.slice(0, 200)}` });
     }
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e.message || String(e) }, { status: 500 });
