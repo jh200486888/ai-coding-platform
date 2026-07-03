@@ -141,10 +141,13 @@ export async function PUT(request: Request) {
     const defaultBaseUrl = DEFAULT_PROVIDER_URLS[provider] || `https://api.${provider}.com/v1`;
     const url = (baseUrl || defaultBaseUrl).replace(/\/+$/, "");
 
+    // Decode base64-encoded API key
+    const decodedKey = Buffer.from(apiKey, "base64").toString("utf-8");
+
     // Try a simple models/list request
     const res = await fetch(`${url}/models`, {
       method: "GET",
-      headers: { "Authorization": `Bearer ${apiKey}` },
+      headers: { "Authorization": `Bearer ${decodedKey}` },
       signal: AbortSignal.timeout(10000),
     });
 
