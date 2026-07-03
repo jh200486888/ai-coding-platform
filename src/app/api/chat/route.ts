@@ -911,8 +911,7 @@ export async function POST(request: NextRequest) {
         stateContext = await getStateContext(convId);
       }
     } catch {}
-    const verifyRule = '\n\n【重要规则】每次使用 editFile 或 createFile 修改代码后，必须调用 verify_operation 工具验证修改结果（operation_type="file_change"）。不要跳过验证步骤。';
-    const dynamicPrompt = modePrompt + memorySection + ragSection + projectContextSection + stateContext + verifyRule + `\n\n你是 ${identityName} 的 ${model_id}。`;
+    const dynamicPrompt = modePrompt + memorySection + ragSection + projectContextSection + stateContext + `\n\n你是 ${identityName} 的 ${model_id}。`;
 
     // P54: 斜杠命令激活子智能体/技能
     let slashActivation = '';
