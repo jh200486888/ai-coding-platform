@@ -296,6 +296,7 @@ export const DEFAULT_NOTIFICATION_CONFIG = {
   webhooks: [
     { type: 'dingtalk', url: '', secret: '', enabled: false, label: '钉钉群' },
     { type: 'feishu', url: '', secret: '', enabled: false, label: '飞书群' },
+    { type: 'wechat', url: '', secret: '', enabled: false, label: '企业微信' },
     { type: 'custom', url: '', secret: '', enabled: false, label: '自定义Webhook' },
   ],
 };

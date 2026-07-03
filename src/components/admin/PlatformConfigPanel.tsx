@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 
-type SubTab = 'providers' | 'tools' | 'identity' | 'patrol' | 'notification';
+type SubTab = 'providers' | 'tools' | 'identity' | 'patrol';
 
 
 function NotificationConfigSection() {
@@ -170,7 +170,6 @@ export default function PlatformConfigPanel() {
     { key: 'tools', label: '工具白名单' },
     { key: 'identity', label: '模型身份' },
     { key: 'patrol', label: '巡检配置' },
-    { key: 'notification', label: '通知服务' },
   ];
 
   return (
@@ -197,7 +196,6 @@ export default function PlatformConfigPanel() {
       {subTab === 'identity' && <ModelIdentityPanel config={config} defaults={defaults} onSave={(v) => saveKey('model_identity', v)} onReset={() => resetToDefault('model_identity')} dirty={dirty.has('model_identity')} />}
       {subTab === 'patrol' && <PatrolConfigPanel config={config}
         defaults={defaults} onSave={(v) => saveKey('patrol_config', v)} onReset={() => resetToDefault('patrol_config')} dirty={dirty.has('patrol_config')} />}
-      {subTab === 'notification' && <NotificationConfigSection />}
     </div>
   );
 }
