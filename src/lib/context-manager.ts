@@ -213,8 +213,10 @@ export async function smartTrimMessages(
     }
     const hardTokens = estimateTokens(hardTrimmed);
     logger.info(`[ContextMgr] Hard trim: ${newTokens} -> ${hardTokens} tokens`);
-    return { messages: hardTrimmed, wasTrimmed: true };
+    if (hardTrimmed.length === 0) return { messages, wasTrimmed: false };
+  return { messages: hardTrimmed, wasTrimmed: true };
   }
 
+  if (result.length === 0) return { messages, wasTrimmed: false };
   return { messages: result, wasTrimmed: true };
 }

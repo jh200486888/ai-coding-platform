@@ -39,7 +39,7 @@ async function flush() {
       await run(
         `INSERT INTO audit_logs (conversation_id, user_id, action, target, detail, model_id, success, duration_ms, created_at) 
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-        [e.conversation_id, e.user_id, e.action, e.target, e.detail?.slice(0, 2000), e.model_id, e.success, e.duration_ms]
+        [e.conversation_id, e.user_id, e.action, e.target, e.detail?.slice(0, 2000), e.model_id, e.success, e.duration_ms ? Math.round(e.duration_ms) : null]
       );
     }
     logger.info(`[Audit] Flushed ${entries.length} entries`);

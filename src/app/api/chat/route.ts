@@ -1412,7 +1412,7 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
         // === Smart Context Window Management ===
         const _modelForBudget = model || wrappedModel;
         const _ctxResult = await smartTrimMessages(messages, _modelForBudget);
-        if (_ctxResult.wasTrimmed) {
+        if (_ctxResult.wasTrimmed && _ctxResult.messages.length > 0 && _ctxResult.messages[0]?.role === 'user') {
           messages.length = 0;
           messages.push(..._ctxResult.messages);
         }
