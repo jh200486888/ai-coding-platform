@@ -2,7 +2,7 @@
 import { toast } from 'sonner';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Bell, ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette, Activity, Plug, Brain, BookOpen, LayoutDashboard, ChevronDown, ChevronRight, Clock, Database, CheckCircle2, XCircle, Cpu, BarChart3, Shield, Paintbrush, Heart, Users, Zap, Edit2, X, FileText, Play} from 'lucide-react';
+import { Bell, ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette, Activity, Plug, Brain, BookOpen, LayoutDashboard, ChevronDown, ChevronRight, Clock, Database, CheckCircle2, XCircle, Cpu, BarChart3, Loader2, Shield, Paintbrush, Heart, Users, Zap, Edit2, X, FileText, Play} from 'lucide-react';
 import { ImageGenPanel } from "@/components/admin/ImageGenPanel";
 import { TelemetryPanel } from "@/components/admin/TelemetryPanel";
 import { McpServersPanel } from "@/components/admin/McpServersPanel";
