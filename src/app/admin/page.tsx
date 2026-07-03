@@ -25,11 +25,10 @@ import ProjectContextPanel from '@/components/admin/ProjectContextPanel';
 import ToolSafetyPanel from '@/components/admin/ToolSafetyPanel';
 import WorkflowTemplatesPanel from '@/components/admin/WorkflowTemplatesPanel';
 import BackgroundJobsPanel from '@/components/admin/BackgroundJobsPanel';
-import NotificationsPanel from '@/components/admin/NotificationsPanel';
 import NotificationCenterPanel from '@/components/admin/NotificationCenterPanel';
 const MODELS_DATA = MODELS_IMPORT.map(m => ({ id: m.id, name: m.name, provider: m.provider, description: m.description || '' }));
 
-type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'telemetry' | 'mcp' | 'memory' | 'knowledge' | 'tasks' | 'patrol' | 'heartbeat' | 'design' | 'sub-agents' | 'skills' | 'audit-logs' | 'security' | 'platform-config' | 'project-context' | 'tool-safety' | 'workflow-templates' | 'background-jobs' | 'notifications' | 'notification-center';
+type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'telemetry' | 'mcp' | 'memory' | 'knowledge' | 'tasks' | 'patrol' | 'heartbeat' | 'design' | 'sub-agents' | 'skills' | 'audit-logs' | 'security' | 'platform-config' | 'project-context' | 'tool-safety' | 'workflow-templates' | 'background-jobs' | 'notification-center';
 
 // ============ Sidebar Navigation Structure ============
 interface SidebarGroup {
@@ -83,7 +82,6 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
       { id: 'projects', label: '项目管理', icon: <Folder size={14} /> },
       { id: 'tasks', label: '定时任务', icon: <Clock size={14} /> },
       { id: 'background-jobs', label: '后台任务', icon: <Cpu size={14} /> },
-      { id: 'notifications', label: '通知管理 (SSE)', icon: <Bell size={14} /> },
       { id: 'sub-agents', label: '子智能体', icon: <Users size={14} /> },
       { id: 'design', label: '设计 & 生图', icon: <Paintbrush size={14} /> },
     ],
@@ -367,7 +365,6 @@ return () => { window.fetch = originalFetch; };
           {activeTab === 'tool-safety' && <ToolSafetyPanel />}
           {activeTab === 'workflow-templates' && <WorkflowTemplatesPanel />}
           {activeTab === 'background-jobs' && <BackgroundJobsPanel />}
-          {activeTab === 'notifications' && <NotificationsPanel />}
           {activeTab === 'notification-center' && <NotificationCenterPanel />}
         </div>
       </main>
