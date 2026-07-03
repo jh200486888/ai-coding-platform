@@ -215,6 +215,21 @@ export function ApiKeyManager() {
               </div>
               <div className="flex items-center gap-1">
                 <button
+                  onClick={() => handleTestKey(key)}
+                  disabled={testingId === key.id}
+                  className="p-2 hover:bg-primary/10 rounded transition-colors relative group"
+                  title="测试连接"
+                >
+                  {testingId === key.id ? <Loader2 className="w-4 h-4 animate-spin text-blue-400" /> :
+                   testResult?.id === key.id ? (testResult.success ? <CheckCircle2 className="w-4 h-4 text-green-400" /> : <XCircle className="w-4 h-4 text-red-400" />) :
+                   <Zap className="w-4 h-4 text-muted-foreground" />}
+                  {testResult?.id === key.id && (
+                    <span className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 px-2 py-1 text-[10px] rounded bg-card border border-border whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                      {testResult.message}
+                    </span>
+                  )}
+                </button>
+                <button
                   onClick={() => handleEdit(key)}
                   className="p-2 text-primary hover:bg-primary/10 rounded"
                   title="编辑"
