@@ -852,25 +852,25 @@ export async function POST(request: NextRequest) {
                     1 - (embedding <=> $1::vector) as similarity
              FROM cross_session_memories
              WHERE embedding IS NOT NULL
-               AND importance >= 0.3
+               AND importance >= 0.2
                AND (expires_at IS NULL OR expires_at > NOW())
              ORDER BY similarity DESC LIMIT 3`,
             [vectorStr]
           );
           if (memRows && memRows.length > 0) {
-            const relevant = memRows.filter((r: any) => r.similarity > 0.3);
+            const relevant = memRows.filter((r: any) => r.similarity > 0.15);
             if (relevant.length > 0) {
               const typeEmoji: Record<string, string> = { insight: '💡', decision: '🎯', preference: '👤', fact: '📌', error_solution: '🔧', architecture: '🏗️' };
               crossMemorySection = '\n\n【历史记忆（自动召回）】\n' + relevant.map((r: any, i: number) =>
                 (i+1) + '. ' + (typeEmoji[r.memory_type] || '📝') + ' ' + (r.summary || r.content.slice(0, 80))
               ).join('\n');
-              logger.info('[Memory] Auto-injected ' + relevant.length + ' cross-session memories (similarity > 0.3)');
+              console.log('[Memory] Auto-injected ' + relevant.length + ' cross-session memories (similarity > 0.15)');
             }
           }
         }
       }
     } catch (e: any) {
-      logger.info('[Memory] Cross-session recall failed: ' + (e.message || 'unknown'));
+      console.warn('[Memory] Cross-session recall failed: ' + (e.message || 'unknown'));
     }
     const memorySection = (memories ? '\n\n以下是关于这个用户的一些信息：\n' + memories + '\n\n用户说"记住"时，用 saveMemory 工具保存。' : '') + crossMemorySection;
     // RAG 知识库检索
