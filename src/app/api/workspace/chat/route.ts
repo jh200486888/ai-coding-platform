@@ -17,6 +17,7 @@ import { createSubAgentTool } from '@/lib/sub-agents';
 import { describeImages } from '@/lib/vision-proxy';
 import { getCurrentUser } from '@/lib/auth';
 import { logger } from '@/lib/logger';
+import { DEFAULT_MODE_TOOLS, DEFAULT_MODEL_IDENTITY, DEFAULT_WS_PROVIDER_MAX_TOKENS } from '@/lib/config-defaults';
 
 const execAsync = promisify(exec);
 
@@ -79,19 +80,7 @@ const PROVIDER_URLS: Record<string, string> = {
   cohere: 'https://api.cohere.ai/v1',
 };
 
-const MODEL_IDENTITY: Record<string, string> = {
-  deepseek: 'DeepSeek 深度求索',
-  zhipu: '智谱AI (GLM)',
-  qwen: '通义千问 (Qwen)',
-  openai: 'OpenAI (GPT)',
-  anthropic: 'Anthropic (Claude)',
-  google: 'Google (Gemini)',
-  moonshot: 'Kimi 月之暗面',
-  kimi: 'Kimi 月之暗面',
-  doubao: '豆包 (Doubao)',
-  groq: 'Groq (Llama)',
-  yi: '零一万物 (Yi)',
-};
+const MODEL_IDENTITY: Record<string, string> = await (async () => { try { const r = await getSetting('model_identity'); return r ? { ...DEFAULT_MODEL_IDENTITY, ...JSON.parse(r) } : DEFAULT_MODEL_IDENTITY; } catch { return DEFAULT_MODEL_IDENTITY; } })();;
 
 // ============ 日志中间件（AI SDK 原生 Middleware） ============
 const loggingMiddleware: LanguageModelMiddleware = {
@@ -279,13 +268,8 @@ async function execSaveMemory(category: string, content: string): Promise<string
 }
 
 // ============ Workspace 模式工具集 ============
-const MODE_TOOLS: Record<string, string[]> = {
-  coding: ['createFile', 'editFile', 'deleteFile', 'readFile', 'runCommand', 'searchWeb', 'saveMemory', 'delegate_task'],
-  writing: ['searchWeb', 'saveMemory', 'delegate_task'],
-  analysis: ['searchWeb', 'saveMemory', 'delegate_task'],
-  design: ['saveMemory'],
-  chat: ['searchWeb', 'saveMemory', 'delegate_task'],
-};
+const modeToolsRaw = await (async () => { try { const r = await getSetting('mode_tool_whitelist'); return r ? JSON.parse(r) : null; } catch { return null; } })();
+    const MODE_TOOLS: Record<string, string[]> = modeToolsRaw || DEFAULT_MODE_TOOLS;;
 
 // ============ 加载增强工具（安全加载，失败不影响核心功能） ============
 let enhancedTools: Record<string, any> = {};
@@ -438,10 +422,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 读取高级配置
-    let maxSteps = 20;
-    const WS_PROVIDER_MAX_TOKENS: Record<string, number> = {
-      deepseek: 8192, groq: 8192, moonshot: 8192, zhipu: 4096,
-    };
+    let maxSteps = (await (async () => { try { const r = await getSetting('advanced_config'); return r ? JSON.parse(r).max_steps : 20; } catch { return 20; } })()) || 20;
+    const WS_PROVIDER_MAX_TOKENS: Record<string, number> = DEFAULT_WS_PROVIDER_MAX_TOKENS;;
     let wsMaxOutputTokens = WS_PROVIDER_MAX_TOKENS[modelConfig.provider] || 16384;
     let wsTopP: number | undefined = undefined;
     let temperature: number | undefined = undefined;

@@ -51,6 +51,46 @@ const APPROVAL_COMMANDS = [
   /docker\s+(rm|rmi|stop)/,
 ];
 
+
+// ============ P0: Destructive Operation Snapshot ============
+const SNAPSHOT_DIR = '/tmp/agent-snapshots';
+const SNAPSHOT_PATTERNS = [
+  { regex: /\brm\s+(-[a-zA-Z]*\s+)*(['"]?)([^\s'"-][^'"]*)\2/, target: 'path', group: 3 },
+  { regex: /\bTRUNCATE\s+TABLE\s+['"]?(\w+)['"]?/i, target: 'table', group: 1 },
+  { regex: /\bDELETE\s+FROM\s+['"]?(\w+)['"]?/i, target: 'table', group: 1 },
+  { regex: /\bDROP\s+TABLE\s+['"]?(\w+)['"]?/i, target: 'table', group: 1 },
+];
+
+function getSnapshotScript(command: string): string | null {
+  for (const pattern of SNAPSHOT_PATTERNS) {
+    const match = command.match(pattern.regex);
+    if (match && match[pattern.group]) {
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      if (pattern.target === 'path') {
+        const targetPath = match[pattern.group];
+        if (!targetPath.startsWith('/')) return null;
+        return [
+          `mkdir -p ${SNAPSHOT_DIR}`,
+          `if [ -e "${targetPath}" ]; then`,
+          `  if [ -d "${targetPath}" ]; then`,
+          `    tar -czf "${SNAPSHOT_DIR}/dir-${ts}.tar.gz" -C "$(dirname ${targetPath})" "$(basename ${targetPath})" 2>/dev/null && echo "[SNAPSHOT] Directory saved: dir-${ts}.tar.gz" || true`,
+          `  else`,
+          `    cp "${targetPath}" "${SNAPSHOT_DIR}/file-${ts}.bak" 2>/dev/null && echo "[SNAPSHOT] File saved: file-${ts}.bak" || true`,
+          `  fi`,
+          `fi`,
+        ].join('\n');
+      } else if (pattern.target === 'table') {
+        const tableName = match[pattern.group];
+        return [
+          `mkdir -p ${SNAPSHOT_DIR}`,
+          `PGPASSWORD=\${PGPASSWORD:-i3m8x5a2e8} pg_dump -U agent agent -t "${tableName}" --data-only > "${SNAPSHOT_DIR}/table-${tableName}-${ts}.sql" 2>/dev/null && echo "[SNAPSHOT] Table ${tableName} saved" || true`,
+        ].join('\n');
+      }
+    }
+  }
+  return null;
+}
+
 class SSHConnectionPool {
   private connections: Map<string, NodeSSH> = new Map();
   private lastUsed: Map<string, number> = new Map();
@@ -141,6 +181,9 @@ class SSHConnectionPool {
       }
     }
 
+    // P0: Auto-snapshot before destructive operations
+    const snapshotScript = getSnapshotScript(command);
+
     const ssh = await this.getConnection(serverId);
     const config = this.getServerConfig(serverId);
 
@@ -152,6 +195,20 @@ class SSHConnectionPool {
     };
 
     try {
+      // P0: Execute snapshot before destructive operation
+      let snapshotResult = '';
+      if (snapshotScript) {
+        try {
+          const snapRes = await ssh.execCommand(snapshotScript, { execOptions: { timeout: 30000, cwd: config.projectDir } });
+          snapshotResult = (snapRes.stdout || '').trim();
+          if (snapshotResult) {
+            console.log('[SNAPSHOT]', snapshotResult);
+          }
+        } catch (snapErr: any) {
+          console.warn('[SNAPSHOT] Warning: snapshot failed, proceeding with command:', snapErr?.message || String(snapErr));
+        }
+      }
+
       const result = await ssh.execCommand(command, execOptions);
       this.lastUsed.set(serverId, Date.now());
       return {

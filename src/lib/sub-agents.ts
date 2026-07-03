@@ -1,3 +1,4 @@
+import { getSetting } from '@/lib/db';
 import { ToolLoopAgent, tool, readUIMessageStream, toUIMessageStream } from 'ai';
 import { z } from 'zod';
 
@@ -63,6 +64,34 @@ const SUBAGENT_CONFIGS: Record<string, {
 - 直接输出文案内容
 - 完成后总结写了什么`,
     toolNames: ['searchWeb', 'createFile', 'readFile'],
+  },
+  tester: {
+    instructions: `你是一个专业的测试工程师。你的任务是编写和执行测试用例。
+
+工作方式：
+1. 读取相关代码了解功能
+2. 编写测试用例
+3. 执行测试并验证结果
+4. 报告测试覆盖情况
+
+【规则】
+- 不要使用 Markdown 格式化
+- 完成后给出测试报告：通过/失败/覆盖率`,
+    toolNames: ['readFile', 'runCommand', 'createFile', 'run_tests'],
+  },
+  planner: {
+    instructions: `你是一个任务规划与编排专家。你的任务是将复杂需求拆解为可执行的子任务。
+
+工作方式：
+1. 分析用户需求的完整范围
+2. 识别关键依赖和风险点
+3. 制定分步执行计划
+4. 可以委派子任务给其他智能体
+
+【规则】
+- 不要使用 Markdown 格式化
+- 输出明确的执行计划，每步包含：负责人/工具/预期产出`,
+    toolNames: ['readFile', 'runCommand', 'searchWeb', 'delegate_task'],
   },
 };
 
@@ -158,3 +187,13 @@ export function createSubAgentTool(model: any, baseTools: Record<string, any>) {
 
 // 兼容旧版导出
 export const subAgentTools = {};
+
+
+// Load sub-agent configs from DB, fallback to hardcoded defaults
+export async function loadSubAgentConfigs(): Promise<typeof SUBAGENT_CONFIGS> {
+  try {
+    const raw = await getSetting('sub_agent_configs');
+    if (raw) return { ...SUBAGENT_CONFIGS, ...JSON.parse(raw) };
+  } catch {}
+  return SUBAGENT_CONFIGS;
+}

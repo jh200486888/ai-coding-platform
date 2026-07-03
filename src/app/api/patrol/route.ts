@@ -1,6 +1,8 @@
+import { DEFAULT_PATROL_CONFIG } from '@/lib/config-defaults';
 import { NextResponse } from 'next/server';
 import { logger } from '@/lib/logger';
 import { isAdminAuthenticated } from '@/lib/auth';
+import { sendAlert } from '@/lib/notification';
 
 /**
  * 系统巡检 API
@@ -216,8 +218,10 @@ async function autoFix(config: ServerCheckConfig, issues: CheckResult[], isLocal
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const token = url.searchParams.get('token');
-  const isTokenValid = token === 'patrol-2026-secure';
+  const patrolConfig = await (async () => { try { const r = await (await import('@/lib/db')).getSetting('patrol_config'); return r ? { ...DEFAULT_PATROL_CONFIG, ...JSON.parse(r) } : DEFAULT_PATROL_CONFIG; } catch { return DEFAULT_PATROL_CONFIG; } })();
+  const isTokenValid = token === patrolConfig.token;
   if (!isTokenValid && !(await isAdminAuthenticated())) { 
+
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 }); 
   }
 
@@ -259,6 +263,21 @@ export async function GET(request: Request) {
           ['patrol-alert-latest', `巡检告警 [${server}] ${new Date().toISOString()}: ${remainingIssues.map(i => i.name + ': ' + i.message).join('; ')}`]
         );
       } catch {}
+    }
+
+    // P2: Send IM notification for remaining issues
+    if (remainingIssues.length > 0) {
+      try {
+        const summary = remainingIssues.map((i: any) => '- ' + i.name + ': ' + i.message).join(String.fromCharCode(10));
+        await sendAlert({
+          title: '巡检告警 - 发现异常',
+          content: summary,
+          level: remainingIssues.some((i: any) => i.critical) ? 'error' : 'warning',
+          timestamp: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
+        });
+      } catch (notifErr) {
+        console.error('[Patrol] Notification failed:', notifErr);
+      }
     }
 
     return NextResponse.json(report);

@@ -12,8 +12,10 @@ export async function GET() {
     // 2. Today messages count
     const todayMsg = await queryOne('SELECT COUNT(*) as count FROM chat_messages WHERE "createdAt" >= CURRENT_DATE');
     
-    // 2b. Today conversations count
-    const todayConv = await queryOne('SELECT COUNT(*) as count FROM conversations WHERE "createdAt" >= CURRENT_DATE');
+    // 2b. Today conversations count (active today = had messages today OR created today)
+    const todayConv = await queryOne(
+      'SELECT COUNT(DISTINCT c.id) as count FROM conversations c LEFT JOIN chat_messages m ON m."conversationId" = c.id WHERE c."createdAt" >= CURRENT_DATE OR m."createdAt" >= CURRENT_DATE'
+    );
     
     // 3. Active models count (distinct providers with API keys)
     const activeModels = await queryOne('SELECT COUNT(DISTINCT provider) as count FROM api_keys WHERE "isActive" = true');

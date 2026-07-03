@@ -1,3 +1,4 @@
+import { DEFAULT_PROVIDER_URLS } from '@/lib/config-defaults';
 import { NextRequest } from 'next/server';
 import { getApiKeyByProvider, getModelConfig } from './db';
 
@@ -26,23 +27,10 @@ async function getProviderConfig(modelId: string): Promise<ProviderConfig | null
   const apiKey = Buffer.from(apiKeyData.api_key_encrypted, 'base64').toString('utf-8');
   
   // 根据 provider 返回配置
-  const providerConfigs: Record<string, { baseUrl: string }> = {
-    openai: { baseUrl: 'https://api.openai.com/v1' },
-    anthropic: { baseUrl: 'https://api.anthropic.com/v1' },
-    google: { baseUrl: 'https://generativelanguage.googleapis.com/v1beta' },
-    deepseek: { baseUrl: 'https://api.deepseek.com/v1' },
-    doubao: { baseUrl: 'https://ark.cn-beijing.volces.com/api/v3' },
-    kimi: { baseUrl: 'https://api.moonshot.cn/v1' },
-    zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
-    qwen: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
-    baidu: { baseUrl: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop' },
-    spark: { baseUrl: 'https://spark-api-open.xf-yun.com/v1' },
-    minimax: { baseUrl: 'https://api.minimax.chat/v1' },
-    yi: { baseUrl: 'https://api.lingyiwanwu.com/v1' },
-    meta: { baseUrl: 'https://api.together.xyz/v1' },
-    mistral: { baseUrl: 'https://api.mistral.ai/v1' },
-    cohere: { baseUrl: 'https://api.cohere.ai/v1' },
-  };
+  // Provider URLs from config-defaults (single source of truth)
+  const providerConfigs: Record<string, { baseUrl: string }> = Object.fromEntries(
+    Object.entries(DEFAULT_PROVIDER_URLS).map(([k, v]) => [k, { baseUrl: v }])
+  );
 
   const config = providerConfigs[provider];
   if (!config) {

@@ -1,4 +1,3 @@
-import { DEFAULT_PROVIDER_URLS } from '@/lib/config-defaults';
 // @ts-nocheck
 /**
  * Task Scheduler - Agent任务调度引擎
@@ -6,7 +5,7 @@ import { DEFAULT_PROVIDER_URLS } from '@/lib/config-defaults';
  */
 import { ToolLoopAgent, isStepCount, tool, readUIMessageStream, toUIMessageStream } from 'ai';
 import { z } from 'zod';
-import { query, queryOne, run, getSetting, matchWorkflowTemplate, getModelConfig } from '@/lib/db';
+import { query, queryOne, run, getSetting } from '@/lib/db';
 import { logger } from './logger';
 
 // ============ 任务状态 ============
@@ -150,36 +149,6 @@ export async function clearSharedContext() {
   }
 }
 
-
-// ============ Sub-agent Model Resolution ============
-// Creates a separate model instance for sub-agents when preferredModel is configured
-async function resolveSubAgentModel(preferredModel: string | undefined, parentModel: any): Promise<any> {
-  if (!preferredModel) return parentModel;
-  try {
-    const modelConfig = await getModelConfig(preferredModel);
-    if (!modelConfig) {
-      logger.warn(`[TaskScheduler] preferredModel '${preferredModel}' not found in config, using parent model`);
-      return parentModel;
-    }
-    const keyData = await getApiKeyByProvider(modelConfig.provider);
-    if (!keyData?.api_key_encrypted) {
-      logger.warn(`[TaskScheduler] No API key for provider '${modelConfig.provider}', using parent model`);
-      return parentModel;
-    }
-    const { createOpenAICompatible } = await import('@ai-sdk/openai-compatible');
-    const PROVIDER_URLS_MAP: Record<string, string> = DEFAULT_PROVIDER_URLS;;
-    const baseUrl = keyData.base_url || PROVIDER_URLS_MAP[modelConfig.provider] || `https://api.${modelConfig.provider}.com/v1`;
-    const apiKey = Buffer.from(keyData.api_key_encrypted, 'base64').toString('utf-8');
-    const provider = createOpenAICompatible({ name: modelConfig.provider, baseURL: baseUrl, apiKey });
-    const model = provider.languageModel(preferredModel);
-    logger.info(`[TaskScheduler] Sub-agent using preferredModel: ${preferredModel} (provider: ${modelConfig.provider})`);
-    return model;
-  } catch (e: any) {
-    logger.warn(`[TaskScheduler] Failed to resolve preferredModel '${preferredModel}': ${e.message}, using parent model`);
-    return parentModel;
-  }
-}
-
 // ============ 单任务执行器 ============
 async function executeSingleTask(
   task: TaskDefinition,
@@ -217,12 +186,10 @@ async function executeSingleTask(
         return { id: task.id, status: 'failed', error: `无可用工具（需要: ${config.toolNames.join(', ')}）`, duration_ms: Date.now() - startTime, tool_calls_count: 0, retries: attempt };
       }
 
-      // Resolve sub-agent model (use preferredModel if configured, otherwise parent model)
-      const subAgentModel = await resolveSubAgentModel(config.preferredModel, model);
       // P78: 子智能体ToolLoopAgent加P76/P77保护——不再裸创建
       const subAgentMaxSteps = config.maxSteps || 10;
       const subagent = new ToolLoopAgent({
-        model: subAgentModel,
+        model,
         instructions: config.instructions,
         tools: subTools,
         stopWhen: isStepCount(subAgentMaxSteps),
@@ -463,16 +430,6 @@ export function createPlanAndExecuteTool(model: any, baseTools: Record<string, a
       max_concurrency: z.number().optional().describe('并行时最大并发数，默认3'),
     }),
     execute: async function ({ tasks, strategy, max_concurrency }, { abortSignal }) {
-      // P闭环: Git检查点 - plan执行前自动commit作为回滚点
-      try {
-        const { execSync } = await import('child_process');
-        const projectDir = process.env.PRODUCTION_SERVER_DIR || process.env.PROJECT_DIR || '/www/wwwroot/agent.piyiguo.com';
-        const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        execSync(`cd "${projectDir}" && git add -A && git diff --cached --quiet || git commit -m "[agent-checkpoint] auto-save before plan execution ${ts}" 2>/dev/null`, { timeout: 15000, stdio: 'pipe' });
-      } catch (e: any) {
-        // Non-blocking: checkpoint failure doesn't stop execution
-      }
-
       const taskDefs: TaskDefinition[] = tasks.map(t => ({
         id: t.id,
         agent_type: t.agent_type,

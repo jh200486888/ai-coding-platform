@@ -144,25 +144,7 @@ export function getProviders(): Provider[] {
 export const PROVIDERS = getProviders();
 
 // ============ Provider URL 映射（单一数据源） ============
-export const PROVIDER_URLS: Record<string, string> = {
-  openai: 'https://api.openai.com/v1',
-  'openai-image': 'https://api.openai.com/v1',
-  anthropic: 'https://api.anthropic.com/v1',
-  deepseek: 'https://api.deepseek.com/v1',
-  google: 'https://generativelanguage.googleapis.com/v1beta/openai',
-  qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  moonshot: 'https://api.moonshot.cn/v1',
-  kimi: 'https://api.moonshot.cn/v1',
-  zhipu: 'https://open.bigmodel.cn/api/paas/v4',
-  doubao: 'https://ark.cn-beijing.volces.com/api/v3',
-  yi: 'https://api.lingyiwanwu.com/v1',
-  baidu: 'https://qianfan.baidubce.com/v2',
-  spark: 'https://spark-api-open.xf-yun.com/v1',
-  minimax: 'https://api.minimax.chat/v1',
-  meta: 'https://api.together.xyz/v1',
-  mistral: 'https://api.mistral.ai/v1',
-  cohere: 'https://api.cohere.ai/v1',
-  groq: 'https://api.groq.com/openai/v1',
-  agnes: 'https://apihub.agnes-ai.com/v1',
-  'agnes-image': 'https://apihub.agnes-ai.com/v1',
-};
+// Provider URLs now loaded from DB with fallback to config-defaults
+// For sync usage, use the static default; for dynamic, use loadProviderUrls()
+import { DEFAULT_PROVIDER_URLS } from '@/lib/config-defaults';
+export const PROVIDER_URLS: Record<string, string> = DEFAULT_PROVIDER_URLS;

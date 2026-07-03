@@ -18,16 +18,12 @@ export const sshExecuteTool = tool({
 
 使用场景：查看文件、运行命令、检查进程、Git操作等`,
   parameters: z.object({
-    command: z.string().optional().default('').describe('要执行的shell命令。必填，不能为空'),
+    command: z.string().describe('要执行的shell命令'),
     server: z.enum(['production', 'development']).default('production').describe('目标服务器: production=85服务器, development=182服务器'),
     timeout: z.number().default(60).describe('超时秒数，默认60。构建等长任务设300'),
     cwd: z.string().optional().describe('工作目录，默认为项目根目录'),
   }),
   execute: async ({ command, server = 'production', timeout, cwd }: { command: string; server?: string; timeout: number; cwd?: string }) => {
-    // P81: Empty/missing command guard - return friendly error so model retries
-    if (!command || command.trim() === '' || command === 'undefined') {
-      return '❌ 参数错误: command为空。请重新调用ssh_execute并传入具体的shell命令字符串，例如: {"command": "ls -la"}';
-    }
     // Defensive: ensure server is valid
     const effectiveServer = (server === 'production' || server === 'development') ? server : 'production';
     for (const pattern of DANGEROUS_COMMANDS) {
@@ -63,16 +59,12 @@ export const sshReadFileTool = tool({
 
 使用场景：查看配置文件、读取源代码、检查日志等`,
   parameters: z.object({
-    path: z.string().optional().default('').describe('服务器上的文件绝对路径'),
+    path: z.string().describe('服务器上的文件绝对路径'),
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
     startLine: z.number().optional().describe('起始行号(从0开始)，大文件分段读取'),
     endLine: z.number().optional().describe('结束行号，默认读全部'),
   }),
   execute: async ({ path, server = 'production', startLine, endLine }: { path: string; server?: string; startLine?: number; endLine?: number }) => {
-    // P81: Empty path guard
-    if (!path || path.trim() === '' || path === 'undefined') {
-      return '❌ 参数错误: path为空。请重新调用ssh_read_file并传入具体的文件路径，例如: {"path": "/etc/hostname"}';
-    }
     const effectiveServer = (server === 'production' || server === 'development') ? server : 'production';
     try {
       let content = await sshPool.readFile(effectiveServer, path);
@@ -108,19 +100,12 @@ export const sshWriteFileTool = tool({
 
 使用场景：修改源代码、更新配置文件等`,
   parameters: z.object({
-    path: z.string().optional().default('').describe('服务器上的文件绝对路径'),
+    path: z.string().describe('服务器上的文件绝对路径'),
     content: z.string().describe('要写入的完整文件内容'),
     server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
     backup: z.boolean().default(true).describe('是否备份原文件，默认true'),
   }),
   execute: async ({ path, content, server = 'production', backup }: { path: string; content: string; server?: string; backup?: boolean }) => {
-    // P81: Empty parameter guard
-    if (!path || path.trim() === '' || path === 'undefined') {
-      return '❌ 参数错误: path为空。请重新调用ssh_write_file并传入具体的文件路径';
-    }
-    if (!content || content === 'undefined') {
-      return '❌ 参数错误: content为空。请重新调用并传入要写入的文件内容';
-    }
     const effectiveServer = (server === 'production' || server === 'development') ? server : 'production';
     try {
       const result = await sshPool.writeFile(effectiveServer, path, content, backup);
@@ -444,7 +429,7 @@ export const smartSearchTool = tool({
 
 搜索技巧：关键词2-5个，简洁精准。需要深入了解时先搜索再配合readUrl读取全文。`,
   parameters: z.object({
-    query: z.string().optional().default('').describe('搜索关键词，2-5个词最佳'),
+    query: z.string().describe('搜索关键词，2-5个词最佳'),
     search_depth: z.enum(['basic', 'advanced']).default('basic').describe('搜索深度：basic=快速概览，advanced=深度搜索（更慢但更全）'),
     max_results: z.number().default(5).describe('最大结果数，默认5，最多10'),
   }),
@@ -585,10 +570,6 @@ export const readUrlTool = tool({
     extract_mode: z.enum(['full', 'summary']).default('full').describe('提取模式：full=完整内容，summary=仅提取前2000字'),
   }),
   execute: async ({ url, extract_mode = 'full' }: { url: string; extract_mode?: string }) => {
-    // P81: Empty URL guard
-    if (!url || url.trim() === '' || url === 'undefined') {
-      return '❌ 参数错误: url为空。请重新调用web_scrape并传入具体的网页URL';
-    }
     // 1. Try Firecrawl first (if API key configured)
     try {
       const { getApiKeyByProvider } = await import('@/lib/db');
@@ -743,62 +724,6 @@ export const analyzeImageTool = tool({
 });
 
 
-
-// ============ P闭环: 自动化测试工具 ============
-export const runTestsTool = tool({
-  description: `运行项目的自动化测试。支持自动检测测试框架(pytest/jest/vitest/npm test)。
-使用场景：代码修改后验证正确性、构建前检查、部署前回归测试。
-返回测试结果摘要，包含通过/失败数量和失败详情。`,
-  parameters: z.object({
-    test_path: z.string().optional().describe('测试文件/目录路径，留空则自动检测'),
-    framework: z.enum(['auto', 'pytest', 'jest', 'vitest', 'npm']).default('auto').describe('测试框架，默认自动检测'),
-    server: z.enum(['production', 'development']).default('production').describe('目标服务器'),
-    timeout: z.number().default(120).describe('超时秒数，默认120'),
-  }),
-  execute: async ({ test_path, framework, server, timeout }: any) => {
-    try {
-      const { sshPool } = await import('@/lib/ssh-pool');
-      const cwd = process.env[server.toUpperCase() + '_SERVER_DIR'] || '/www/wwwroot/agent.piyiguo.com';
-
-      // Auto-detect framework
-      let testCmd = '';
-      if (framework === 'auto') {
-        const detect = await sshPool.execute(server, `ls package.json pytest.ini vitest.config.* jest.config.* 2>/dev/null`, { cwd });
-        const files = detect.stdout;
-        if (files.includes('pytest.ini') || files.includes('conftest.py')) testCmd = 'python3 -m pytest';
-        else if (files.includes('vitest.config')) testCmd = 'npx vitest run';
-        else if (files.includes('jest.config')) testCmd = 'npx jest --no-coverage';
-        else testCmd = 'npm test -- --passWithNoTests';
-      } else {
-        const cmdMap: Record<string, string> = {
-          pytest: 'python3 -m pytest', jest: 'npx jest --no-coverage',
-          vitest: 'npx vitest run', npm: 'npm test -- --passWithNoTests',
-        };
-        testCmd = cmdMap[framework] || 'npm test';
-      }
-
-      if (test_path) testCmd += ' ' + test_path;
-      testCmd += ' 2>&1';
-
-      const result = await sshPool.execute(server, testCmd, { timeout: timeout * 1000, cwd });
-      const output = result.stdout + (result.stderr ? '\n' + result.stderr : '');
-
-      // Extract summary
-      const lines = output.split('\n');
-      const summaryLines = lines.filter((l: string) =>
-        /pass|fail|error|test(s)?|✓|✗|✘|×|PASS|FAIL/i.test(l)
-      ).slice(-10);
-
-      const passed = result.code === 0;
-      return (passed ? '✅ 测试通过\n' : '❌ 测试失败\n') +
-        '命令: ' + testCmd + '\n' +
-        (summaryLines.length > 0 ? '摘要:\n' + summaryLines.join('\n') : output.slice(-1000));
-    } catch (e: any) {
-      return '❌ 测试执行失败: ' + (e.message || '未知错误');
-    }
-  },
-});
-
 // ==================== 汇总导出 ====================
 export const serverTools = {
   smart_search: smartSearchTool,
@@ -812,5 +737,4 @@ export const serverTools = {
   health_check: healthCheckTool,
   git_commit: gitCommitTool,
   diagnose_error: diagnoseErrorTool,
-  run_tests: runTestsTool,
 };

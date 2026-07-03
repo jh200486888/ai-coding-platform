@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { ToolLoopAgent, isStepCount, pruneMessages, streamText, generateText, toUIMessageStream, wrapLanguageModel, extractReasoningMiddleware, LanguageModelMiddleware, createUIMessageStream, createUIMessageStreamResponse } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig, getSetting, setConversationUserId, getActiveProjectContexts } from '@/lib/db';
+import { createConversation, createMessage, updateConversation, getApiKeyByProvider, getModelConfig, getSetting, setConversationUserId } from '@/lib/db';
 import { getCurrentUser } from '@/lib/auth';
 import { z } from 'zod';
 import { tool } from 'ai';
@@ -26,19 +26,6 @@ import { skillTools, generateSkillsCatalog, initConversationTracking, clearConve
 import { webTools } from '@/lib/web-scraper';
 import { previewTools } from '@/lib/preview-tool';
 import { dbTools, githubTools } from '@/lib/mcp-native-tools';
-
-// === Context Window Management ===
-import { smartTrimMessages } from '@/lib/context-manager';
-// === Auto-verification Tool ===
-import { verifyTool } from '@/lib/verify-tool';
-import { convertMarkdown, readConvertedFile, cleanupConvertedFile } from '@/lib/document-converter';
-// === Rate Limiting ===
-import { checkRateLimit } from '@/lib/rate-limiter';
-// === Audit Logger ===
-import { auditLog, isDestructiveAction } from '@/lib/audit-logger';
-// === Sub-agent Messaging ===
-import { sendToSubAgent, getSubAgentResponses } from '@/lib/task-scheduler';
-
 // ============ 日志中间件（AI SDK 原生 Middleware） ============
 const loggingMiddleware: LanguageModelMiddleware = {
   wrapGenerate: async ({ doGenerate, params, model }) => {
@@ -111,45 +98,6 @@ function sanitizeMessages(messages: any[]): any[] {
 // ============ 工具执行函数 ============
 const PROJECT_DIR = process.env.PROJECT_DIR || '/www/wwwroot/agent.piyiguo.com';
 
-// ============ Security Functions ============
-function validateFilePath(filePath: string): string {
-  const resolved = require('path').resolve(PROJECT_DIR, filePath);
-  if (!resolved.startsWith(PROJECT_DIR)) {
-    throw new Error('Path traversal blocked: ' + filePath);
-  }
-  return resolved;
-}
-
-const _DEFAULT_DANGEROUS_PATTERNS = [
-  /\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)*\/(etc|usr|bin|sbin|lib|boot|dev|proc|sys)\b/,
-  /\bdd\b.*\bof=\/dev\//, /\bmkfs\b/, /\bformat\b/,
-  /\bchmod\s+777\b/,
-  /\bcurl\b.*\|\s*(bash|sh|zsh)\b/, /\bwget\b.*\|\s*(bash|sh|zsh)\b/,
-  /\bshutdown\b/, /\breboot\b/, /\binit\s+[0-6]\b/,
-  /\biptables\s+-F\b/, /\biptables\s+-X\b/,
-  /\b:(){ :\|:& };:/,
-  /\b>\/dev\/sda\b/, /\b>\/dev\/nvme/,
-  /\bpasswd\b/, /\buseradd\b/, /\buserdel\b/,
-  /\bsystemctl\s+(stop|disable|mask)\b/,
-  /\bkill\s+-9\s+1\b/,
-  /\bnc\b.*\s+-[a-zA-Z]*[lep]/, /\bncat\b.*\s+-[a-zA-Z]*[lep]/,
-  /\bsocat\b.*\bEXEC\b/,
-]
-// Load dangerous patterns from DB, fallback to defaults
-let DANGEROUS_CMD_PATTERNS = _DEFAULT_DANGEROUS_PATTERNS;
-try { const secRaw = await getSetting('security_config'); if (secRaw) { const sec = JSON.parse(secRaw); if (sec.patterns && Array.isArray(sec.patterns)) DANGEROUS_CMD_PATTERNS = sec.patterns.map((p: string) => new RegExp(p)); } } catch {};
-
-function checkDangerousCommand(command: string): { blocked: boolean; reason?: string } {
-  const cmd = command.trim();
-  for (const pattern of DANGEROUS_CMD_PATTERNS) {
-    if (pattern.test(cmd)) {
-      return { blocked: true, reason: 'Dangerous command pattern: ' + pattern.source.substring(0, 60) };
-    }
-  }
-  return { blocked: false };
-}
-
-
 async function execCreateFile(path: string, content: string): Promise<string> {
   const fs = await import('fs/promises');
   const filePath = `${PROJECT_DIR}/${path}`;
@@ -202,10 +150,6 @@ async function execReadFile(path: string, offset?: number, limit?: number): Prom
 }
 
 async function execRunCommand(command: string): Promise<string> {
-  const dangerCheck = checkDangerousCommand(command);
-  if (dangerCheck.blocked) {
-    return 'BLOCKED: ' + dangerCheck.reason + '. Command blocked by security policy.';
-  }
   const { execSync } = await import('child_process');
   try {
     const result = execSync(command, {
@@ -477,7 +421,6 @@ try {
 // ============ Provider URL 映射（从 models.ts 统一导入） ============
 import { PROVIDER_URLS } from '@/lib/models';
 import { logger } from '@/lib/logger';
-import { DEFAULT_MODE_TOOLS, DEFAULT_MODEL_IDENTITY, DEFAULT_TOOL_NAME_ZH, DEFAULT_PROVIDER_MAX_TOKENS, DEFAULT_RUNTIME_CONFIG, DEFAULT_TOOL_SAFETY_TIERS, DEFAULT_SSH_SAFE_COMMANDS, loadToolSafetyTiers, loadSshSafeCommands } from '@/lib/config-defaults';
 
 // ============ 系统提示词 ============
 // ============ 系统提示词（DB读取为主，此处仅作极简fallback） ============
@@ -492,9 +435,13 @@ const MODE_PROMPTS: Record<string, string> = {
   chat: '',
 };
 
-// MODE_TOOLS: loaded from DB at runtime, fallback to defaults
-    const modeToolsRaw = await (async () => { try { const r = await getSetting('mode_tool_whitelist'); return r ? JSON.parse(r) : null; } catch { return null; } })();
-    const MODE_TOOLS: Record<string, string[]> = modeToolsRaw || DEFAULT_MODE_TOOLS;;
+const MODE_TOOLS: Record<string, string[]> = {
+  coding: ['createFile', 'editFile', 'deleteFile', 'readFile', 'runCommand', 'deploy', 'searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_click', 'browser_fill', 'browser_extract', 'browser_screenshot', 'browser_execute_js', 'save_cross_memory', 'search_cross_memory', 'list_cross_memories', 'delete_cross_memory', 'reflect_and_improve', 'memory_maintenance'],
+  writing: ['searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_click', 'browser_fill', 'browser_extract', 'browser_screenshot', 'browser_execute_js', 'save_cross_memory', 'search_cross_memory', 'list_cross_memories', 'delete_cross_memory'],
+  analysis: ['searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_extract', 'browser_screenshot', 'save_cross_memory', 'search_cross_memory', 'save_cross_memory', 'search_cross_memory'],
+  design: ['smart_search', 'read_url', 'analyze_image', 'saveMemory'],
+  chat: ['searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_click', 'browser_fill', 'browser_extract', 'browser_screenshot', 'browser_execute_js', 'reflect_and_improve', 'memory_maintenance'],
+};
 
 const TOOL_NAME_ZH_CHAT: Record<string, string> = {
   createFile: '创建文件',
@@ -545,20 +492,24 @@ const TOOL_NAME_ZH_CHAT: Record<string, string> = {
 };
 
 // 模型身份映射
-// MODEL_IDENTITY: loaded from DB, fallback to defaults
-    const MODEL_IDENTITY: Record<string, string> = await (async () => { try { const r = await getSetting('model_identity'); return r ? { ...DEFAULT_MODEL_IDENTITY, ...JSON.parse(r) } : DEFAULT_MODEL_IDENTITY; } catch { return DEFAULT_MODEL_IDENTITY; } })();;
+const MODEL_IDENTITY: Record<string, string> = {
+  deepseek: 'DeepSeek 深度求索',
+  zhipu: '智谱AI (GLM)',
+  qwen: '通义千问 (Qwen)',
+  openai: 'OpenAI (GPT)',
+  'openai-image': 'OpenAI (GPT Image)',
+  anthropic: 'Anthropic (Claude)',
+  google: 'Google (Gemini)',
+  moonshot: 'Kimi 月之暗面',
+  doubao: '豆包 (Doubao)',
+  groq: 'Groq (Llama)',
+  banana: 'Banana',
+  agnes: 'Agnes AI',
+  'agnes-image': 'Agnes Image',
+};
 
 export async function POST(request: NextRequest) {
   try {
-    // === Rate Limiting ===
-    let _rlUserId = 'anonymous';
-    try { const _u = await getCurrentUser(); if (_u) _rlUserId = _u.id || _u.email || 'anonymous'; } catch {}
-    if (!_rlUserId || _rlUserId === 'anonymous') { _rlUserId = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'anonymous'; }
-    const _rlResult = await checkRateLimit(_rlUserId);
-    if (!_rlResult.allowed) {
-      return new Response(JSON.stringify({ error: '请求过于频繁，请稍后再试', retryAfter: _rlResult.retryAfter }), { status: 429, headers: { 'Retry-After': String(_rlResult.retryAfter), 'Content-Type': 'application/json' } });
-    }
-
     const body = await request.json();
     const { conversation_id, model_id: rawModelId, modelId: rawModelId2, mode: rawMode, enable_search, attachments: bodyAttachments, messages: rawMessages } = body as {
       conversation_id?: string;
@@ -711,9 +662,7 @@ export async function POST(request: NextRequest) {
     }
 
     // ====== 从 settings 读取可配置参数 ======
-    // Runtime config from DB (fallback to defaults)
-    const _rtConfig = await (async () => { try { const r = await getSetting('advanced_config'); return r ? { ...DEFAULT_RUNTIME_CONFIG, ...JSON.parse(r) } : DEFAULT_RUNTIME_CONFIG; } catch { return DEFAULT_RUNTIME_CONFIG; } })();
-    let maxSteps = _rtConfig.max_steps;
+    let maxSteps = 30;
     let temperature: number | undefined = undefined;
 
     try {
@@ -744,16 +693,16 @@ export async function POST(request: NextRequest) {
     }
 
     // ====== 读取超时、重试和模型生成参数 ======
-    let timeoutTotalMs = _rtConfig.timeout_total_ms;
-    let timeoutStepMs = _rtConfig.timeout_step_ms;
-    let maxRetries = _rtConfig.max_retries;
+    let timeoutTotalMs = 120000;  // 默认 2 分钟总超时
+    let timeoutStepMs = 60000;    // 默认 60 秒单步超时
+    let maxRetries = 3;
     let topP: number | undefined = undefined;
     let presencePenalty: number | undefined = undefined;
     let frequencyPenalty: number | undefined = undefined;
     let seed: number | undefined = undefined;
     // Per-provider maxOutputTokens limits (some models reject values above their max)
     // Provider max tokens从DB读取
-    // DEFAULT_PROVIDER_MAX_TOKENS imported from config-defaults;
+    const DEFAULT_PROVIDER_MAX_TOKENS: Record<string, number> = { deepseek: 16384, groq: 8192, moonshot: 8192, zhipu: 8192, qwen: 8192, openai: 16384, anthropic: 16384, google: 8192, doubao: 8192, agnes: 16384, 'agnes-image': 4096 };
     let PROVIDER_MAX_TOKENS = DEFAULT_PROVIDER_MAX_TOKENS;
     try { const pmt = await getSetting('provider_max_tokens'); if (pmt) PROVIDER_MAX_TOKENS = JSON.parse(pmt); } catch {}
     let maxOutputTokens = modelConfig.default_max_tokens || PROVIDER_MAX_TOKENS[modelConfig.provider] || 16384;
@@ -854,22 +803,6 @@ export async function POST(request: NextRequest) {
     } catch (e: any) {
       logger.info("[RAG] Knowledge search failed:", e?.message);
     }
-        // P0: 注入项目上下文配置
-    let projectContextSection = '';
-    try {
-      const projectContexts = await getActiveProjectContexts('default');
-      if (projectContexts.length > 0) {
-        const contextChunks = projectContexts.map((ctx: any) => {
-          const typeLabel: Record<string, string> = { system_prompt: '系统指令', coding_rules: '编码规范', project_info: '项目信息', user_preferences: '用户偏好', tech_stack: '技术栈' };
-          const label = typeLabel[ctx.context_type] || ctx.context_type;
-          return `【${label}】${ctx.title ? ctx.title + '：' : ''}\n${ctx.content}`;
-        });
-        projectContextSection = '\n\n以下是该项目的上下文信息，请在回答时参考：\n' + contextChunks.join('\n\n');
-      }
-    } catch (e: any) {
-      // Graceful fallback
-    }
-
         // 获取对话级状态上下文（跨对话恢复）
     let stateContext = '';
     try {
@@ -877,7 +810,7 @@ export async function POST(request: NextRequest) {
         stateContext = await getStateContext(convId);
       }
     } catch {}
-    const dynamicPrompt = modePrompt + memorySection + ragSection + projectContextSection + stateContext + `\n\n你是 ${identityName} 的 ${model_id}。`;
+    const dynamicPrompt = modePrompt + memorySection + ragSection + stateContext + `\n\n你是 ${identityName} 的 ${model_id}。`;
 
     // P54: 斜杠命令激活子智能体/技能
     let slashActivation = '';
@@ -1073,30 +1006,6 @@ export async function POST(request: NextRequest) {
     // 合并工具：基础工具 + 增强工具 + MCP工具
     const baseToolNames = MODE_TOOLS[mode] || [];
     setSchedulerSessionId(convId || Date.now().toString());
-    
-    // P2: Document conversion tool
-    const convertDocumentTool = {
-      convert_document: tool({
-        description: '将Markdown内容转换为PDF或DOCX文档。用于生成可下载的报告、方案文档等。',
-        parameters: z.object({
-          content: z.string().describe('Markdown格式的内容'),
-          format: z.enum(['pdf', 'docx']).describe('输出格式: pdf 或 docx'),
-          title: z.string().optional().describe('文档标题（用于文件名）'),
-        }),
-        execute: async ({ content, format, title }: any) => {
-          try {
-            const { filePath, fileName } = convertMarkdown(content, format, title);
-            const fileBuffer = readConvertedFile(filePath);
-            const base64 = fileBuffer.toString('base64');
-            cleanupConvertedFile(filePath);
-            return { success: true, fileName, format, size: fileBuffer.length, base64Data: base64 };
-          } catch (e: any) {
-            return { success: false, error: e.message };
-          }
-        },
-      }),
-    };
-
     const activeTools: Record<string, any> = {};
     for (const name of baseToolNames) {
       if (tools[name as keyof typeof tools]) activeTools[name] = tools[name as keyof typeof tools];
@@ -1119,9 +1028,7 @@ export async function POST(request: NextRequest) {
     }
 
     // === 自主智能：SSH服务器工具 + 技能工具（必须在子智能体工具之前注册） ===
-    Object.assign(activeTools, serverTools, dynamicTools, browserTools, crossMemoryTools, skillTools, webTools, previewTools, dbTools, githubTools, convertDocumentTool);
-    // Auto-verification tool
-    Object.assign(activeTools, verifyTool);
+    Object.assign(activeTools, serverTools, dynamicTools, browserTools, crossMemoryTools, skillTools, webTools, previewTools, dbTools, githubTools);
 
     // 子智能体工具（AI SDK 原生 ToolLoopAgent）- 委派任务给专门的子智能体
     if (baseToolNames.includes('delegate_task')) {
@@ -1146,29 +1053,6 @@ export async function POST(request: NextRequest) {
       activeTools.generate_document = createGenerateDocumentTool();
     }
 
-    // === Sub-agent Messaging Tool ===
-    activeTools.send_message_to_subagent = tool({
-      description: '向已完成的子代理任务发送后续消息并获取回复。当子代理返回结果后你需要追问或补充信息时使用。',
-      inputSchema: z.object({
-        task_id: z.string().describe('子代理任务ID（从 delegate_task 或 plan_and_execute 返回中获取）'),
-        message: z.string().describe('要发送的后续消息'),
-      }),
-      execute: async ({ task_id, message }) => {
-        try {
-          const sessionId = convId || 'default';
-          await sendToSubAgent(sessionId, task_id, message);
-          // Re-trigger the sub-agent to process the message
-          const responses = await getSubAgentResponses(sessionId, task_id);
-          if (responses.length > 0) {
-            return 'Sub-agent response: ' + responses.join('\n');
-          }
-          return 'Message sent to sub-agent. Response will be available after re-processing.';
-        } catch (e: any) {
-          return 'Failed: ' + e.message;
-        }
-      },
-    });
-    
     // === 定时任务工具 ===
     if (baseToolNames.includes('schedule_task')) {
       activeTools.schedule_task = tool({
@@ -1311,13 +1195,18 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
     // Shared writer reference for real-time tool call progress
     let currentStreamWriter: any = null;
     // Tool name map for Chinese display
-    const toolNameCn: Record<string, string> = await (async () => { try { const r = await getSetting('tool_name_zh'); return r ? { ...DEFAULT_TOOL_NAME_ZH, ...JSON.parse(r) } : DEFAULT_TOOL_NAME_ZH; } catch { return DEFAULT_TOOL_NAME_ZH; } })();;
-    // P1: Load tool safety tiers from DB
-    const safetyTiers = await loadToolSafetyTiers(getSetting);
-    const sshSafeCommands = await loadSshSafeCommands(getSetting);
-    // Build auto-approve set from tiers
-    const safeToolsSet = new Set(Object.entries(safetyTiers).filter(([, v]) => v.tier === 'safe').map(([k]) => k));
-    const guardedToolsSet = new Set(Object.entries(safetyTiers).filter(([, v]) => v.tier === 'guarded').map(([k]) => k));
+    const toolNameCn: Record<string, string> = {
+      searchWeb: '联网搜索', smart_search: '智能搜索', read_url: '读取网页',
+      createFile: '创建文件', editFile: '修改文件', readFile: '读取文件',
+      deleteFile: '删除文件', runCommand: '执行命令', deploy: '部署',
+      delegate_task: '委派子智能体', analyze_image: '图片分析',
+      saveMemory: '保存记忆', searchMemory: '搜索记忆',
+      save_cross_memory: '保存跨轮记忆', search_cross_memory: '搜索跨轮记忆',
+      generate_chart: '生成图表', generate_ppt: '生成PPT', generate_document: '生成文档',
+      think_and_plan: '思考规划', execute_code: '执行代码',
+      browser_navigate: '浏览器导航', browser_screenshot: '浏览器截图',
+      create_dynamic_tool: "创建动态工具", call_dynamic_tool: "调用动态工具", health_check: "健康检查", ssh_execute: "执行命令", ssh_read_file: "读取文件", ssh_write_file: "写入文件", build_project: "构建项目", deploy_service: "部署服务", git_commit: "提交代码", web_scrape: "网页抓取", web_search: "网页搜索", diagnose_error: "错误诊断", read_skill_file: "读取技能", get_available_skills: "可用技能", activate_skill: "激活技能", reflect_and_improve: "反思改进",
+    };
     const agentConfig: any = {
       model: wrappedModel,
       instructions: dynamicPrompt + (await generateSkillsCatalog() ? "\n\n" + await generateSkillsCatalog() : ""),
@@ -1327,22 +1216,19 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
         // SSH execute: dangerous commands need approval, safe reads auto-approve
         ssh_execute: async (input: any) => {
           const cmd = String(input.command || '').trim();
-          if (!cmd || cmd === 'undefined') return 'approved';
-          // P1: Use DB-configurable safe commands list
-          const safePattern = '(' + sshSafeCommands.map(c => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')';
-          const isAutoApproved = new RegExp('^(' + safePattern + ')').test(cmd) ||
-                                 new RegExp('^cd .+ && (' + safePattern + ')').test(cmd) ||
-                                 new RegExp('^cd .+; (' + safePattern + ')').test(cmd);
-          logger.info('[TOOL-APPROVAL] ssh_execute cmd=' + cmd.substring(0,100) + ' autoApproved=' + isAutoApproved);
-          return isAutoApproved ? 'approved' : 'user-approval';
+          // Auto-approve safe read-only commands
+          if (/^(ls|cat|head|tail|find|grep|pwd|whoami|echo|stat|df|du|free|uptime|ps|netstat|curl|wget|git status|git log|git diff|git branch|node -v|npm -v|pnpm -v|which|type|file|wc)/.test(cmd)) {
+            return 'approved';
+          }
+          return 'user-approval';
         },
-        // P1: Guarded tier tools — user approval required (managed via tool_safety_tiers in admin)
-        ssh_write_file: guardedToolsSet.has('ssh_write_file') ? 'user-approval' : 'approved',
-        build_project: guardedToolsSet.has('build_project') ? 'user-approval' : 'approved',
-        deploy_service: guardedToolsSet.has('deploy_service') ? 'user-approval' : 'approved',
-        git_commit: guardedToolsSet.has('git_commit') ? 'user-approval' : 'approved',
-        // P1: Safe tier tools — auto-approve (managed via tool_safety_tiers in admin)
-        ssh_read_file: safeToolsSet.has('ssh_read_file') ? 'approved' : 'user-approval',
+        // Write operations always need approval
+        ssh_write_file: 'user-approval',
+        build_project: 'user-approval',
+        deploy_service: 'user-approval',
+        git_commit: 'user-approval',
+        // Read-only operations auto-approve
+        ssh_read_file: 'approved',
         health_check: 'approved',
         get_available_skills: 'approved',
                 activate_skill: 'approved',
@@ -1383,38 +1269,9 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
       stopWhen: isStepCount(Math.max(maxSteps, 15)),
       // prepareStep: 摘要式上下文压缩 - 保留关键信息，避免粗暴删减导致质量衰减
       prepareStep: async ({ messages, stepNumber }: any) => {
-        // P闭环: 强制验证 - 构建/部署失败后阻止Agent跳过
-        if (messages.length > 0 && stepNumber > 1) {
-          try {
-            const lastAssistant = [...messages].reverse().find((m: any) => m.role === 'assistant');
-            if (lastAssistant) {
-              const parts = lastAssistant.parts || lastAssistant.content || [];
-              const toolResults = Array.isArray(parts) ? parts.filter((p: any) => p.type === 'tool-invocation' || p.type?.startsWith('tool-')) : [];
-              for (const tr of toolResults) {
-                const tName = tr.toolName || tr.name || '';
-                const tState = tr.state || '';
-                const tOutput = String(tr.output || tr.result || '');
-                if (['build_project', 'deploy_service'].includes(tName) && (tState.includes('error') || tOutput.includes('失败') || tOutput.includes('error') || tOutput.includes('Error'))) {
-                  // Force the agent to address the failure before proceeding
-                  messages.push({ role: 'user', content: `[系统强制验证] ${tName} 执行失败。你必须先分析错误原因并修复后重试，不允许跳过此错误继续其他任务。请：1) 分析失败原因 2) 修复问题 3) 重新执行${tName}` });
-                  break;
-                }
-              }
-            }
-          } catch {}
-        }
-
 
         // 第1层：工具输出过长自动截断（阈值从DB读取）
         const advCfgForCompress = await (async () => { try { const s = await getSetting('advanced_config'); return s ? JSON.parse(s) : {}; } catch { return {}; } })();
-        // === Smart Context Window Management ===
-        const _modelForBudget = model || wrappedModel;
-        const _ctxResult = await smartTrimMessages(messages, _modelForBudget);
-        if (_ctxResult.wasTrimmed) {
-          messages.length = 0;
-          messages.push(..._ctxResult.messages);
-        }
-        
         const MAX_TOOL_OUTPUT_CHARS = advCfgForCompress.max_tool_output_chars || 8000;
         const COMPRESS_THRESHOLD = advCfgForCompress.context_compress_threshold || 80000;
         const COMPRESS_RATIO = advCfgForCompress.context_compress_ratio || 0.5;
@@ -1582,11 +1439,11 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
           };
         }
         // P73: Narration detection - if model narrated without tool calls, inject stronger hint
-        if (stepNumber >= 1) {
+        if (stepNumber >= 2) {
           const lastAsstMsg = [...messages].reverse().find((m: any) => m.role === "assistant");
           if (lastAsstMsg) {
             const asstText = typeof lastAsstMsg.content === "string" ? lastAsstMsg.content : "";
-            const narratePatterns = ["让我", "我先", "我准备", "我来", "好，让我", "我来分析", "我来查看", "我来搜索", "我来收集", "我来读", "我来看", "首先让我", "先看一下", "先看看", "先来看看", "我来检查", "我来帮你"];
+            const narratePatterns = ["让我", "我先", "我准备", "我来", "好，让我", "我来分析", "我来查看", "我来搜索", "我来收集", "我来读", "我来看", "首先让我", "先看一下"];
             const hasNarration = narratePatterns.some(p => asstText.includes(p));
             const hasToolCall = asstText.includes("tool_call_id") || messages.some((m: any) => m.role === "tool" && messages.indexOf(m) > messages.indexOf(lastAsstMsg));
             if (hasNarration && !hasToolCall && asstText.length < 300) {
@@ -1646,42 +1503,6 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
         }
         
         // 记录工具调用到Agent状态
-        
-        // === Audit Logging for destructive operations ===
-        const destructiveTools = ['deleteFile', 'runCommand', 'ssh_execute', 'ssh_write_file', 'deploy', 'deploy_service', 'build_project'];
-        if (destructiveTools.includes(toolCall.toolName)) {
-          const inputArgs = JSON.stringify((toolCall as any).args || (toolCall as any).input || {})?.slice(0, 500) || '';
-          auditLog({
-            conversation_id: convId,
-            user_id: typeof userId !== 'undefined' ? userId : undefined,
-            action: (toolCall.toolName === 'ssh_execute' || toolCall.toolName === 'runCommand') ? 'command_exec' :
-                    toolCall.toolName === 'ssh_write_file' ? 'ssh_write' :
-                    toolCall.toolName === 'deleteFile' ? 'file_delete' :
-                    toolCall.toolName === 'deploy' || toolCall.toolName === 'deploy_service' ? 'deploy' :
-                    toolCall.toolName === 'build_project' ? 'build' : 'command_exec',
-            target: toolCall.toolName,
-            detail: inputArgs,
-            model_id: typeof model_id !== 'undefined' ? model_id : undefined,
-            success: isSuccess,
-            duration_ms: toolExecutionMs,
-          }).catch(() => {});
-        }
-
-        // P闭环: 产出物自动IM投递
-        if (isSuccess && ['generate_document', 'generate_ppt', 'convert_document'].includes(toolCall.toolName)) {
-          try {
-            const { sendAlert } = await import('@/lib/notification');
-            const inputArgs = (toolCall as any).args || (toolCall as any).input || {};
-            const title = inputArgs.title || inputArgs.name || '文档';
-            await sendAlert({
-              title: 'AI编程平台 - 文档已生成',
-              content: `${toolNameCn[toolCall.toolName] || toolCall.toolName} 已完成: ${title}`,
-              level: 'info',
-              timestamp: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
-            });
-          } catch {}
-        }
-
         if (convId) {
           try {
             const inputStr = JSON.stringify((toolCall as any).args || (toolCall as any).input)?.slice(0, 200) || '';
@@ -1856,26 +1677,31 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
       }
 
 
-        // P80: Use writer.merge to stream ALL content (text + tool calls + approvals)
-        // This fixes the root cause: when model calls a tool that needs approval,
-        // textStream is empty but the tool-call info must reach the frontend for approval cards
+        // P70c: Stream text with typewriter effect using textStream
+        // Collect full text while streaming chunks to UI for typewriter effect
         let text = '';
+        const resultStreamId = 'result-' + Date.now();
         let hasStartedResultStream = false;
         try {
-          // Merge the full UI message stream - includes text, tool calls, approval requests, reasoning
-          writer.merge(agentResult.toUIMessageStream());
-          // Wait for the stream to complete so we can read text and steps for post-processing
-          text = await agentResult.text || '';
-          hasStartedResultStream = text.length > 0;
+          for await (const chunk of agentResult.textStream) {
+            text += chunk;
+            if (!hasStartedResultStream) {
+              // P72: Removed - no tool-progress section to close
+              writer.write({ type: 'text-start', id: resultStreamId });
+              hasStartedResultStream = true;
+            }
+            writer.write({ type: 'text-delta', id: resultStreamId, delta: chunk });
+          }
           if (hasStartedResultStream) {
-            logger.info('[P80] Streamed via merge: ' + text.length + ' chars');
-          } else {
-            logger.info('[P80] Merged stream completed with no text (likely tool-call/approval)');
+            writer.write({ type: 'text-end', id: resultStreamId });
           }
         } catch (e: any) {
-          logger.warn('[AI] merge stream error: ' + (e?.message || String(e)));
-          try { text = await agentResult.text || ''; } catch {}
-          hasStartedResultStream = text.length > 0;
+          logger.warn('[AI] textStream error: ' + (e?.message || String(e)));
+          text = await agentResult.text || '';
+        }
+        if (!hasStartedResultStream) {
+          // Fallback: no text was streamed (e.g. tool-only response)
+          // Don't end tool-progress yet, will be handled below
         }
         // Capture reasoning from the stream result
         let capturedReasoning = '';
@@ -1891,65 +1717,6 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
         if (isDSMLText) {
           logger.info('[AI] Detected DSML markup in text, treating as no-text:', text.slice(0, 200));
           text = '';
-        }
-
-        // P79: 空转检测 — 编程模式下模型只输出叙述不调工具，强制二次调用 toolChoice=required
-        const p79_isCodingMode = mode === 'coding';
-        const p79_narratePatterns = ["让我", "我先", "我准备", "我来", "好，让我", "我来分析", "我来查看", "我来搜索", "我来收集", "我来读", "我来看", "首先让我", "先看一下", "先看看", "先来看看", "我来检查", "我来帮你"];
-        const p79_hasNarration = text && p79_narratePatterns.some(p => text.includes(p));
-        let p79_stepsPeek: any[] = [];
-        try { p79_stepsPeek = await agentResult.steps; } catch {}
-        const p79_hasAnyToolCall = p79_stepsPeek.some((s: any) => s.toolCalls && s.toolCalls.length > 0);
-        if (p79_isCodingMode && p79_hasNarration && !p79_hasAnyToolCall && text.length < 300) {
-          logger.info('[P79] Idle narration detected (no tool call in coding mode): ' + text.substring(0, 100));
-          try {
-            const p79_forceResult = await generateText({
-              model: wrappedModel,
-              system: dynamicPrompt + '\n\n⚠️ 紧急：你刚才说了要做但没做。现在必须立刻调用工具执行！禁止输出任何文字，直接调工具！',
-              messages: [
-                ...chatMessages,
-                { role: 'assistant' as const, content: text },
-                { role: 'user' as const, content: '继续执行！你说要做就立刻做，不要再说任何话，直接调用工具执行！' },
-              ] as any,
-              tools: activeTools,
-              maxSteps: 5,
-              maxOutputTokens: 4096,
-              toolChoice: 'required',
-            });
-            let p79_forceText = p79_forceResult.text || '';
-            const p79_forceSteps = await p79_forceResult.steps;
-            const p79_forceToolResults: string[] = [];
-            for (const s of p79_forceSteps) {
-              for (const tc of s.toolCalls || []) {
-                const tr = s.toolResults?.find((r: any) => r.toolCallId === tc.toolCallId);
-                if (tr) {
-                  const out = typeof tr.output === 'string' ? tr.output : JSON.stringify(tr.output);
-                  p79_forceToolResults.push('[' + tc.toolName + '] ' + out.slice(0, 500));
-                }
-              }
-            }
-            if (!p79_forceText && p79_forceToolResults.length > 0) {
-              try {
-                const p79_summaryResult = await generateText({
-                  model: wrappedModel,
-                  system: dynamicPrompt,
-                  prompt: '你刚刚执行了以下工具操作，请简洁总结结果给用户：\n' + p79_forceToolResults.join('\n'),
-                  maxOutputTokens: 2048,
-                });
-                p79_forceText = p79_summaryResult.text || '';
-              } catch {}
-            }
-            if (p79_forceText && p79_forceText.length > 5) {
-              text = p79_forceText;
-              const p79_forceId = 'force-' + Date.now();
-              writer.write({ type: 'text-start', id: p79_forceId });
-              writer.write({ type: 'text-delta', id: p79_forceId, delta: p79_forceText });
-              writer.write({ type: 'text-end', id: p79_forceId });
-              logger.info('[P79] Force execution succeeded: ' + p79_forceText.length + ' chars, tools: ' + p79_forceToolResults.length);
-            }
-          } catch (p79_err: any) {
-            logger.warn('[P79] Force execution failed: ' + (p79_err?.message || String(p79_err)));
-          }
         }
 
         // Extract tool results from steps (single traversal)
@@ -2056,47 +1823,24 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
               
               try {
                 console.log('[P76] Tool-only response, forcing follow-up for ' + reportToolResults.length + ' tool results');
-                // P76 fix: AI SDK v7 forbids prompt+messages together, use messages only
-                const followupMessages = [...chatMessages.slice(-8), { role: 'user' as const, content: '请基于刚才的工具执行结果，用自然语言总结：\n1. 你做了什么\n2. 结果如何\n3. 有什么发现或建议\n\n工具执行结果：\n' + toolResultContext + '\n\n请直接回复，不要重复工具原始输出，要有人类可读的解释和分析。' }];
+                const followupMessages = chatMessages.slice(-8);
                 const followupResult = await generateText({
                   model: wrappedModel,
                   system: finalDynamicPrompt,
                   messages: followupMessages as any,
+                  prompt: '你刚刚执行了以下工具操作并获得了结果。请基于这些结果，用自然语言向用户总结：\n1. 你做了什么\n2. 结果如何\n3. 有什么发现或建议\n\n工具执行结果：\n' + toolResultContext + '\n\n请直接回复用户，不要重复工具原始输出，要有人类可读的解释和分析。',
                   maxOutputTokens: 2048,
                   temperature: 0.7,
                 });
+                
                 const followupText = followupResult.text || '';
                 if (followupText.length > 20) {
                   const followupId = 'followup-' + Date.now();
                   writer.write({ type: 'text-start', id: followupId });
                   writer.write({ type: 'text-delta', id: followupId, delta: followupText });
                   writer.write({ type: 'text-end', id: followupId });
-                  // P81b: Check if follow-up text is a structured report -> add REPORT_CARD
-                  let p81b_savedContent = '';
-                  if (followupText.length >= 1500) {
-                    const headerCount = (followupText.match(/^#{1,3} \S/gm) || []).length;
-                    if (headerCount >= 3) {
-                      const reportTitle = (followupText.match(/^# (.+)$/m)?.[1] || followupText.match(/^## (.+)$/m)?.[1] || '\u5206\u6790\u62a5\u544a').slice(0, 50);
-                      const reportId = 'report_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-                      try {
-                        const { run: runArtifact } = await import('@/lib/db');
-                        await runArtifact('INSERT INTO generated_artifacts (id, type, title, content, created_at) VALUES ($1, $2, $3, $4, NOW())', [reportId, 'markdown', reportTitle, followupText]);
-                      } catch (e: any) {
-                        console.log('[P81b] Failed to save report artifact: ' + (e?.message || String(e)));
-                      }
-                      const cardContent = '<!--REPORT_CARD\n' + reportTitle + '\n' + reportId + '\n-->\u70b9\u51fb\u67e5\u770b\u5b8c\u6574\u62a5\u544a';
-                      const cardId = 'report-card-' + Date.now();
-                      writer.write({ type: 'text-start', id: cardId });
-                      writer.write({ type: 'text-delta', id: cardId, delta: '\n\n' + cardContent });
-                      writer.write({ type: 'text-end', id: cardId });
-                      p81b_savedContent = followupText + '\n\n' + cardContent + '\n<!--EXEC_LOG\n' + execLog + '\n-->';
-                      console.log('[P81b] Report card created in follow-up: ' + reportId + ' (' + followupText.length + ' chars)');
-                    }
-                  }
-                  if (!p81b_savedContent) {
-                    p81b_savedContent = followupText + '\n<!--EXEC_LOG\n' + execLog + '\n-->';
-                  }
-                  await createMessage(convId!, 'assistant', p81b_savedContent, model_id, capturedReasoning || null);
+                  const savedContent = followupText + '\n<!--EXEC_LOG\n' + execLog + '\n-->';
+                  await createMessage(convId!, 'assistant', savedContent, model_id, capturedReasoning || null);
                   console.log('[P76] Follow-up response: ' + followupText.length + ' chars');
                   text = followupText;
                 } else {

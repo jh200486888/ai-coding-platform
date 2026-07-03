@@ -2,7 +2,7 @@
 import { toast } from 'sonner';
 
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette, Activity, Plug, Brain, BookOpen, LayoutDashboard, ChevronDown, ChevronRight, Clock, Database, CheckCircle2, XCircle, Cpu, BarChart3, Shield, Paintbrush, Heart, Users, Zap, Edit2, X} from 'lucide-react';
+import { ArrowLeft, Key, Settings, MessageSquare, Plus, Trash2, Save, RefreshCw, Upload, Folder, File, Eye, Lock, Palette, Activity, Plug, Brain, BookOpen, LayoutDashboard, ChevronDown, ChevronRight, Clock, Database, CheckCircle2, XCircle, Cpu, BarChart3, Shield, Paintbrush, Heart, Users, Zap, Edit2, X, FileText, Play} from 'lucide-react';
 import { ImageGenPanel } from "@/components/admin/ImageGenPanel";
 import { TelemetryPanel } from "@/components/admin/TelemetryPanel";
 import { McpServersPanel } from "@/components/admin/McpServersPanel";
@@ -12,15 +12,21 @@ import { ScheduledTasksPanel } from "@/components/admin/ScheduledTasksPanel";
 import { PatrolPanel } from '@/components/admin/PatrolPanel';
 import { HeartbeatPanel } from '@/components/admin/HeartbeatPanel';
 import { DesignConfigPanel } from '@/components/admin/DesignConfigPanel';
+import { AuditLogsPanel } from '@/components/admin/AuditLogsPanel';
+import { SecurityConfigPanel } from '@/components/admin/SecurityConfigPanel';
 import Link from 'next/link';
 import { useTheme } from '@/components/theme-provider';
 import type { ModelConfig, ApiKey, Conversation } from '@/lib/types';
 
 // 模型数据从 models.ts 导入（单一数据源，避免多处维护）
 import { MODELS as MODELS_IMPORT } from '@/lib/models';
+import PlatformConfigPanel from '@/components/admin/PlatformConfigPanel';
+import ProjectContextPanel from '@/components/admin/ProjectContextPanel';
+import ToolSafetyPanel from '@/components/admin/ToolSafetyPanel';
+import WorkflowTemplatesPanel from '@/components/admin/WorkflowTemplatesPanel';
 const MODELS_DATA = MODELS_IMPORT.map(m => ({ id: m.id, name: m.name, provider: m.provider, description: m.description || '' }));
 
-type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'telemetry' | 'mcp' | 'memory' | 'knowledge' | 'tasks' | 'patrol' | 'heartbeat' | 'design' | 'sub-agents' | 'skills';
+type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'telemetry' | 'mcp' | 'memory' | 'knowledge' | 'tasks' | 'patrol' | 'heartbeat' | 'design' | 'sub-agents' | 'skills' | 'audit-logs' | 'security' | 'platform-config' | 'project-context' | 'tool-safety' | 'workflow-templates';
 
 // ============ Sidebar Navigation Structure ============
 interface SidebarGroup {
@@ -55,6 +61,11 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
       { id: 'settings', label: '基本设置' },
       { id: 'settings-advanced', label: '高级参数' },
       { id: 'oauth', label: '第三方登录' },
+      { id: 'security', label: '安全配置', icon: <Shield size={14} /> },
+      { id: 'platform-config', label: '平台配置', icon: <Settings size={14} /> },
+      { id: 'project-context', label: '项目上下文', icon: <FileText size={14} /> },
+      { id: 'tool-safety', label: '工具安全', icon: <Shield size={14} /> },
+      { id: 'workflow-templates', label: '工作流模板', icon: <Play size={14} /> },
     ],
   },
   {
@@ -80,6 +91,7 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
       { id: 'telemetry', label: 'AI监控', icon: <Activity size={14} /> },
       { id: 'patrol', label: '系统巡检', icon: <Shield size={14} /> },
       { id: 'heartbeat', label: '心跳巡检', icon: <Heart size={14} /> },
+      { id: 'audit-logs', label: '审计日志', icon: <Shield size={14} /> },
     ],
   },
   {
@@ -342,6 +354,12 @@ return () => { window.fetch = originalFetch; };
           {activeTab === 'tasks' && <ScheduledTasksPanel />}
           {activeTab === 'skills' && <SkillsPanel />}
           {activeTab === 'sub-agents' && <SubAgentsPanel />}
+          {activeTab === 'audit-logs' && <AuditLogsPanel />}
+          {activeTab === 'security' && <SecurityConfigPanel />}
+          {activeTab === 'platform-config' && <PlatformConfigPanel />}
+          {activeTab === 'project-context' && <ProjectContextPanel />}
+          {activeTab === 'tool-safety' && <ToolSafetyPanel />}
+          {activeTab === 'workflow-templates' && <WorkflowTemplatesPanel />}
         </div>
       </main>
     </div>
@@ -1253,6 +1271,10 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
     context_compress_threshold: 80000,
     context_compress_ratio: 0.5,
     max_tool_output_chars: 8000,
+    // Rate limiting
+    rate_limit_per_minute: 30,
+    rate_limit_per_hour: 200,
+    rate_limit_block_ms: 60000,
   });
   const [modelRoutingConfig, setModelRoutingConfig] = useState<{
     intent_model_priority: Record<string, string>;
@@ -2061,48 +2083,48 @@ function SkillsPanel() {
       
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-semibold text-white">技能管理</h3>
-          <p className="text-xs text-gray-400 mt-1">渐进式披露：系统提示词只注入技能目录(~50t/技能)，任务匹配时通过 activate_skill 加载完整指令</p>
+          <h3 className="text-lg font-semibold text-foreground">技能管理</h3>
+          <p className="text-xs text-muted-foreground mt-1">渐进式披露：系统提示词只注入技能目录(~50t/技能)，任务匹配时通过 activate_skill 加载完整指令</p>
         </div>
         <button onClick={() => { setForm({name:'',description:'',instructions:'',category:'general',priority:100,is_active:true}); setShowAdd(true); }} className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-sm rounded-lg flex items-center gap-1"><Plus size={14}/> 新增技能</button>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
-        <div className="bg-[#1a1a2e] rounded-lg p-3 border border-white/5">
-          <div className="text-2xl font-bold text-white">{skills.length}</div>
-          <div className="text-xs text-gray-400">总技能数</div>
+        <div className="bg-card rounded-lg p-3 border border-border">
+          <div className="text-2xl font-bold text-card-foreground">{skills.length}</div>
+          <div className="text-xs text-muted-foreground">总技能数</div>
         </div>
-        <div className="bg-[#1a1a2e] rounded-lg p-3 border border-white/5">
-          <div className="text-2xl font-bold text-green-400">{skills.filter(s => s.is_active).length}</div>
-          <div className="text-xs text-gray-400">已激活</div>
+        <div className="bg-card rounded-lg p-3 border border-border">
+          <div className="text-2xl font-bold text-green-600 dark:text-green-400">{skills.filter(s => s.is_active).length}</div>
+          <div className="text-xs text-muted-foreground">已激活</div>
         </div>
-        <div className="bg-[#1a1a2e] rounded-lg p-3 border border-white/5">
-          <div className="text-2xl font-bold text-violet-400">{skills.reduce((a, s) => a + (s.token_estimate || 0), 0).toLocaleString()}</div>
-          <div className="text-xs text-gray-400">估算总Token</div>
+        <div className="bg-card rounded-lg p-3 border border-border">
+          <div className="text-2xl font-bold text-violet-600 dark:text-violet-400">{skills.reduce((a, s) => a + (s.token_estimate || 0), 0).toLocaleString()}</div>
+          <div className="text-xs text-muted-foreground">估算总Token</div>
         </div>
       </div>
 
-      {loading ? <div className="text-gray-400 text-center py-8">加载中...</div> : categories.map(cat => (
+      {loading ? <div className="text-muted-foreground text-center py-8">加载中...</div> : categories.map(cat => (
         <div key={cat} className="space-y-2">
-          <h4 className="text-sm font-medium text-gray-300 flex items-center gap-2">{catIcons[cat] || '⚡'} {catNames[cat] || cat} <span className="text-gray-500">({skills.filter(s => (s.category||'general') === cat).length})</span></h4>
+          <h4 className="text-sm font-medium text-foreground flex items-center gap-2">{catIcons[cat] || '⚡'} {catNames[cat] || cat} <span className="text-muted-foreground">({skills.filter(s => (s.category||'general') === cat).length})</span></h4>
           <div className="space-y-2">
             {skills.filter(s => (s.category||'general') === cat).map(skill => (
-              <div key={skill.id} className="bg-[#1a1a2e] rounded-lg border border-white/5 overflow-hidden">
+              <div key={skill.id} className="bg-card rounded-lg border border-border overflow-hidden">
                 <div className="flex items-center justify-between p-3">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <button onClick={() => handleToggle(skill.id, !skill.is_active)} className={`w-8 h-4 rounded-full transition-colors ${skill.is_active ? 'bg-green-500' : 'bg-gray-600'} relative`}>
+                    <button onClick={() => handleToggle(skill.id, !skill.is_active)} className={`w-8 h-4 rounded-full transition-colors ${skill.is_active ? 'bg-green-500' : 'bg-muted'} relative`}>
                       <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${skill.is_active ? 'left-4' : 'left-0.5'}`}/>
                     </button>
                     <div className="min-w-0">
-                      <div className="text-white text-sm font-medium truncate">{skill.name} <span className="text-gray-500 text-xs">({skill.id})</span></div>
-                      <div className="text-gray-400 text-xs truncate">{skill.description}</div>
+                      <div className="text-card-foreground text-sm font-medium truncate">{skill.name} <span className="text-muted-foreground text-xs">({skill.id})</span></div>
+                      <div className="text-muted-foreground text-xs truncate">{skill.description}</div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-gray-500">~{skill.token_estimate || 0}t</span>
+                    <span className="text-xs text-muted-foreground">~{skill.token_estimate || 0}t</span>
                     <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 text-gray-400">P{skill.priority}</span>
-                    <button onClick={() => { setEditingId(skill.id); setForm({name:skill.name,description:skill.description,instructions:skill.instructions||'',category:skill.category||'general',priority:skill.priority||100,is_active:skill.is_active}); }} className="text-gray-400 hover:text-white"><Edit2 size={14}/></button>
-                    <button onClick={() => handleDelete(skill.id)} className="text-gray-400 hover:text-red-400"><Trash2 size={14}/></button>
+                    <button onClick={() => { setEditingId(skill.id); setForm({name:skill.name,description:skill.description,instructions:skill.instructions||'',category:skill.category||'general',priority:skill.priority||100,is_active:skill.is_active}); }} className="text-muted-foreground hover:text-foreground"><Edit2 size={14}/></button>
+                    <button onClick={() => handleDelete(skill.id)} className="text-muted-foreground hover:text-red-500"><Trash2 size={14}/></button>
                   </div>
                 </div>
                 {editingId === skill.id && (
@@ -2125,7 +2147,7 @@ function SkillsPanel() {
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
           <div className="bg-[#12121c] rounded-xl border border-white/10 p-6 w-[500px] max-h-[80vh] overflow-y-auto space-y-3">
-            <h3 className="text-lg font-semibold text-white">新增技能</h3>
+            <h3 className="text-lg font-semibold text-foreground">新增技能</h3>
             <input value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white" placeholder="技能名称"/>
             <input value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white" placeholder="技能描述（何时使用此技能）"/>
             <textarea value={form.instructions} onChange={e => setForm({...form, instructions: e.target.value})} className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white h-48 font-mono" placeholder="技能指令（激活时加载到上下文的完整指令）"/>

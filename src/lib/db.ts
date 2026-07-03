@@ -75,6 +75,14 @@ export async function updateConversation(id: string, updates: { title?: string; 
 }
 
 export async function deleteConversation(id: string): Promise<void> {
+  // Clean up related tables that don't have FK cascade
+  await run('DELETE FROM audit_logs WHERE conversation_id = $1', [id]);
+  await run('DELETE FROM agent_tasks WHERE conversation_id = $1', [id]);
+  await run('DELETE FROM agent_state WHERE conversation_id = $1', [id]);
+  await run('DELETE FROM scheduled_tasks WHERE conversation_id = $1', [id]);
+  // chat_messages has ON DELETE CASCADE, but clean explicitly for safety
+  await run('DELETE FROM chat_messages WHERE "conversationId" = $1', [id]);
+  // Delete the conversation itself
   await run('DELETE FROM conversations WHERE id = $1', [id]);
 }
 
@@ -560,3 +568,65 @@ export async function claimAnonymousConversations(userId: string): Promise<numbe
   );
   return (result as any)?.rowCount || 0;
 }
+
+// ============ P0: Project Context Helpers ============
+export async function listProjectContexts(projectKey = 'default'): Promise<any[]> {
+  const rows = await query('SELECT * FROM project_contexts WHERE project_key = $1 ORDER BY sort_order, created_at', [projectKey]);
+  return rows;
+}
+
+export async function getActiveProjectContexts(projectKey = 'default'): Promise<any[]> {
+  const rows = await query('SELECT * FROM project_contexts WHERE project_key = $1 AND is_active = true ORDER BY sort_order', [projectKey]);
+  return rows;
+}
+
+export async function upsertProjectContext(input: { project_key?: string; context_type?: string; title?: string; content: string; sort_order?: number; is_active?: boolean }): Promise<void> {
+  const pk = input.project_key || 'default';
+  const ct = input.context_type || 'system_prompt';
+  await run(
+    `INSERT INTO project_contexts (project_key, context_type, title, content, sort_order, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (id) DO UPDATE SET title=$3, content=$4, sort_order=$5, is_active=$6, updated_at=NOW()`,
+    [pk, ct, input.title || '', input.content, input.sort_order || 0, input.is_active !== false]
+  );
+}
+
+export async function updateProjectContext(id: string, updates: { title?: string; content?: string; sort_order?: number; is_active?: boolean; context_type?: string }): Promise<void> {
+  const sets: string[] = [];
+  const params: any[] = [];
+  let idx = 1;
+  if (updates.title !== undefined) { sets.push(`title = $${idx}`); params.push(updates.title); idx++; }
+  if (updates.content !== undefined) { sets.push(`content = $${idx}`); params.push(updates.content); idx++; }
+  if (updates.sort_order !== undefined) { sets.push(`sort_order = $${idx}`); params.push(updates.sort_order); idx++; }
+  if (updates.is_active !== undefined) { sets.push(`is_active = $${idx}`); params.push(updates.is_active); idx++; }
+  if (updates.context_type !== undefined) { sets.push(`context_type = $${idx}`); params.push(updates.context_type); idx++; }
+  if (sets.length > 0) {
+    sets.push('updated_at = NOW()');
+    params.push(id);
+    await run(`UPDATE project_contexts SET ${sets.join(', ')} WHERE id = $${idx}`, params);
+  }
+}
+
+export async function deleteProjectContext(id: string): Promise<void> {
+  await run('DELETE FROM project_contexts WHERE id = $1', [id]);
+}
+
+// ============ P3: Workflow Template Helpers ============
+export async function listWorkflowTemplates(): Promise<any[]> {
+  return query('SELECT * FROM workflow_templates WHERE is_active = true ORDER BY usage_count DESC, name');
+}
+
+export async function matchWorkflowTemplate(userInput: string): Promise<any | null> {
+  const templates = await listWorkflowTemplates();
+  const input = userInput.toLowerCase();
+  for (const t of templates) {
+    const patterns: string[] = t.trigger_patterns || [];
+    if (patterns.some((p: string) => input.includes(p.toLowerCase()))) {
+      // Increment usage count
+      await run('UPDATE workflow_templates SET usage_count = usage_count + 1 WHERE id = $1', [t.id]);
+      return t;
+    }
+  }
+  return null;
+}
+
