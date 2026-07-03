@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Key, Edit2, X, Save } from 'lucide-react';
+import { Plus, Trash2, Key, Edit2, X, Save, Zap, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import type { ApiKey } from '@/types';
 import { PROVIDERS } from '@/lib/models';
 

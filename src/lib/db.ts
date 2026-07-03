@@ -33,9 +33,32 @@ export async function queryOne<T = any>(sql: string, params?: any[]): Promise<T 
   return rows.length > 0 ? rows[0] : null;
 }
 
+// Auto cache invalidation: detect writes to cached tables
+const CACHED_TABLES: Record<string, RegExp> = {
+  settings: /(INSERT INTO settings|UPDATE settings)/i,
+  model_configs: /(INSERT INTO model_configs|UPDATE model_configs|DELETE FROM model_configs)/i,
+};
+
 export async function run(sql: string, params?: any[]): Promise<void> {
   const p = getPool();
-  await p.query(sql, params);
+  const result = await p.query(sql, params);
+  // Auto-invalidate cache for writes to cached tables
+  for (const [table, pattern] of Object.entries(CACHED_TABLES)) {
+    if (pattern.test(sql)) {
+      if (table === 'settings') {
+        // Try to extract key from params for targeted invalidation
+        if (params && params.length > 0 && typeof params[0] === 'string' && params[0].length < 100) {
+          cacheDelete(`setting:${params[0]}`);
+        } else {
+          cacheClear(); // Fallback: clear all settings cache
+        }
+      } else if (table === 'model_configs') {
+        cacheClear(); // Model configs use modelconfig:* prefix, clear all
+      }
+      break;
+    }
+  }
+  return result;
 }
 
 // ============ Conversations ============

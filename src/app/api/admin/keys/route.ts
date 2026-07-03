@@ -125,3 +125,36 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
+
+// Test API key connectivity
+export async function PUT(request: Request) {
+  if (!(await isAdminAuthenticated())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const body = await request.json();
+    const { provider, apiKey, baseUrl } = body;
+    if (!provider || !apiKey) {
+      return NextResponse.json({ error: "provider and apiKey required" }, { status: 400 });
+    }
+
+    // Get default base URL
+    const { DEFAULT_PROVIDER_URLS } = await import("@/lib/config-defaults");
+    const defaultBaseUrl = DEFAULT_PROVIDER_URLS[provider] || `https://api.${provider}.com/v1`;
+    const url = (baseUrl || defaultBaseUrl).replace(/\/+$/, "");
+
+    // Try a simple models/list request
+    const res = await fetch(`${url}/models`, {
+      method: "GET",
+      headers: { "Authorization": `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (res.ok) {
+      return NextResponse.json({ success: true, message: "连接成功", status: res.status });
+    } else {
+      const text = await res.text().catch(() => "");
+      return NextResponse.json({ success: false, message: `HTTP ${res.status}: ${text.slice(0, 200)}`, status: res.status });
+    }
+  } catch (e: any) {
+    return NextResponse.json({ success: false, message: e.message || String(e) }, { status: 500 });
+  }
+}
