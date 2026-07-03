@@ -756,14 +756,18 @@ export const runTestsTool = tool({
     timeout: z.number().default(120).describe('超时秒数，默认120'),
   }),
   execute: async ({ test_path, framework, server, timeout }: any) => {
+    // Runtime guards: AI SDK may not apply zod defaults for empty LLM input
+    const srv = server || 'production';
+    const fw = framework || 'auto';
+    const tm = timeout || 120;
     try {
       const { sshPool } = await import('@/lib/ssh-pool');
-      const cwd = process.env[server.toUpperCase() + '_SERVER_DIR'] || '/www/wwwroot/agent.piyiguo.com';
+      const cwd = process.env[srv.toUpperCase() + '_SERVER_DIR'] || '/www/wwwroot/agent.piyiguo.com';
 
       // Auto-detect framework
       let testCmd = '';
-      if (framework === 'auto') {
-        const detect = await sshPool.execute(server, `ls package.json pytest.ini vitest.config.* jest.config.* 2>/dev/null`, { cwd });
+      if (fw === 'auto') {
+        const detect = await sshPool.execute(srv, `ls package.json pytest.ini vitest.config.* jest.config.* 2>/dev/null`, { cwd });
         const files = detect.stdout;
         if (files.includes('pytest.ini') || files.includes('conftest.py')) testCmd = 'python3 -m pytest';
         else if (files.includes('vitest.config')) testCmd = 'npx vitest run';
@@ -780,7 +784,7 @@ export const runTestsTool = tool({
       if (test_path) testCmd += ' ' + test_path;
       testCmd += ' 2>&1';
 
-      const result = await sshPool.execute(server, testCmd, { timeout: timeout * 1000, cwd });
+      const result = await sshPool.execute(srv, testCmd, { timeout: tm * 1000, cwd });
       const output = result.stdout + (result.stderr ? '\n' + result.stderr : '');
 
       // Extract summary

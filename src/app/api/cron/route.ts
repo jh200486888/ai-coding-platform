@@ -4,6 +4,7 @@
  * 被 PM2 cron 或外部定时器调用，检查并执行到期任务
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { processNextJob, cleanupOldJobs } from '@/lib/job-queue';
 import { getDueTasks, markTaskRun, initScheduledTasksTable } from '@/lib/agent-state';
 import { getSetting } from '@/lib/db';
 import { logger } from '@/lib/logger';
@@ -23,8 +24,25 @@ export async function GET(request: NextRequest) {
     }
   } catch {}
   if (secret !== cronSecret) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    
+return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  // Process background jobs (up to 3 per heartbeat tick)
+  let jobsProcessed = 0;
+  try {
+    for (let i = 0; i < 3; i++) {
+      const processed = await processNextJob();
+      if (!processed) break;
+      jobsProcessed++;
+    }
+    if (jobsProcessed > 0) {
+      console.log(`[Cron] Processed ${jobsProcessed} background jobs`);
+    }
+  } catch (e: any) {
+    console.error('[Cron] Job processing error:', e?.message);
+  }
+  try { await cleanupOldJobs(); } catch {}
 
   try {
     await initScheduledTasksTable();

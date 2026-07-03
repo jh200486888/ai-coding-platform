@@ -325,8 +325,62 @@ export const readSkillFileTool = tool({
 // 兼容旧名称
 export const useSkillTool = activateSkillTool;
 
+
+// ============ 技能自学习：从成功经验中保存新技能 ============
+export const saveLearnedSkillTool = tool({
+  description: `Save a successful workflow as a reusable skill for future tasks.
+
+IMPORTANT: You MUST provide ALL three parameters:
+- name: a short English ID like "deploy-nextjs-app"
+- description: when to use this skill (one sentence)
+- instructions: step-by-step guide with exact tool names and commands
+
+Example call:
+  save_learned_skill({ name: "deploy-nextjs", description: "Deploy Next.js app to production server", instructions: "1. Run build_project to compile 2. Run deploy_service to restart PM2 3. Run health_check to verify 4. If health check fails, check pm2 logs and fix errors" })`,
+  parameters: z.object({
+    name: z.string().describe('Short English skill ID, e.g. deploy-nextjs-app'),
+    description: z.string().describe('One sentence: when should this skill be used?'),
+    instructions: z.string().describe('Step-by-step instructions with exact tool names and commands'),
+  }),
+  execute: async ({ name, description, instructions }: any) => {
+    const safeName = String(name || 'learned-' + Date.now()).toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 60);
+    const safeDesc = String(description || '从对话中学习的技能');
+    const safeInstructions = String(instructions || '');
+
+    if (!safeInstructions || safeInstructions.length < 10) {
+      return '❌ 请提供详细的步骤说明（instructions至少10字符）。示例："1. 用ssh_read_file读取文件 2. 用ssh_execute运行测试 3. 检查结果并报告"';
+    }
+
+    try {
+      const tokenEstimate = Math.ceil(safeInstructions.length / 4);
+
+      // Check if skill already exists
+      const existing = await queryOne('SELECT id FROM agent_skills WHERE name = $1', [safeName]);
+      if (existing) {
+        await run(
+          `UPDATE agent_skills SET description=$1, instructions=$2, category='learned', token_estimate=$3, updatedat=NOW() WHERE name=$4`,
+          [safeDesc, safeInstructions, tokenEstimate, safeName]
+        );
+        clearSkillsCache();
+        return `✅ 技能已更新！\n\n名称：${safeName}\n描述：${safeDesc}\n预估Token：~${tokenEstimate}t\n\n下次遇到类似任务时会自动匹配此技能。`;
+      }
+
+      await run(
+        `INSERT INTO agent_skills (name, description, instructions, category, priority, is_active, token_estimate, resources) VALUES ($1, $2, $3, 'learned', 80, true, $4, '[]')`,
+        [safeName, safeDesc, safeInstructions, tokenEstimate]
+      );
+
+      clearSkillsCache();
+      return `✅ 新技能已学习并保存！\n\n名称：${safeName}\n描述：${safeDesc}\n预估Token：~${tokenEstimate}t\n\n下次遇到类似任务时会自动匹配此技能。可在后台→数据→技能管理中查看和编辑。`;
+    } catch (e: any) {
+      return `❌ 技能保存失败: ${e.message}`;
+    }
+  },
+});
+
 export const skillTools = {
   get_available_skills: getAvailableSkillsTool,
   activate_skill: activateSkillTool,
   read_skill_file: readSkillFileTool,
+  save_learned_skill: saveLearnedSkillTool,
 };

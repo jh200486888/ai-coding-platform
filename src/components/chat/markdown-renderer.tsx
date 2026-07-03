@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState, useCallback } from 'react';
+import { memo, useState, useCallback, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -12,10 +12,62 @@ interface MarkdownRendererProps {
   content: string;
 }
 
+
+// Mermaid diagram renderer
+function MermaidBlock({ children }: { children: React.ReactNode }) {
+  const [svg, setSvg] = useState<string>('');
+  const [error, setError] = useState<string>('');
+  const code = String(children).replace(/\n$/, '');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const mermaid = (await import('mermaid')).default;
+        mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+        const id = `mermaid-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const { svg: renderedSvg } = await mermaid.render(id, code);
+        if (!cancelled) setSvg(renderedSvg);
+      } catch (e: any) {
+        if (!cancelled) setError(e.message || 'Mermaid rendering failed');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [code]);
+
+  if (error) {
+    return (
+      <div className="my-3 rounded-lg border border-red-500/30 bg-red-950/20 p-3">
+        <div className="text-xs text-red-400 mb-1">Mermaid Error: {error}</div>
+        <pre className="text-xs text-[#8b949e] font-mono overflow-x-auto">{code}</pre>
+      </div>
+    );
+  }
+
+  if (!svg) {
+    return (
+      <div className="my-3 rounded-lg border border-[#30363d] bg-[#0d1117] p-4 flex items-center justify-center">
+        <div className="text-xs text-[#8b949e] animate-pulse">Rendering diagram...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="my-3 rounded-lg border border-[#30363d] bg-[#0d1117] p-4 overflow-x-auto flex justify-center">
+      <div dangerouslySetInnerHTML={{ __html: svg }} className="mermaid-diagram" />
+    </div>
+  );
+}
+
 function CodeBlock({ className, children, ...props }: React.HTMLAttributes<HTMLElement> & { children?: React.ReactNode }) {
   const [copied, setCopied] = useState(false);
   const match = /language-(\w+)/.exec(className || '');
   const language = match ? match[1] : '';
+
+  // Mermaid diagram - render as SVG instead of code block
+  if (language === 'mermaid') {
+    return <MermaidBlock>{children}</MermaidBlock>;
+  }
   const codeString = String(children).replace(/\n$/, '');
   const lines = codeString.split('\n');
   const showLineNumbers = lines.length > 5;

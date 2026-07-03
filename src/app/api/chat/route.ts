@@ -6,7 +6,7 @@ import { getCurrentUser } from '@/lib/auth';
 import { z } from 'zod';
 import { tool } from 'ai';
 import { createSubAgentTool, createPlanAndExecuteTool, createAggregateResultsTool, createReflectTool, createMemoryMaintenanceTool, setSchedulerSessionId } from '@/lib/task-scheduler';
-import { createGenerateChartTool, createGeneratePptTool, createGenerateDocumentTool } from '@/lib/multimodal-output';
+import { createGenerateChartTool, createGeneratePptTool, createGenerateDocumentTool, createGenerateExcelTool } from '@/lib/multimodal-output';
 import { 
   initAgentStateTable, getAgentState, saveAgentState, recordToolCall, 
   getStateContext, extractAndSaveProgress, initScheduledTasksTable,
@@ -36,6 +36,7 @@ import { convertMarkdown, readConvertedFile, cleanupConvertedFile } from '@/lib/
 import { checkRateLimit } from '@/lib/rate-limiter';
 // === Audit Logger ===
 import { auditLog, isDestructiveAction } from '@/lib/audit-logger';
+import { emitNotification, notifyDocumentGenerated } from '@/lib/notification-emitter';
 // === Sub-agent Messaging ===
 import { sendToSubAgent, getSubAgentResponses } from '@/lib/task-scheduler';
 
@@ -1144,6 +1145,7 @@ export async function POST(request: NextRequest) {
     }
     if (baseToolNames.includes('generate_document')) {
       activeTools.generate_document = createGenerateDocumentTool();
+      activeTools.generate_excel = createGenerateExcelTool();
     }
 
     // === Sub-agent Messaging Tool ===
@@ -1665,6 +1667,20 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
             success: isSuccess,
             duration_ms: toolExecutionMs,
           }).catch(() => {});
+        }
+
+        // SSE: Emit real-time notification for important tool completions
+        if (isSuccess && ['generate_document', 'generate_ppt', 'generate_excel', 'convert_document', 'build_project', 'deploy_service'].includes(toolCall.toolName)) {
+          try {
+            const inputArgs = (toolCall as any).args || (toolCall as any).input || {};
+            await emitNotification('tool_complete', {
+              tool: toolCall.toolName,
+              displayName: toolNameCn[toolCall.toolName] || toolCall.toolName,
+              title: inputArgs.title || inputArgs.name || '',
+              success: true,
+              durationMs: toolExecutionMs,
+            });
+          } catch {}
         }
 
         // P闭环: 产出物自动IM投递

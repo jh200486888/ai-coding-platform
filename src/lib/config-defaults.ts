@@ -64,6 +64,10 @@ export const DEFAULT_TOOL_SAFETY_TIERS: Record<string, { tier: string; descripti
   git_commit:           { tier: 'guarded', description: 'Git提交代码' },
   delete_cross_memory:  { tier: 'guarded', description: '删除跨会话记忆' },
   github_create_issue:  { tier: 'guarded', description: '创建GitHub Issue' },
+  deploy:                   { tier: 'guarded', description: '部署项目' },
+  runCommand:               { tier: 'guarded', description: '执行命令' },
+  deleteFile:               { tier: 'guarded', description: '删除文件' },
+  editFile:                 { tier: 'guarded', description: '修改文件' },
 
   // === BLOCKED TIER: Currently no tools blocked by default, reserved for future use ===
   // Tools can be moved here via admin panel to completely disable them
@@ -145,11 +149,11 @@ export const DEFAULT_WS_PROVIDER_MAX_TOKENS: Record<string, number> = {
 
 // ============ Mode Tool Whitelist ============
 export const DEFAULT_MODE_TOOLS: Record<string, string[]> = {
-  coding: ['createFile', 'editFile', 'deleteFile', 'readFile', 'runCommand', 'deploy', 'run_tests', 'searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_click', 'browser_fill', 'browser_extract', 'browser_screenshot', 'browser_execute_js', 'save_cross_memory', 'search_cross_memory', 'list_cross_memories', 'delete_cross_memory', 'reflect_and_improve', 'memory_maintenance'],
-  writing: ['searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_click', 'browser_fill', 'browser_extract', 'browser_screenshot', 'browser_execute_js', 'save_cross_memory', 'search_cross_memory', 'list_cross_memories', 'delete_cross_memory'],
-  analysis: ['searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_extract', 'browser_screenshot', 'save_cross_memory', 'search_cross_memory'],
+  coding: ['createFile', 'editFile', 'deleteFile', 'readFile', 'runCommand', 'deploy', 'run_tests', 'searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'generate_excel', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_click', 'browser_fill', 'browser_extract', 'browser_screenshot', 'browser_execute_js', 'save_cross_memory', 'search_cross_memory', 'list_cross_memories', 'delete_cross_memory', 'reflect_and_improve', 'memory_maintenance', 'save_learned_skill'],
+  writing: ['searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'generate_excel', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_click', 'browser_fill', 'browser_extract', 'browser_screenshot', 'browser_execute_js', 'save_cross_memory', 'search_cross_memory', 'list_cross_memories', 'delete_cross_memory'],
+  analysis: ['searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'generate_excel', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_extract', 'browser_screenshot', 'save_cross_memory', 'search_cross_memory'],
   design: ['smart_search', 'read_url', 'analyze_image', 'saveMemory'],
-  chat: ['searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_click', 'browser_fill', 'browser_extract', 'browser_screenshot', 'browser_execute_js', 'reflect_and_improve', 'memory_maintenance'],
+  chat: ['searchWeb', 'smart_search', 'read_url', 'analyze_image', 'saveMemory', 'delegate_task', 'plan_and_execute', 'aggregate_results', 'generate_chart', 'generate_ppt', 'generate_document', 'generate_excel', 'schedule_task', 'think_and_plan', 'update_progress', 'reflect_and_schedule', 'execute_code', 'create_dynamic_tool', 'call_dynamic_tool', 'list_dynamic_tools', 'browser_navigate', 'browser_click', 'browser_fill', 'browser_extract', 'browser_screenshot', 'browser_execute_js', 'reflect_and_improve', 'memory_maintenance', 'save_learned_skill'],
 };
 
 // ============ Tool Chinese Name Mapping ============
@@ -162,6 +166,7 @@ export const DEFAULT_TOOL_NAME_ZH: Record<string, string> = {
   delegate_task: '\u59d4\u6d3e\u5b50\u667a\u80fd\u4f53', plan_and_execute: '\u89c4\u5212\u5e76\u6267\u884c\u591a\u4efb\u52a1',
   aggregate_results: '\u6c47\u603b\u5b50\u667a\u80fd\u4f53\u7ed3\u679c', generate_chart: '\u751f\u6210\u56fe\u8868',
   generate_ppt: '\u751f\u6210PPT', generate_document: '\u751f\u6210\u6587\u6863',
+  generate_excel: '\u751f\u6210Excel',
   schedule_task: '\u521b\u5efa\u5b9a\u65f6\u4efb\u52a1', think_and_plan: '\u89c4\u5212\u4efb\u52a1\u6b65\u9aa4',
   update_progress: '\u66f4\u65b0\u6267\u884c\u8fdb\u5ea6', reflect_and_schedule: '\u53cd\u601d\u4e0e\u8c03\u5ea6',
   smart_search: '\u667a\u80fd\u641c\u7d22', read_url: '\u8bfb\u53d6\u7f51\u9875',
@@ -182,6 +187,7 @@ export const DEFAULT_TOOL_NAME_ZH: Record<string, string> = {
   web_search: '\u7f51\u9875\u641c\u7d22', diagnose_error: '\u9519\u8bef\u8bca\u65ad',
   read_skill_file: '\u8bfb\u53d6\u6280\u80fd', get_available_skills: '\u53ef\u7528\u6280\u80fd',
   activate_skill: '\u6fc0\u6d3b\u6280\u80fd', reflect_and_improve: '\u53cd\u601d\u6539\u8fdb',
+  save_learned_skill: '\u4fdd\u5b58\u5b66\u4e60\u6280\u80fd',
 };
 
 // ============ Model Identity Mapping ============

@@ -77,7 +77,12 @@ export default function ToolSafetyPanel() {
     try {
       const res = await fetch('/api/admin/platform-config?key=tool_safety_tiers');
       const data = await res.json();
-      const tiers = data.value ? { ...SAFE_TIER_TOOLS, ...JSON.parse(data.value) } : SAFE_TIER_TOOLS;
+      let tiers = SAFE_TIER_TOOLS;
+      if (data.value) {
+        tiers = { ...SAFE_TIER_TOOLS, ...JSON.parse(data.value) };
+      } else if (data.data?.tool_safety_tiers) {
+        tiers = { ...SAFE_TIER_TOOLS, ...data.data.tool_safety_tiers };
+      }
       const entries = Object.entries(tiers).map(([name, v]) => ({ name, ...v } as ToolEntry));
       setTools(entries);
     } catch {
@@ -98,14 +103,23 @@ export default function ToolSafetyPanel() {
     try {
       const tierMap: Record<string, ToolTier> = {};
       tools.forEach(t => { tierMap[t.name] = { tier: t.tier, description: t.description }; });
-      await fetch('/api/admin/platform-config', {
+      const res = await fetch('/api/admin/platform-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: 'tool_safety_tiers', value: JSON.stringify(tierMap) }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setMessage('保存失败: ' + (err.error || 'HTTP ' + res.status));
+        setTimeout(() => setMessage(''), 3000);
+        return;
+      }
       setDirty(false);
-      setMessage('已保存');
+      setMessage('✅ 已保存');
       setTimeout(() => setMessage(''), 2000);
+    } catch (e: any) {
+      setMessage('保存失败: ' + (e.message || '网络错误'));
+      setTimeout(() => setMessage(''), 3000);
     } finally {
       setSaving(false);
     }
