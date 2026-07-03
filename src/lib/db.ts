@@ -149,11 +149,13 @@ export async function upsertModelConfig(input: {
      ON CONFLICT ("modelId") DO UPDATE SET name = $3, provider = $4, "isActive" = $5, "sortOrder" = $6, description = $7, default_temperature = $8, default_max_tokens = $9, default_top_p = $10, default_presence_penalty = $11, default_frequency_penalty = $12, "updatedAt" = NOW()`,
     [id, input.model_id, input.display_name, input.provider, isActive, input.sort_order || 0, input.description || '', parseFloat(input.default_temperature as any) || 0.7, input.default_max_tokens || 4096, input.default_top_p ?? null, input.default_presence_penalty ?? null, input.default_frequency_penalty ?? null]
   );
+  cacheDelete(`modelconfig:${input.model_id}`);
   return (await getModelConfig(input.model_id)) as unknown as ModelConfig;
 }
 
 export async function deleteModelConfig(id: string): Promise<void> {
   await run('DELETE FROM model_configs WHERE id = $1', [id]);
+  cacheClear(); // Clear all model config cache
 }
 
 export async function seedDefaultModels(): Promise<void> {
