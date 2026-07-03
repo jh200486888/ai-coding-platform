@@ -21,7 +21,6 @@ import { useAuth } from '@/lib/auth-provider';
 import { ChatMessages } from './ChatMessages';
 import { ToolApprovalCard } from './tool-approval-card';
 import { ChatInput } from './ChatInput';
-import { parseMentions } from './mention-input';
 import { ModelSelector } from './ModelSelector';
 
 // Types
@@ -41,9 +40,6 @@ const CHAT_MODES: ChatMode[] = [
   { id: 'design', name: '设计', icon: Palette, color: 'text-pink-400', placeholder: '描述你的设计需求...' },
   { id: 'chat', name: '聊天', icon: MessageCircle, color: 'text-sky-400', placeholder: '随便聊聊...' },
 ];
-
-// File-modifying tool names for diff extraction
-const FILE_CHANGE_TOOLS = ['ssh_write_file', 'createFile', 'editFile'];
 
 export function ChatInterface() {
   const { user: authUser } = useAuth();
@@ -80,8 +76,8 @@ export function ChatInterface() {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-
-
+  
+  
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
   const currentMode = CHAT_MODES.find(m => m.id === selectedMode);
@@ -141,7 +137,7 @@ export function ChatInterface() {
     },
   });
 
-  // Extract tool calls from assistant message parts (AI SDK v7)
+  // 从所有助手消息的 parts 中提取工具调用（AI SDK v7 原生方式）
   const toolCalls = (() => {
     const allToolCalls: any[] = [];
     for (const msg of messages) {
@@ -160,7 +156,7 @@ export function ChatInterface() {
           const isDenied = state === "output-denied";
           const isDone = ((state === "output-available" && !isPreliminary) || (p.output !== undefined && !isPreliminary)) && !isError;
           const toolName = p.toolName || (p.type === "dynamic-tool" ? p.toolName : (p.type || "").replace("tool-", ""));
-
+          
           let summary: string | undefined;
           const output = typeof p.output === "string" ? p.output : "";
           if (isStreaming) {
@@ -177,21 +173,7 @@ export function ChatInterface() {
           } else if (state === "call" || state === "input-streaming" || state === "input-available") {
             summary = "执行中...";
           }
-
-          // Extract old content from DIFF_OLD marker for file-modifying tools
-          const isFileTool = FILE_CHANGE_TOOLS.includes(toolName);
-          let extractedOldContent: string | undefined;
-          let extractedNewContent: string | undefined;
-          if (isFileTool && output) {
-            const diffOldMatch = output.match(/<!--DIFF_OLD\n([\s\S]*?)\n-->/);
-            if (diffOldMatch) {
-              extractedOldContent = diffOldMatch[1];
-            }
-          }
-          if (isFileTool) {
-            extractedNewContent = String(p.input?.content || p.args?.content || '');
-          }
-
+          
           return {
             callId: p.toolCallId || p.type,
             toolName,
@@ -201,8 +183,6 @@ export function ChatInterface() {
             summary,
             isSubAgent: toolName === "delegate_task",
             subAgentOutput: toolName === "delegate_task" && isStreaming ? output : undefined,
-            oldContent: extractedOldContent,
-            newContent: extractedNewContent,
           };
         });
       allToolCalls.push(...msgToolCalls);
@@ -210,7 +190,7 @@ export function ChatInterface() {
     return allToolCalls;
   })();
 
-  // Extract approval request cards from parts
+  // 从parts中提取审批请求卡片
   const approvalCards = (() => {
     const cards: Array<{
       toolName: string;
@@ -247,7 +227,7 @@ export function ChatInterface() {
     return cards;
   })();
 
-  // Approval callbacks
+  // 审批回调
   const handleApprove = (approvalId: string) => {
     addToolApprovalResponse({ id: approvalId, approved: true });
   };
@@ -271,29 +251,13 @@ export function ChatInterface() {
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() && attachments.length === 0) return;
-
-    // Parse @-mentions from input
-    const { cleanText, mentions } = parseMentions(input);
-    let content = cleanText;
-
-    // Append mention references as context
-    if (mentions.length > 0) {
-      const mentionContext = mentions.map(m => {
-        if (m.type === 'file') return `[引用文件: ${m.label}]`;
-        if (m.type === 'conversation') return `[引用对话: ${m.label}]`;
-        if (m.type === 'knowledge') return `[引用知识库: ${m.label}]`;
-        return '';
-      }).filter(Boolean).join('\n');
-      if (mentionContext) {
-        content = content + '\n\n' + mentionContext;
-      }
-    }
-
+    
+    const content = input;
     const currentAttachments = [...attachments];
-
+    
     setInput('');
     clearAttachments();
-
+    
     await sendMessage(content, currentAttachments);
   }, [input, attachments, sendMessage, clearAttachments]);
 
@@ -427,7 +391,7 @@ export function ChatInterface() {
   // Image generation (design mode)
   const handleGenerateImage = useCallback(async () => {
     if (!input.trim() || isGeneratingImage) return;
-
+    
     setIsGeneratingImage(true);
     try {
       const res = await fetch('/api/image-gen', {
@@ -435,7 +399,7 @@ export function ChatInterface() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: input }),
       });
-
+      
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.images?.length > 0) {
@@ -478,7 +442,7 @@ export function ChatInterface() {
       const files = (e as CustomEvent).detail as FileList;
       handleFiles(files);
     };
-
+    
     fileInputRef.current?.addEventListener('files-selected', handleFilesEvent);
     return () => {
       fileInputRef.current?.removeEventListener('files-selected', handleFilesEvent);
@@ -713,7 +677,6 @@ export function ChatInterface() {
           enableSearch={enableSearch}
           onToggleSearch={() => setEnableSearch(!enableSearch)}
           onGenerateImage={handleGenerateImage}
-          conversations={conversations}
         />
       </div>
     </div>

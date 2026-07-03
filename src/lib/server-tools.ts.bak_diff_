@@ -123,8 +123,6 @@ export const sshWriteFileTool = tool({
     }
     const effectiveServer = (server === 'production' || server === 'development') ? server : 'production';
     try {
-      // Read old content before writing for frontend diff display
-      const oldContentResult = await sshPool.execute(effectiveServer, `cat "${path}" 2>/dev/null || echo ""`);
       const result = await sshPool.writeFile(effectiveServer, path, content, backup);
       let msg = `✅ 文件已写入: ${path}`;
       if (result.backupPath) {
@@ -145,11 +143,6 @@ export const sshWriteFileTool = tool({
         msg += `\n✅ 验证通过: ${actualLines}行`;
       }
 
-      // Include old content for frontend diff display
-      msg += `
-<!--DIFF_OLD
-${oldContentResult.stdout}
--->`;
       return msg;
     } catch (error) {
       return `❌ 写入失败: ${error instanceof Error ? error.message : String(error)}`;

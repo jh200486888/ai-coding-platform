@@ -4,8 +4,6 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Send, Paperclip, X, Square, ImageIcon, FileText, Code, Mic, Globe, MoreHorizontal } from 'lucide-react';
 import type { Attachment } from '@/types';
 import { SpeechInput } from '@/components/chat/SpeechInput';
-import { MentionInput, parseMentions } from './mention-input';
-import type { MentionItem } from './mention-input';
 
 interface AttachmentIconProps {
   type: Attachment['type'];
@@ -40,7 +38,6 @@ interface ChatInputProps {
   onToggleSearch?: () => void;
   isLoggedIn?: boolean;
   onPasteImage?: (files: FileList) => void;
-  conversations?: Array<{ id: string; title: string }>;
 }
 
 export function ChatInput({
@@ -61,12 +58,10 @@ export function ChatInput({
   onToggleSearch,
   isLoggedIn = true,
   onPasteImage,
-  conversations = [],
 }: ChatInputProps) {
   const currentMode = CHAT_MODES.find(m => m.id === selectedMode);
   const canSubmit = input.trim() || attachments.length > 0;
   const [showExtraActions, setShowExtraActions] = useState(false);
-  const [activeMentions, setActiveMentions] = useState<MentionItem[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-resize textarea
@@ -79,7 +74,7 @@ export function ChatInput({
     ta.style.height = Math.min(ta.scrollHeight, maxH) + 'px';
   }, [input]);
 
-  // Handle keyboard: Enter to submit, Shift+Enter for newline
+  // Handle keyboard: Ctrl/Cmd+Enter to submit, Enter for newline
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
@@ -87,6 +82,7 @@ export function ChatInput({
         onSubmit(e as unknown as React.FormEvent);
       }
     }
+    // Enter without modifier = newline (default textarea behavior)
   }, [canSubmit, isLoading, onSubmit]);
 
   return (
@@ -245,10 +241,11 @@ export function ChatInput({
             <Globe className="w-5 h-5" />
           </button>
 
-          {/* Textarea input with @-mention support */}
-          <MentionInput
+          {/* Textarea input (auto-growing) */}
+          <textarea
+            ref={textareaRef}
             value={input}
-            onChange={onInputChange}
+            onChange={e => onInputChange(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={(e) => {
               const items = e.clipboardData?.items;
@@ -268,12 +265,11 @@ export function ChatInput({
                 }
               }
             }}
-            placeholder={currentMode?.placeholder || "输入消息... (Enter换行, Ctrl+Enter发送, @引用)"}
-            disabled={isLoading}
+            placeholder={currentMode?.placeholder || "输入消息... (Enter换行, Ctrl+Enter发送)"}
+            rows={1}
             className="flex-1 min-w-0 bg-input border border-border rounded-lg px-3 py-2 text-sm md:text-base focus:outline-none focus:ring-2 focus:ring-primary resize-none leading-relaxed"
-            textareaRef={textareaRef}
-            conversations={conversations}
-            onMentionsChange={setActiveMentions}
+            style={{ maxHeight: 160 }}
+            disabled={isLoading}
           />
 
           {/* Submit or Stop button */}
