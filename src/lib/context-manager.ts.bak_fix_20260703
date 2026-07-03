@@ -160,8 +160,8 @@ export async function smartTrimMessages(
 
           const result = await generateText({
             model: summaryModel,
-            prompt: `Summarize this conversation in Chinese. Keep: 1)User's core goals 2)Key decisions 3)Completed steps 4)Pending items. Max 800 chars.\n\n${oldContent.substring(0, 10000)}`,
-            maxOutputTokens: 1200,
+            prompt: `Summarize this conversation in Chinese. Keep: 1)User's core goals 2)Key decisions 3)Completed steps 4)Pending items. Max 300 chars.\n\n${oldContent.substring(0, 6000)}`,
+            maxOutputTokens: 500,
             temperature: 0.3,
           });
           summary = result.text;

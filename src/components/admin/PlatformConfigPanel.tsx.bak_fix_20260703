@@ -42,12 +42,12 @@ function NotificationConfigSection() {
 
   const handleTest = async (idx: number) => {
     const wh = config.webhooks[idx];
-    if (!wh.url) { toast.error('请先填写Webhook地址'); return; }
+    if (!wh.url) { alert('请先填写Webhook地址'); return; }
     try {
       const res = await fetch('/api/admin/test-notification', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(wh) });
       const data = await res.json();
-      data.success ? toast.success('测试消息发送成功!') : toast.error('发送失败: '+(data.error||''));
-    } catch { toast.error('请求失败'); }
+      alert(data.success ? '测试消息发送成功!' : '发送失败: '+(data.error||''));
+    } catch { alert('请求失败'); }
   };
 
   if (loading) return <div className="p-4 text-sm text-muted-foreground">加载中...</div>;

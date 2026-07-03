@@ -373,17 +373,6 @@ export function MessageBubble({ message, isStreaming, isEditing, editContent, on
     }
   }, [isPlaying, message.content]);
 
-  // Copy full AI message
-  const [isMsgCopied, setIsMsgCopied] = useState(false);
-  const handleCopyMessage = useCallback(async () => {
-    try {
-      const text = stripMarkdown(message.content || '');
-      await navigator.clipboard.writeText(text);
-      setIsMsgCopied(true);
-      setTimeout(() => setIsMsgCopied(false), 2000);
-    } catch {}
-  }, [message.content]);
-
   return (
     <div className={`flex gap-2 md:gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
       <div className={`flex-shrink-0 w-7 h-7 md:w-8 md:h-8 rounded-full flex items-center justify-center ${isUser ? 'bg-primary' : 'bg-muted'}`}>
@@ -438,22 +427,13 @@ export function MessageBubble({ message, isStreaming, isEditing, editContent, on
               </button>
             )}
             {!isUser && message.content && (
-              <div className="flex items-center gap-3 mt-1.5">
-                <button
-                  onClick={handleCopyMessage}
-                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors min-h-[32px]"
-                >
-                  {isMsgCopied ? <Check className="w-2.5 h-2.5 text-green-400" /> : <Copy className="w-2.5 h-2.5" />}
-                  {isMsgCopied ? '已复制' : '复制'}
-                </button>
-                <button
-                  onClick={handleTTS}
-                  className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors min-h-[32px]"
-                >
-                  {isPlaying ? <Square className="w-2.5 h-2.5" /> : <Volume2 className="w-2.5 h-2.5" />}
-                  {isPlaying ? '停止' : '朗读'}
-                </button>
-              </div>
+              <button
+                onClick={handleTTS}
+                className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors min-h-[32px]"
+              >
+                {isPlaying ? <Square className="w-2.5 h-2.5" /> : <Volume2 className="w-2.5 h-2.5" />}
+                {isPlaying ? '停止' : '朗读'}
+              </button>
             )}
           </>
         )}

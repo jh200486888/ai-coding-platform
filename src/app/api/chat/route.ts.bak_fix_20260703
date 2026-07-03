@@ -839,40 +839,7 @@ export async function POST(request: NextRequest) {
       logger.info('[Prompt] Failed to read DB prompts, using hardcoded:', (e as any)?.message);
     }
     const lastUserMsg = messages.filter((m: any) => m.role === 'user').pop()?.content || ''; const memories = await getMemories(typeof lastUserMsg === 'string' ? lastUserMsg : '');
-    // === Auto-inject cross-session semantic memory ===
-    let crossMemorySection = '';
-    try {
-      if (typeof lastUserMsg === 'string' && lastUserMsg.trim().length > 5) {
-        const { generateEmbedding } = await import('@/lib/rag');
-        const queryEmbedding = await generateEmbedding(lastUserMsg.slice(0, 500));
-        if (queryEmbedding) {
-          const vectorStr = '[' + queryEmbedding.join(',') + ']';
-          const memRows = await (await import('@/lib/db')).query(
-            `SELECT content, summary, memory_type, importance,
-                    1 - (embedding <=> $1::vector) as similarity
-             FROM cross_session_memories
-             WHERE embedding IS NOT NULL
-               AND importance >= 0.3
-               AND (expires_at IS NULL OR expires_at > NOW())
-             ORDER BY similarity DESC LIMIT 3`,
-            [vectorStr]
-          );
-          if (memRows && memRows.length > 0) {
-            const relevant = memRows.filter((r: any) => r.similarity > 0.3);
-            if (relevant.length > 0) {
-              const typeEmoji: Record<string, string> = { insight: '💡', decision: '🎯', preference: '👤', fact: '📌', error_solution: '🔧', architecture: '🏗️' };
-              crossMemorySection = '\n\n【历史记忆（自动召回）】\n' + relevant.map((r: any, i: number) =>
-                (i+1) + '. ' + (typeEmoji[r.memory_type] || '📝') + ' ' + (r.summary || r.content.slice(0, 80))
-              ).join('\n');
-              logger.info('[Memory] Auto-injected ' + relevant.length + ' cross-session memories (similarity > 0.3)');
-            }
-          }
-        }
-      }
-    } catch (e: any) {
-      logger.info('[Memory] Cross-session recall failed: ' + (e.message || 'unknown'));
-    }
-    const memorySection = (memories ? '\n\n以下是关于这个用户的一些信息：\n' + memories + '\n\n用户说"记住"时，用 saveMemory 工具保存。' : '') + crossMemorySection;
+    const memorySection = memories ? '\n\n以下是关于这个用户的一些信息：\n' + memories + '\n\n用户说"记住"时，用 saveMemory 工具保存。' : '';
     // RAG 知识库检索
     let ragSection = "";
     try {
@@ -911,8 +878,7 @@ export async function POST(request: NextRequest) {
         stateContext = await getStateContext(convId);
       }
     } catch {}
-    const verifyRule = '\n\n【重要规则】每次使用 editFile 或 createFile 修改代码后，必须调用 verify_operation 工具验证修改结果（operation_type="file_change"）。不要跳过验证步骤。';
-    const dynamicPrompt = modePrompt + memorySection + ragSection + projectContextSection + stateContext + verifyRule + `\n\n你是 ${identityName} 的 ${model_id}。`;
+    const dynamicPrompt = modePrompt + memorySection + ragSection + projectContextSection + stateContext + `\n\n你是 ${identityName} 的 ${model_id}。`;
 
     // P54: 斜杠命令激活子智能体/技能
     let slashActivation = '';

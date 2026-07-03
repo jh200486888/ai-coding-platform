@@ -635,7 +635,6 @@ export function ChatInterface() {
           onDrop={handleDrop}
           isDragging={isDragging}
           CHAT_MODES={CHAT_MODES}
-          onStarterPromptClick={(prompt: string) => setInput(prompt)}
         />
 
         {/* Tool Approval Cards */}
