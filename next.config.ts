@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import { withSentryConfig } from '@sentry/nextjs';
 
 const nextConfig: NextConfig = {
   allowedDevOrigins: ['*.dev.coze.site', 'dev.agent.piyiguo.com', 'localhost'],
@@ -40,5 +41,6 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
-
+export default withSentryConfig(nextConfig, {
+  silent: true,
+});

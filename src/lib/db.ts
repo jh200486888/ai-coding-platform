@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import type { Conversation, Message, ModelConfig, ApiKey } from '@/lib/types';
 import { randomUUID } from 'crypto';
+import { cacheGet, cacheSet, cacheDelete } from './cache';
 
 // PostgreSQL 连接池
 let pool: Pool | null = null;
@@ -117,10 +118,14 @@ export async function listModelConfigs(): Promise<ModelConfig[]> {
 }
 
 export async function getModelConfig(modelId: string): Promise<{ model_id: string; provider: string; display_name: string; default_temperature: number | null; default_max_tokens: number | null; default_top_p: number | null; default_presence_penalty: number | null; default_frequency_penalty: number | null } | null> {
-  return queryOne(
+  const cached = cacheGet<{ model_id: string; provider: string; display_name: string; default_temperature: number | null; default_max_tokens: number | null; default_top_p: number | null; default_presence_penalty: number | null; default_frequency_penalty: number | null } | null>(`modelconfig:${modelId}`);
+  if (cached !== undefined) return cached;
+  const result = await queryOne(
     'SELECT "modelId" as model_id, provider, name as display_name, default_temperature, default_max_tokens, default_top_p, default_presence_penalty, default_frequency_penalty FROM model_configs WHERE "modelId" = $1 AND "isActive" = true',
     [modelId]
   );
+  cacheSet(`modelconfig:${modelId}`, result, 60000); // 60s TTL
+  return result;
 }
 
 export async function upsertModelConfig(input: {
@@ -222,12 +227,16 @@ async function ensureSettingsTable(): Promise<void> {
 }
 
 export async function getSetting(key: string): Promise<string | null> {
+  const cached = cacheGet<string | null>(`setting:${key}`);
+  if (cached !== undefined) return cached;
   await ensureSettingsTable();
   const row = await queryOne<{ value: string }>(
     'SELECT value FROM settings WHERE key = $1',
     [key]
   );
-  return row ? row.value : null;
+  const result = row ? row.value : null;
+  cacheSet(`setting:${key}`, result, 30000); // 30s TTL
+  return result;
 }
 
 export async function setSetting(key: string, value: string): Promise<void> {
@@ -237,6 +246,7 @@ export async function setSetting(key: string, value: string): Promise<void> {
      ON CONFLICT (key) DO UPDATE SET value = $2, "updatedAt" = NOW()`,
     [key, value]
   );
+  cacheDelete(`setting:${key}`);
 }
 
 export async function getAllSettings(): Promise<Record<string, string>> {
