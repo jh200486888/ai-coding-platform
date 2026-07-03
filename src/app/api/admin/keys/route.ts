@@ -151,8 +151,16 @@ export async function PUT(request: Request) {
         "Authorization": `Bearer ${decodedKey}`,
         "Content-Type": "application/json",
       },
+      // Use provider-appropriate test model
+      const testModels: Record<string, string> = {
+        openai: "gpt-3.5-turbo", zhipu: "glm-4-flash", qwen: "qwen-turbo",
+        deepseek: "deepseek-chat", google: "gemini-2.0-flash", anthropic: "claude-3-haiku-20240307",
+        moonshot: "moonshot-v1-8k", doubao: "doubao-pro-4k", yi: "yi-lightning",
+        baidu: "ernie-speed-128k", spark: "generalv3.5", minimax: "abab5.5-chat",
+      };
+      const testModel = testModels[prov] || "gpt-3.5-turbo";
       body: JSON.stringify({
-        model: "gpt-3.5-turbo",
+        model: testModel,
         messages: [{ role: "user", content: "hi" }],
         max_tokens: 1,
       }),
