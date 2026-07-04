@@ -144,9 +144,9 @@ export function ChatInterface() {
   // Extract tool calls from assistant message parts (AI SDK v7)
   const toolCalls = (() => {
     const allToolCalls: any[] = [];
-    for (const msg of messages) {
+    for (const msg of (messages || [])) {
       if (msg.role !== "assistant") continue;
-      const parts = (msg as any).parts || [];
+      const parts = Array.isArray((msg as any)?.parts) ? (msg as any).parts : [];
       const msgToolCalls = parts
         .filter((p: any) => {
           return p.type === "tool-invocation" || p.type?.startsWith("tool-") || p.type === "dynamic-tool";
@@ -223,9 +223,9 @@ export function ChatInterface() {
       reason?: string;
       output?: string;
     }> = [];
-    for (const msg of messages) {
+    for (const msg of (messages || [])) {
       if (msg.role !== "assistant") continue;
-      const parts = (msg as any).parts || [];
+      const parts = Array.isArray((msg as any)?.parts) ? (msg as any).parts : [];
       for (const p of parts) {
         const state = String(p.state || "").toLowerCase();
         // OPT1: Skip approval cards for auto-approved (isAutomatic) tools - silent execution
@@ -316,7 +316,7 @@ export function ChatInterface() {
   }, [deleteConversation, handleNewChat]);
 
   const handleExport = useCallback(async (format: string = 'md') => {
-    if (messages.length === 0) {
+    if (!messages || messages.length === 0) {
       toast.error('没有可导出的对话');
       return;
     }

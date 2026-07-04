@@ -131,31 +131,34 @@ export async function PUT(request: Request) {
   if (!(await isAdminAuthenticated())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   try {
     const body = await request.json();
+    console.log("[KEY-TEST] body:", JSON.stringify(body));
     const { id, provider } = body;
-    if (!id && !provider) {
-      return NextResponse.json({ error: "id or provider required" }, { status: 400 });
-    }
 
-    // Look up real key from DB (frontend only has masked version)
-    const { queryOne } = await import("@/lib/db");
-    let row: any;
+    // Look up key from DB
+    const { query: dbQuery } = await import("@/lib/db");
+    let rows: any[] = [];
     if (id) {
-      row = await queryOne('SELECT provider, "apiKey", "baseUrl" FROM api_keys WHERE id = $1', [id]);
-    } else {
-      row = await queryOne('SELECT provider, "apiKey", "baseUrl" FROM api_keys WHERE provider = $1 AND "isActive" = true', [provider]);
-    }
-    if (!row || !row.apiKey) {
-      return NextResponse.json({ success: false, message: "\u672a\u627e\u5230\u8be5 API Key" });
+      rows = await dbQuery('SELECT provider, "apiKey", "baseUrl" FROM api_keys WHERE id = $1', [id]);
+    } else if (provider) {
+      rows = await dbQuery('SELECT provider, "apiKey", "baseUrl" FROM api_keys WHERE provider = $1 AND "isActive" = true', [provider]);
     }
 
+    console.log("[KEY-TEST] found rows:", rows?.length || 0);
+
+    if (!rows || rows.length === 0 || !rows[0].apiKey) {
+      return NextResponse.json({ success: false, message: "\u672a\u627e\u5230 API Key (id=" + (id || "none") + ")" });
+    }
+
+    const row = rows[0];
     const decodedKey = Buffer.from(row.apiKey, "base64").toString("utf-8");
-    const prov = row.provider || provider;
+    const prov = row.provider || provider || "unknown";
+
+    console.log("[KEY-TEST] testing provider:", prov, "key_len:", decodedKey.length);
 
     const { DEFAULT_PROVIDER_URLS } = await import("@/lib/config-defaults");
-    const defaultBaseUrl = DEFAULT_PROVIDER_URLS[prov] || `https://api.${prov}.com/v1`;
+    const defaultBaseUrl = DEFAULT_PROVIDER_URLS[prov] || ("https://api." + prov + ".com/v1");
     const url = (row.baseUrl || defaultBaseUrl).replace(/\/+$/, "");
 
-    // Use provider-appropriate test model
     const testModels: Record<string, string> = {
       openai: "gpt-3.5-turbo", zhipu: "glm-4-flash", qwen: "qwen-turbo",
       deepseek: "deepseek-chat", google: "gemini-2.0-flash", anthropic: "claude-3-haiku-20240307",
@@ -164,30 +167,27 @@ export async function PUT(request: Request) {
     };
     const testModel = testModels[prov] || "gpt-3.5-turbo";
 
-    const res = await fetch(`${url}/chat/completions`, {
+    console.log("[KEY-TEST] url:", url, "model:", testModel);
+
+    const res = await fetch(url + "/chat/completions", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${decodedKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: testModel,
-        messages: [{ role: "user", content: "hi" }],
-        max_tokens: 1,
-      }),
+      headers: { "Authorization": "Bearer " + decodedKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: testModel, messages: [{ role: "user", content: "hi" }], max_tokens: 1 }),
       signal: AbortSignal.timeout(15000),
     });
 
+    const text = await res.text().catch(() => "");
+    console.log("[KEY-TEST] response status:", res.status, "body:", text.substring(0, 150));
+
     if (res.ok) {
       return NextResponse.json({ success: true, message: "\u2705 \u8fde\u63a5\u6210\u529f\uff0cAPI Key \u6709\u6548" });
-    } else {
-      const text = await res.text().catch(() => "");
-      if ((res.status === 404 || res.status === 400) && (text.includes("model") || text.includes("does not exist") || text.includes("\u6a21\u578b\u4e0d\u5b58\u5728"))) {
-        return NextResponse.json({ success: true, message: "\u2705 Key \u6709\u6548\uff0c\u8ba4\u8bc1\u901a\u8fc7" });
-      }
-      return NextResponse.json({ success: false, message: `\u274c HTTP ${res.status}: ${text.slice(0, 200)}` });
     }
+    if ((res.status === 404 || res.status === 400) && (text.includes("model") || text.includes("does not exist") || text.includes("\u6a21\u578b"))) {
+      return NextResponse.json({ success: true, message: "\u2705 Key \u6709\u6548\uff0c\u8ba4\u8bc1\u901a\u8fc7" });
+    }
+    return NextResponse.json({ success: false, message: "HTTP " + res.status + ": " + text.substring(0, 200) });
   } catch (e: any) {
-    return NextResponse.json({ success: false, message: e.message || String(e) }, { status: 500 });
+    console.error("[KEY-TEST] ERROR:", e.message, e.stack);
+    return NextResponse.json({ success: false, message: "Error: " + (e.message || String(e)) }, { status: 500 });
   }
 }

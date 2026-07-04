@@ -117,7 +117,7 @@ export function ChatMessages({
       )}
 
       {/* Empty state with starter prompts */}
-      {messages.length === 0 && (
+      {(!messages || messages.length === 0) && (
         <div className="flex items-center justify-center h-full text-muted-foreground">
           <div className="text-center px-4 max-w-2xl w-full">
             <div className="mb-4 flex justify-center">
@@ -169,7 +169,7 @@ export function ChatMessages({
           key={message.id}
           conversationId={conversationId}
           message={message}
-          isStreaming={isLoading && message.role === 'assistant' && index === messages.length - 1}
+          isStreaming={isLoading && message.role === 'assistant' && messages && index === messages.length - 1}
           isEditing={editingMessageId === message.id}
           editContent={editContent}
           onEdit={() => onEditMessage(message.id)}

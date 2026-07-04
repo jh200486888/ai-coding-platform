@@ -77,6 +77,10 @@ export const sshReadFileTool = tool({
     try {
       let content = await sshPool.readFile(effectiveServer, path);
 
+      if (content === null || content === undefined) {
+        return '❌ 文件不存在或无法读取: ' + path + '。请检查路径是否正确，或文件是否在该服务器上存在。';
+      }
+
       if (startLine !== undefined || endLine !== undefined) {
         const lines = content.split('\n');
         const start = startLine || 0;

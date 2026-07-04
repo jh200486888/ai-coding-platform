@@ -50,7 +50,7 @@ function getToolIcon(toolName: string) {
 function getToolSummary(toolName: string, args?: Record<string, unknown>): string {
   if (!args) return '';
   if (toolName === 'ssh_execute') {
-    const cmd = String(args.command || '').trim();
+    const cmd = String(args?.command || '').trim();
     return cmd.length > 60 ? cmd.slice(0, 60) + '...' : cmd;
   }
   if (toolName === 'ssh_write_file' || toolName === 'createFile' || toolName === 'editFile') {
@@ -90,7 +90,7 @@ function FileChangeSummary({ toolCalls }: { toolCalls: ToolCall[] }) {
     (tc.oldContent !== undefined || tc.newContent !== undefined)
   );
 
-  if (fileChanges.length < 2) return null;
+  if (!fileChanges || fileChanges.length < 2) return null;
 
   let totalAdded = 0;
   let totalRemoved = 0;
@@ -144,9 +144,9 @@ export function ToolCallDisplay({ toolCalls }: { toolCalls: ToolCall[] }) {
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<any>(null);
 
-  const running = toolCalls.filter(tc => tc.status === 'running');
-  const done = toolCalls.filter(tc => tc.status === 'done');
-  const errors = toolCalls.filter(tc => tc.status === 'error');
+  const running = (toolCalls || []).filter(tc => tc.status === 'running');
+  const done = (toolCalls || []).filter(tc => tc.status === 'done');
+  const errors = (toolCalls || []).filter(tc => tc.status === 'error');
   const completed = done.length + errors.length;
 
   // Timer for running state

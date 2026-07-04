@@ -152,7 +152,7 @@ export function ToolApprovalCard({
 
       {expanded && (
         <div className="px-3 pb-3 space-y-2">
-          {keyArgs.length > 0 && (
+          {(keyArgs?.length || 0) > 0 && (
             <div className="bg-black/20 rounded-md px-3 py-2 space-y-1">
               {keyArgs.map(([key, value]) => (
                 <div key={key} className="flex gap-2 text-xs">

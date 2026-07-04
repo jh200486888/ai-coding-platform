@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 // ============ Helper: 从 UIMessage 提取纯文本 ============
 function extractTextContent(msg: any): string {
+  if (!msg) return '';
   if (typeof msg.content === 'string') return msg.content;
   if (Array.isArray(msg.parts)) {
     return msg.parts
@@ -19,7 +20,7 @@ function extractTextContent(msg: any): string {
 
 // ============ DB 消息 → UIMessage 格式转换 ============
 function convertDBMessages(dbMsgs: any[]): UIMessage[] {
-  return dbMsgs
+  return (dbMsgs || [])
     .filter((m: any) => m.role !== 'system')
     .map((m: any) => {
       const content: string = m.content || '';

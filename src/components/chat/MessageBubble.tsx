@@ -75,6 +75,8 @@ interface ContentSegment {
 }
 
 function parseContent(text: string): ContentSegment[] {
+  // Null safety: ensure text is always a string
+  if (!text || typeof text !== 'string') text = '';
   const segments: ContentSegment[] = [];
   
   // Extract FULL_REPORT content and REPORT_CARD title
@@ -278,7 +280,7 @@ function RenderedContent({ content, conversationId, isAssistant }: { content: st
         if (seg.type === 'code') return <CodeBlock key={i} content={seg.content} lang={seg.lang} />;
         if (seg.type === 'report-card') return <ReportCard key={i} title={seg.reportTitle || '分析报告'} conversationId={conversationId} artifactId={seg.reportArtifactId} />;
         if (seg.type === 'html-preview' && seg.htmlData) return <HtmlPreviewCard key={i} html={seg.htmlData.html} title={seg.htmlData.title} viewport={seg.htmlData.viewport as any} />;
-        if (isAssistant && seg.content.length > 20) {
+        if (isAssistant && seg.content && seg.content.length > 20) {
           return (
             <div key={i} className="prose prose-invert max-w-none
               prose-headings:text-foreground prose-h1:text-xl prose-h1:mb-2 prose-h2:text-lg prose-h2:mb-2 prose-h2:mt-4 prose-h2:text-primary prose-h3:text-base prose-h3:mt-3 prose-h3:text-primary
@@ -339,7 +341,7 @@ function ThinkingBlock({ content }: { content: string }) {
 
 export function MessageBubble({ message, isStreaming, isEditing, editContent, onEdit, onEditChange, onEditSave, onEditCancel, conversationId }: MessageBubbleProps) {
   const isUser = message.role === 'user';
-  const hasAttachments = message.attachments && message.attachments.length > 0;
+  const hasAttachments = Array.isArray(message.attachments) && message.attachments.length > 0;
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -413,7 +415,7 @@ export function MessageBubble({ message, isStreaming, isEditing, editContent, on
         ) : (
           <>
             {/* Thinking process display */}
-            {!isUser && (message as any).reasoning && (message as any).reasoning.length > 0 && (
+            {!isUser && (message as any).reasoning && (message as any).reasoning?.length > 0 && (
               <ThinkingBlock content={(message as any).reasoning.map((r: any) => r.text || '').join('\n')} />
             )}
             {message.content && (
