@@ -11,6 +11,21 @@ export default function Error({
 }) {
   useEffect(() => {
     console.error('Application error:', error);
+    console.error('Stack:', error?.stack);
+    console.error('Digest:', error?.digest);
+    // Report to server for logging
+    fetch('/api/telemetry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'frontend_error',
+        message: error?.message,
+        stack: error?.stack?.substring(0, 1000),
+        digest: error?.digest,
+        url: window.location.href,
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
   }, [error]);
 
   return (
