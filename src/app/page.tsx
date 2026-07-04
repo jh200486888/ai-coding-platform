@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { ChatInterface } from '@/components/chat/ChatInterface';
+import { ChatErrorBoundary } from '@/components/chat/ChatErrorBoundary';
 import Link from 'next/link';
 import { Code2, MessageSquare, Palette, FolderOpen, Image, X, File, Folder, ChevronRight, ChevronDown, Plus, Menu } from 'lucide-react';
 
@@ -286,7 +287,7 @@ export default function HomePage() {
 
       <main className="flex-1 flex overflow-hidden">
         <div className="flex-1 min-w-0">
-          <ChatInterface />
+          <ChatErrorBoundary><ChatInterface /></ChatErrorBoundary>
         </div>
         <ProjectPanel isOpen={showPanel} onClose={() => setShowPanel(false)} />
       </main>
