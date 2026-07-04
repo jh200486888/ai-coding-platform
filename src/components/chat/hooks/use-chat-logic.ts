@@ -94,8 +94,8 @@ export function useChatLogic(options: {
   const chat = useChat({
     transport: new DefaultChatTransport({ api: '/api/chat' }),
     messageMetadataSchema: z.object({ conversationId: z.string().optional() }).optional(),
-    // sendAutomaticallyWhen removed - was causing null.length errors in AI SDK v7
-    // Approval responses are now handled via manual sendMessage calls
+    // sendAutomaticallyWhen removed - AI SDK v7 had null.length bug
+    // Safe replacement: watch for approval responses and auto-resume
     async onFinish({ message }) {
       const convId = (message.metadata as any)?.conversationId;
       if (convId) onConversationCreated(convId);
@@ -193,6 +193,28 @@ export function useChatLogic(options: {
       reasoning: msg.reasoning || undefined,
     } as any;
   });
+
+  // Safe auto-resume: when tool approval is responded, auto-send to continue
+  const prevApprovalCount = useRef(0);
+  useEffect(() => {
+    if (chat.status !== 'streaming' && chat.status !== 'submitted') return;
+    const msgs = chat.messages || [];
+    if (!msgs.length) return;
+    const lastMsg = msgs[msgs.length - 1];
+    if (!lastMsg || !Array.isArray(lastMsg.parts)) return;
+    const approvedParts = lastMsg.parts.filter((p: any) =>
+      p.type === 'tool-invocation' && (p.state === 'approval-responded' || p.state === 'output-denied')
+    );
+    if (approvedParts.length > prevApprovalCount.current) {
+      prevApprovalCount.current = approvedParts.length;
+      // Small delay to let SDK process the approval response
+      setTimeout(() => {
+        if (chat.status !== 'streaming') {
+          chat.sendMessage({ text: '' });
+        }
+      }, 500);
+    }
+  }, [chat.messages, chat.status]);
 
   return {
     messages: adaptedMessages,
