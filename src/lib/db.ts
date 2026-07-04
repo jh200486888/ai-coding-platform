@@ -146,7 +146,11 @@ export async function getModelConfig(modelId: string): Promise<{ model_id: strin
     'SELECT "modelId" as model_id, provider, name as display_name, default_temperature, default_max_tokens, default_top_p, default_presence_penalty, default_frequency_penalty FROM model_configs WHERE "modelId" = $1 AND "isActive" = true',
     [modelId]
   );
-  cacheSet(`modelconfig:${modelId}`, result, 60000); // 60s TTL
+  // Only cache non-null results to avoid caching transient failures
+  if (result) {
+    cacheSet(`modelconfig:${modelId}`, result, 60000); // 60s TTL
+  }
+  return result;
 }
 
 export async function upsertModelConfig(input: {
@@ -258,7 +262,11 @@ export async function getSetting(key: string): Promise<string | null> {
     [key]
   );
   const result = row ? row.value : null;
-  cacheSet(`setting:${key}`, result, 30000); // 30s TTL
+  // Only cache non-null results
+  if (result !== null) {
+    cacheSet(`setting:${key}`, result, 30000); // 30s TTL
+  }
+  return result;
 }
 
 export async function setSetting(key: string, value: string): Promise<void> {
