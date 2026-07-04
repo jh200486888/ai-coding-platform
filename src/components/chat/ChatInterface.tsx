@@ -228,6 +228,8 @@ export function ChatInterface() {
       const parts = (msg as any).parts || [];
       for (const p of parts) {
         const state = String(p.state || "").toLowerCase();
+        // OPT1: Skip approval cards for auto-approved (isAutomatic) tools - silent execution
+        if (p.approval?.isAutomatic) return null;
         if (['approval-requested', 'approval-responded', 'output-denied'].includes(state) ||
             (state === 'output-available' && p.approval && !p.approval?.isAutomatic)) {
           cards.push({

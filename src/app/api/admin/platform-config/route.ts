@@ -8,7 +8,7 @@ import { DEFAULT_PROVIDER_URLS, DEFAULT_RUNTIME_CONFIG, DEFAULT_MODE_TOOLS, DEFA
 const ALL_VALID_KEYS = [
   'provider_urls', 'mode_tool_whitelist', 'model_identity', 'tool_name_zh',
   'patrol_config', 'sub_agent_configs', 'provider_max_tokens', 'ws_provider_max_tokens',
-  'tool_safety_tiers', 'ssh_safe_commands', 'notification_config',
+  'tool_safety_tiers', 'ssh_safe_commands', 'notification_config', 'proactive_rules',
 ];
 
 const DEFAULTS_MAP: Record<string, any> = {

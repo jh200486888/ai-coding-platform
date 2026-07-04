@@ -147,7 +147,15 @@ export function createGeneratePptTool() {
           [pptId, 'pptx', title, b64]
         );
 
-        return `PPT已生成！\n\n标题：${title}\n幻灯片数：${slides.length + 1}页（含封面）\n主题：${theme}\n\nPPT ID：${pptId}\n用户可通过 /api/artifacts/${pptId}/download 下载。`;
+        // Quality check
+        const emptySlides = slides.filter(s => !s.content || s.content.length === 0).length;
+        const thinSlides = slides.filter(s => s.content && s.content.length < 2).length;
+        let pptQuality = '';
+        if (emptySlides > 0) pptQuality += `\n⚠️ ${emptySlides}张幻灯片无内容，建议补充。`;
+        if (thinSlides > 0) pptQuality += `\n⚠️ ${thinSlides}张幻灯片内容过少，建议每张至少3个要点。`;
+        if (slides.length < 3) pptQuality += '\n⚠️ 幻灯片数量较少，建议增加内容深度。';
+
+        return `PPT已生成！\n\n标题：${title}\n幻灯片数：${slides.length + 1}页（含封面）\n主题：${theme}${pptQuality}\n\nPPT ID：${pptId}\n用户可通过 /api/artifacts/${pptId}/download 下载。`;
       } catch (e) {
         return `PPT生成失败: ${e.message}`;
       }
@@ -194,7 +202,14 @@ export function createGenerateDocumentTool() {
           [docId, fmt, title, md]
         );
 
-        return `文档已生成！\n\n标题：${title}\n格式：${fmt}\n章节数：${sections.length}\n\n文档ID：${docId}\n用户可通过 /api/artifacts/${docId}/download 下载。`;
+        // Quality check
+        const totalWords = sections.reduce((sum, s) => sum + s.content.length, 0);
+        const hasEmptySections = sections.filter(s => !s.content || s.content.length < 10).length;
+        let qualityNote = '';
+        if (hasEmptySections > 0) qualityNote += `\n⚠️ 注意：${hasEmptySections}个章节内容过短，建议补充。`;
+        if (totalWords < 100) qualityNote += '\n⚠️ 文档内容较短，建议增加更多细节。';
+
+        return `文档已生成！\n\n标题：${title}\n格式：${fmt}\n章节数：${sections.length}\n总字数：${totalWords}${qualityNote}\n\n文档ID：${docId}\n用户可通过 /api/artifacts/${docId}/download 下载。`;
       } catch (e) {
         return `文档生成失败: ${e.message}`;
       }
@@ -282,7 +297,16 @@ export function createGenerateExcelTool() {
           [excelId, 'xlsx', title, b64]
         );
 
-        return `Excel已生成！\n\n标题：${title}\n工作表数：${sheets.length}\n总数据行：${sheets.reduce((sum, s) => sum + s.rows.length, 0)}行\n\nExcel ID：${excelId}\n用户可通过 /api/artifacts/${excelId}/download 下载。`;
+        // Quality check
+        const totalRows = sheets.reduce((sum, s) => sum + s.rows.length, 0);
+        const emptySheets = sheets.filter(s => !s.rows || s.rows.length === 0).length;
+        const inconsistentCols = sheets.filter(s => s.rows.some((r: any[]) => r.length !== s.headers.length)).length;
+        let xlsxQuality = '';
+        if (emptySheets > 0) xlsxQuality += `\n⚠️ ${emptySheets}个工作表无数据。`;
+        if (inconsistentCols > 0) xlsxQuality += `\n⚠️ ${inconsistentCols}个工作表列数不一致，请检查。`;
+        if (totalRows < 2) xlsxQuality += '\n⚠️ 数据行较少，建议增加更多样本。';
+
+        return `Excel已生成！\n\n标题：${title}\n工作表数：${sheets.length}\n总数据行：${totalRows}行${xlsxQuality}\n\nExcel ID：${excelId}\n用户可通过 /api/artifacts/${excelId}/download 下载。`;
       } catch (e) {
         return `Excel生成失败: ${e.message}`;
       }

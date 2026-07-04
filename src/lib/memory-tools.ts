@@ -319,3 +319,41 @@ export async function getMemoryContext(): Promise<string> {
     return '\n\n【用户记忆（三层架构）】\n' + Object.entries(grouped).map(([c,items])=>`${c}: ${items.join('; ')}`).join('\n') + '\n\n用户说"记住"时用 saveMemory 保存。使用 searchMemory 语义搜索历史记忆。';
   } catch { return ''; }
 }
+
+// ============ Memory Distillation: value-based promotion ============
+export async function distillMemories(): Promise<{ promoted: number; demoted: number }> {
+  let promoted = 0, demoted = 0;
+  try {
+    // Promote: mid_term memories accessed 3+ times -> long_term
+    const accessed = await query(
+      `UPDATE user_memory SET memory_tier = 'long_term', expires_at = NULL, "updatedAt" = NOW()
+       WHERE memory_tier = 'mid_term' AND access_count >= 3 AND importance >= 3
+       RETURNING id`
+    );
+    promoted = accessed.length;
+
+    // Demote: short_term memories not accessed in 24h with low importance -> expire
+    const expired = await query(
+      `UPDATE user_memory SET expires_at = NOW() + INTERVAL '1 hour'
+       WHERE memory_tier = 'short_term' AND importance <= 2
+       AND last_accessed_at < NOW() - INTERVAL '24 hours'
+       AND expires_at IS NULL
+       RETURNING id`
+    );
+    demoted = expired.length;
+
+    // Promote: user_preference category always -> long_term
+    await run(
+      `UPDATE user_memory SET memory_tier = 'long_term', expires_at = NULL
+       WHERE category = 'user_preference' AND memory_tier != 'long_term'`
+    );
+
+    if (promoted > 0 || demoted > 0) {
+      console.log(`[Memory] Distillation: promoted ${promoted}, demoted ${demoted}`);
+    }
+  } catch (e: any) {
+    console.error('[Memory] Distillation failed:', e?.message);
+  }
+  return { promoted, demoted };
+}
+

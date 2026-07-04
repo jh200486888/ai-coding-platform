@@ -24,11 +24,12 @@ import PlatformConfigPanel from '@/components/admin/PlatformConfigPanel';
 import ProjectContextPanel from '@/components/admin/ProjectContextPanel';
 import ToolSafetyPanel from '@/components/admin/ToolSafetyPanel';
 import WorkflowTemplatesPanel from '@/components/admin/WorkflowTemplatesPanel';
+import ProactiveRulesPanel from '@/components/admin/ProactiveRulesPanel';
 import BackgroundJobsPanel from '@/components/admin/BackgroundJobsPanel';
 import NotificationCenterPanel from '@/components/admin/NotificationCenterPanel';
 const MODELS_DATA = MODELS_IMPORT.map(m => ({ id: m.id, name: m.name, provider: m.provider, description: m.description || '' }));
 
-type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'telemetry' | 'mcp' | 'memory' | 'knowledge' | 'tasks' | 'patrol' | 'heartbeat' | 'design' | 'sub-agents' | 'skills' | 'audit-logs' | 'security' | 'platform-config' | 'project-context' | 'tool-safety' | 'workflow-templates' | 'background-jobs' | 'notification-center';
+type Tab = 'dashboard' | 'keys' | 'models' | 'conversations' | 'settings' | 'settings-advanced' | 'oauth' | 'projects' | 'account' | 'telemetry' | 'mcp' | 'memory' | 'knowledge' | 'tasks' | 'patrol' | 'heartbeat' | 'design' | 'sub-agents' | 'skills' | 'audit-logs' | 'security' | 'platform-config' | 'project-context' | 'tool-safety' | 'workflow-templates' | 'proactive-rules' | 'background-jobs' | 'notification-center';
 
 // ============ Sidebar Navigation Structure ============
 interface SidebarGroup {
@@ -68,6 +69,7 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
       { id: 'project-context', label: '项目上下文', icon: <FileText size={14} /> },
       { id: 'tool-safety', label: '工具安全', icon: <Shield size={14} /> },
       { id: 'workflow-templates', label: '工作流模板', icon: <Play size={14} /> },
+      { id: 'proactive-rules', label: '主动推理', icon: <Brain size={14} /> },
     ],
   },
   {
@@ -364,6 +366,7 @@ return () => { window.fetch = originalFetch; };
           {activeTab === 'project-context' && <ProjectContextPanel />}
           {activeTab === 'tool-safety' && <ToolSafetyPanel />}
           {activeTab === 'workflow-templates' && <WorkflowTemplatesPanel />}
+          {activeTab === 'proactive-rules' && <ProactiveRulesPanel />}
           {activeTab === 'background-jobs' && <BackgroundJobsPanel />}
           {activeTab === 'notification-center' && <NotificationCenterPanel />}
         </div>

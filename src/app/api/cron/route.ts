@@ -5,6 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { processNextJob, cleanupOldJobs } from '@/lib/job-queue';
+import { distillMemories } from '@/lib/memory-tools';
 import { getDueTasks, markTaskRun, initScheduledTasksTable } from '@/lib/agent-state';
 import { getSetting } from '@/lib/db';
 import { logger } from '@/lib/logger';
@@ -43,6 +44,8 @@ return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     console.error('[Cron] Job processing error:', e?.message);
   }
   try { await cleanupOldJobs(); } catch {}
+  // Memory distillation: promote valuable memories, expire low-value ones
+  try { await distillMemories(); } catch {}
 
   try {
     await initScheduledTasksTable();

@@ -82,6 +82,13 @@ export async function smartTrimMessages(
   model: any,
   options?: { reservedForOutput?: number; forceTrim?: boolean }
 ): Promise<{ messages: any[]; wasTrimmed: boolean }> {
+  // Guard: never return empty messages
+  if (!messages || messages.length === 0) {
+    return { messages: messages || [], wasTrimmed: false };
+  }
+  // Always keep at least the last user message
+  const lastUserMsg = [...messages].reverse().find((m: any) => m.role === 'user');
+
   const modelId = extractModelId(model);
   const contextWindow = getModelContextWindow(modelId);
   const reservedForOutput = options?.reservedForOutput || Math.min(16000, Math.floor(contextWindow * 0.15));
@@ -93,9 +100,9 @@ export async function smartTrimMessages(
   for (const msg of messages) {
     if (msg.role === 'tool' && Array.isArray(msg.content)) {
       for (const part of msg.content) {
-        if (part.type === 'tool-result' && part.output?.type === 'text' && part.output.value.length > 8000) {
+        if (part.type === 'tool-result' && part.output?.type === 'text' && part.output.value.length > 4000) {
           const origLen = part.output.value.length;
-          part.output.value = part.output.value.substring(0, 8000) + '\n...[truncated, original: ' + origLen + ' chars]';
+          part.output.value = part.output.value.substring(0, 4000) + '\n...[truncated, original: ' + origLen + ' chars]';
           modified = true;
         }
       }
@@ -160,7 +167,7 @@ export async function smartTrimMessages(
 
           const result = await generateText({
             model: summaryModel,
-            prompt: `Summarize this conversation in Chinese. Keep: 1)User's core goals 2)Key decisions 3)Completed steps 4)Pending items. Max 800 chars.\n\n${oldContent.substring(0, 10000)}`,
+            prompt: `Summarize this conversation in Chinese. CRITICAL: List all COMPLETED tool calls and their results so the AI does NOT repeat them. Keep: 1)User's core goals 2)Key decisions 3)ALL completed steps with results 4)Pending items. Max 800 chars.\n\n${oldContent.substring(0, 10000)}`,
             maxOutputTokens: 1200,
             temperature: 0.3,
           });
@@ -213,10 +220,18 @@ export async function smartTrimMessages(
     }
     const hardTokens = estimateTokens(hardTrimmed);
     logger.info(`[ContextMgr] Hard trim: ${newTokens} -> ${hardTokens} tokens`);
+    // Ensure we always have at least the last user message
+    if (hardTrimmed.length === 0 && lastUserMsg) {
+      hardTrimmed.push(lastUserMsg);
+    }
     if (hardTrimmed.length === 0) return { messages, wasTrimmed: false };
   return { messages: hardTrimmed, wasTrimmed: true };
   }
 
-  if (result.length === 0) return { messages, wasTrimmed: false };
+  if (result.length === 0) {
+    // Fallback: keep at least last user message + last assistant message
+    const fallback = messages.filter((m: any) => m.role === 'user' || m.role === 'assistant').slice(-4);
+    return { messages: fallback.length > 0 ? fallback : messages, wasTrimmed: fallback.length > 0 };
+  }
   return { messages: result, wasTrimmed: true };
 }

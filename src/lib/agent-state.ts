@@ -134,16 +134,16 @@ export async function saveAgentState(state: Partial<AgentState> & { conversation
     await run(
       `UPDATE agent_state SET phase=$2, current_task=$3, blocked_reason=$4, next_step=$5, 
        progress_pct=$6, tool_history=$7, key_decisions=$8, artifacts=$9, error_count=$10, 
-       last_error=$11, updated_at=$12 WHERE id=$1`,
+       last_error=$11, active_plan=$12, updated_at=$13 WHERE id=$1`,
       [id, fields.phase, fields.current_task, fields.blocked_reason, fields.next_step,
        fields.progress_pct, fields.tool_history, fields.key_decisions, fields.artifacts,
-       fields.error_count, fields.last_error, fields.updated_at]
+       fields.error_count, fields.last_error, fields.active_plan, fields.updated_at]
     );
   } else {
     await run(
       `INSERT INTO agent_state (id, conversation_id, phase, current_task, blocked_reason, next_step,
-       progress_pct, tool_history, key_decisions, artifacts, error_count, last_error, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW(),$12)`,
+       progress_pct, tool_history, key_decisions, artifacts, error_count, last_error, active_plan, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),$14)`,
       [id, state.conversation_id, fields.phase, fields.current_task, fields.blocked_reason,
        fields.next_step, fields.progress_pct, fields.tool_history, fields.key_decisions,
        fields.artifacts, fields.error_count, fields.last_error, fields.active_plan, fields.updated_at]
