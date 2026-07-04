@@ -202,27 +202,7 @@ export function useChatLogic(options: {
     } as any;
   }).filter(Boolean);
 
-  // Safe auto-resume: when tool approval is responded, auto-send to continue
-  const prevApprovalCount = useRef(0);
-  useEffect(() => {
-    if (chat.status !== 'streaming' && chat.status !== 'submitted') return;
-    const msgs = chat.messages || [];
-    if (!msgs.length) return;
-    const lastMsg = msgs[msgs.length - 1];
-    if (!lastMsg || !Array.isArray(lastMsg.parts)) return;
-    const approvedParts = lastMsg.parts.filter((p: any) =>
-      p.type === 'tool-invocation' && (p.state === 'approval-responded' || p.state === 'output-denied')
-    );
-    if (approvedParts.length > prevApprovalCount.current) {
-      prevApprovalCount.current = approvedParts.length;
-      // Small delay to let SDK process the approval response
-      setTimeout(() => {
-        if (chat.status !== 'streaming') {
-          chat.sendMessage({ text: '' });
-        }
-      }, 500);
-    }
-  }, [chat.messages, chat.status]);
+  // Auto-resume removed - was sending empty messages causing null.length in AI SDK
 
   return {
     messages: adaptedMessages,

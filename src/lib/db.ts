@@ -41,7 +41,7 @@ const CACHED_TABLES: Record<string, RegExp> = {
 
 export async function run(sql: string, params?: any[]): Promise<void> {
   const p = getPool();
-  const result = await p.query(sql, params);
+  await p.query(sql, params);
   // Auto-invalidate cache for writes to cached tables
   for (const [table, pattern] of Object.entries(CACHED_TABLES)) {
     if (pattern.test(sql)) {
@@ -58,7 +58,6 @@ export async function run(sql: string, params?: any[]): Promise<void> {
       break;
     }
   }
-  return result;
 }
 
 // ============ Conversations ============
@@ -148,7 +147,6 @@ export async function getModelConfig(modelId: string): Promise<{ model_id: strin
     [modelId]
   );
   cacheSet(`modelconfig:${modelId}`, result, 60000); // 60s TTL
-  return result;
 }
 
 export async function upsertModelConfig(input: {
@@ -261,7 +259,6 @@ export async function getSetting(key: string): Promise<string | null> {
   );
   const result = row ? row.value : null;
   cacheSet(`setting:${key}`, result, 30000); // 30s TTL
-  return result;
 }
 
 export async function setSetting(key: string, value: string): Promise<void> {
@@ -281,7 +278,6 @@ export async function getAllSettings(): Promise<Record<string, string>> {
   for (const row of rows) {
     result[row.key] = row.value;
   }
-  return result;
 }
 // ============ Projects ============
 
