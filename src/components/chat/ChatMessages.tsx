@@ -164,7 +164,7 @@ export function ChatMessages({
       )}
 
       {/* Messages */}
-      {messages.map((message, index) => (
+      {(messages || []).filter(Boolean).map((message, index) => (
         <MessageBubble
           key={message.id}
           conversationId={conversationId}

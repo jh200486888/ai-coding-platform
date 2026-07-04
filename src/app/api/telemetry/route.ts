@@ -41,3 +41,17 @@ export async function DELETE(request: NextRequest) {
     );
   }
 }
+
+// POST /api/telemetry — receive frontend error reports
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { type, message, stack, url, timestamp } = body;
+    console.error('[FRONTEND-ERROR]', type || 'unknown', '|', message || 'no message');
+    if (stack) console.error('[FRONTEND-STACK]', stack.substring(0, 500));
+    if (url) console.error('[FRONTEND-URL]', url);
+    return NextResponse.json({ success: true });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}

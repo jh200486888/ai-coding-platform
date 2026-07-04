@@ -342,6 +342,10 @@ function ThinkingBlock({ content }: { content: string }) {
 }
 
 export function MessageBubble({ message, isStreaming, isEditing, editContent, onEdit, onEditChange, onEditSave, onEditCancel, conversationId }: MessageBubbleProps) {
+  // Ultimate null guard: if message is null/undefined, render nothing
+  if (!message) return null;
+  // Ensure content is always a string
+  if (typeof message.content !== 'string') message.content = message.content || '';
   const isUser = message.role === 'user';
   const hasAttachments = Array.isArray(message.attachments) && message.attachments.length > 0;
   const [isPlaying, setIsPlaying] = useState(false);
