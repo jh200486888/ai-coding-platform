@@ -101,12 +101,21 @@ export function useChatLogic(options: {
       if (convId) onConversationCreated(convId);
     },
     onError(error) {
-      if (error?.message?.includes('null') && error?.message?.includes('length')) {
-        console.warn('[useChatLogic] Suppressed null.length error');
+      const errMsg = error?.message || String(error);
+      const errName = error?.name || '';
+      console.error('[CHAT-ERROR] name=' + errName + ' msg=' + errMsg + ' stack=' + (error?.stack || 'none').substring(0, 500));
+      // Report to server for debugging
+      fetch('/api/telemetry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'chat_error', name: errName, message: errMsg, stack: (error?.stack || '').substring(0, 800), timestamp: Date.now() }),
+      }).catch(() => {});
+      // Suppress known non-critical errors
+      if (errMsg.includes('null') || errMsg.includes('aborted') || errMsg.includes('AbortError') || errMsg.includes('terminated') || errMsg.includes('fetch failed')) {
+        console.warn('[CHAT-ERROR] Suppressed non-critical error:', errMsg);
         return;
       }
       toast.error('AI 响应出错，请重试');
-      console.error('[useChatLogic] error:', error);
     },
   });
 
