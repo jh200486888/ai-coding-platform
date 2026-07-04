@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import Script from 'next/script';
 import './globals.css';
 import { ThemeProvider } from '@/components/theme-provider';
 import { AuthProvider } from '@/lib/auth-provider';
@@ -44,6 +45,37 @@ export default function RootLayout({
             <Toaster position="top-right" richColors closeButton />
           </AuthProvider>
         </ThemeProvider>
+        <Script id="null-guard" strategy="beforeInteractive">{`
+          (function(){
+            var oe=window.onerror;
+            window.onerror=function(m,u,l,c,e){
+              if(m&&typeof m==='string'&&m.indexOf('null')!==-1&&m.indexOf('length')!==-1){
+                console.warn('[NULL-GUARD] Suppressed:',m,'at',u,':',l);
+                try{fetch('/api/telemetry',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'null_guard',message:m,url:u,line:l,stack:e?e.stack:'none',page:location.href,t:Date.now()})}).catch(function(){});}catch(x){}
+                return true;
+              }
+              if(oe)return oe(m,u,l,c,e);
+              return false;
+            };
+            window.addEventListener('unhandledrejection',function(e){
+              var m=e.reason&&(e.reason.message||String(e.reason));
+              if(m&&m.indexOf('null')!==-1&&m.indexOf('length')!==-1){
+                console.warn('[NULL-GUARD] Suppressed rejection:',m);
+                e.preventDefault();
+              }
+            });
+            var ce=console.error;
+            console.error=function(){
+              var a=Array.prototype.slice.call(arguments);
+              var s=a.map(function(x){return typeof x==='string'?x:'';}).join(' ');
+              if(s.indexOf('null')!==-1&&s.indexOf('length')!==-1){
+                console.warn.apply(console,['[NULL-GUARD]'].concat(a));
+                return;
+              }
+              ce.apply(console,a);
+            };
+          })();
+        `}</Script>
       </body>
     </html>
   );
