@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, Component, type ReactNode } from 'react';
 import { Brain, RotateCcw, Sparkles, Code, FileText, Lightbulb, Search, PenTool } from 'lucide-react';
 import { MessageBubble } from './MessageBubble';
 import { ToolCallDisplay } from './tool-call-display';
@@ -58,6 +58,20 @@ const STARTER_PROMPTS: Record<string, Array<{ icon: any; label: string; prompt: 
     { icon: Sparkles, label: '头脑风暴创意', prompt: '我想做一个创业项目，请帮我头脑风暴一些创新想法' },
   ],
 };
+
+
+// Error boundary for individual message rendering
+class MessageErrorBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(error: Error) {
+    console.warn('[MSG-RENDER-ERROR]', error.message, error.stack?.substring(0, 300));
+  }
+  render() { return this.state.hasError ? this.props.fallback : this.props.children; }
+}
 
 export function ChatMessages({
   messages,
@@ -165,8 +179,8 @@ export function ChatMessages({
 
       {/* Messages */}
       {(messages || []).filter(Boolean).map((message, index) => (
+        <MessageErrorBoundary key={message.id} fallback={<div className="text-xs text-destructive/70 px-4 py-2">消息渲染异常，已跳过</div>}>
         <MessageBubble
-          key={message.id}
           conversationId={conversationId}
           message={message}
           isStreaming={isLoading && message.role === 'assistant' && messages && index === messages.length - 1}
@@ -177,6 +191,7 @@ export function ChatMessages({
           onEditSave={onEditSave}
           onEditCancel={onEditCancel}
         />
+        </MessageErrorBoundary>
       ))}
 
       {/* Thinking animation */}
@@ -191,7 +206,7 @@ export function ChatMessages({
       {toolCalls.length > 0 && <ToolCallDisplay toolCalls={toolCalls} />}
 
       {/* Regenerate button */}
-      {!isLoading && messages.length > 0 && messages[messages.length - 1].role === 'assistant' && (
+      {!isLoading && messages && messages.length > 0 && messages[messages.length - 1]?.role === 'assistant' && (
         <div className="flex justify-center pt-2">
           <button
             onClick={onRegenerate}
