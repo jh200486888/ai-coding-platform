@@ -101,6 +101,10 @@ export function useChatLogic(options: {
       if (convId) onConversationCreated(convId);
     },
     onError(error) {
+      if (error?.message?.includes('null') && error?.message?.includes('length')) {
+        console.warn('[useChatLogic] Suppressed null.length error');
+        return;
+      }
       toast.error('AI 响应出错，请重试');
       console.error('[useChatLogic] error:', error);
     },
@@ -180,19 +184,23 @@ export function useChatLogic(options: {
   }, [chat.stop]);
 
   // Convert UIMessage[] to legacy Message[] format for existing components
-  const adaptedMessages = chat.messages.map((msg: any) => {
+  const adaptedMessages = (chat.messages || []).map((msg: any) => {
+    if (!msg) return null;
     const textContent = extractTextContent(msg);
+    // Ensure parts is always an array and each part is valid
+    const safeParts = Array.isArray(msg.parts)
+      ? msg.parts.filter((p: any) => p != null && typeof p === 'object')
+      : [];
     return {
-      id: msg.id,
-      role: msg.role,
-      content: textContent,
+      id: msg.id || 'msg-' + Math.random().toString(36).slice(2),
+      role: msg.role || 'assistant',
+      content: textContent || '',
       createdAt: msg.createdAt || new Date(),
       attachments: [],
-      parts: msg.parts,
-      // Pass through reasoning content for thinking mode display
-      reasoning: msg.reasoning || undefined,
+      parts: safeParts,
+      reasoning: Array.isArray(msg.reasoning) ? msg.reasoning : undefined,
     } as any;
-  });
+  }).filter(Boolean);
 
   // Safe auto-resume: when tool approval is responded, auto-send to continue
   const prevApprovalCount = useRef(0);
