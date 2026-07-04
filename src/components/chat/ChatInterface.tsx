@@ -229,7 +229,7 @@ export function ChatInterface() {
       for (const p of parts) {
         const state = String(p.state || "").toLowerCase();
         // OPT1: Skip approval cards for auto-approved (isAutomatic) tools - silent execution
-        if (p.approval?.isAutomatic) return null;
+        if (p.approval?.isAutomatic) continue;
         if (['approval-requested', 'approval-responded', 'output-denied'].includes(state) ||
             (state === 'output-available' && p.approval && !p.approval?.isAutomatic)) {
           cards.push({
@@ -247,7 +247,7 @@ export function ChatInterface() {
       }
     }
     return cards;
-  })();
+  })() || [];
 
   // Approval callbacks
   const handleApprove = (approvalId: string) => {
@@ -677,7 +677,7 @@ export function ChatInterface() {
         />
 
         {/* Tool Approval Cards */}
-        {approvalCards.length > 0 && (
+        {approvalCards && approvalCards.length > 0 && (
           <div className="px-2 md:px-4">
             {approvalCards.map((card) => (
               <ToolApprovalCard
