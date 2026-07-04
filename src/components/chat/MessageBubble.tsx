@@ -12,6 +12,7 @@ import 'highlight.js/styles/github-dark.css';
 
 // Clean attachment markers from message content for display
 function cleanAttachmentMarkers(text: string): string {
+  if (!text) return '';
   return text
     .replace(/\[image:[\s\S]*?\]/g, '[图片]')
     .replace(/\[file:[^\]]*?\]:\n[\s\S]*?(?=\n\[|$)/g, '[文件]')
@@ -49,6 +50,7 @@ function AttachmentTypeIcon({ type }: { type: Attachment['type'] }) {
 }
 
 function stripMarkdown(text: string): string {
+  if (!text) return '';
   return text
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/\*(.+?)\*/g, '$1')
@@ -418,10 +420,10 @@ export function MessageBubble({ message, isStreaming, isEditing, editContent, on
             {!isUser && (message as any).reasoning && (message as any).reasoning?.length > 0 && (
               <ThinkingBlock content={(message as any).reasoning.map((r: any) => r.text || '').join('\n')} />
             )}
-            {message.content && (
+            {(message.content || message.attachments?.length > 0) && (
               <div className="text-sm break-words">
                 {isUser ? (
-                  <span className="whitespace-pre-wrap break-words">{cleanAttachmentMarkers(message.content)}</span>
+                  <span className="whitespace-pre-wrap break-words">{cleanAttachmentMarkers(message.content || '')}</span>
                 ) : (
                   <>
                     <RenderedContent content={message.content} conversationId={conversationId} isAssistant={true} />

@@ -162,7 +162,7 @@ export function ChatInterface() {
           const toolName = p.toolName || (p.type === "dynamic-tool" ? p.toolName : (p.type || "").replace("tool-", ""));
 
           let summary: string | undefined;
-          const output = typeof p.output === "string" ? p.output : "";
+          const output = (p.output != null && typeof p.output === "string") ? p.output : "";
           if (isStreaming) {
             const toolMatch = output.match(/工具:\s*(.+)/);
             summary = toolMatch ? toolMatch[1] : "执行中...";
@@ -197,7 +197,7 @@ export function ChatInterface() {
             toolName,
             status: isApproval ? "approval" : isDenied ? "denied" : isError ? "error" : isDone ? "done" : "running",
             approvalId: p.approval?.id,
-            args: p.input || p.args || {},
+            args: (p.input && typeof p.input === "object") ? p.input : ((p.args && typeof p.args === "object") ? p.args : {}),
             summary,
             isSubAgent: toolName === "delegate_task",
             subAgentOutput: toolName === "delegate_task" && isStreaming ? output : undefined,
@@ -234,7 +234,7 @@ export function ChatInterface() {
             (state === 'output-available' && p.approval && !p.approval?.isAutomatic)) {
           cards.push({
             toolName: p.toolName || (p.type || "").replace("tool-", ""),
-            args: p.input || p.args || {},
+            args: (p.input && typeof p.input === "object") ? p.input : ((p.args && typeof p.args === "object") ? p.args : {}),
             state: state as "approval-requested" | "approval-responded" | "output-available" | "output-denied",
             approvalId: p.approval?.id,
             callId: p.toolCallId || p.type,
