@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useChat } from '@ai-sdk/react';
-import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from 'ai';
+import { DefaultChatTransport } from 'ai';
 import { z } from 'zod';
 import type { UIMessage } from 'ai';
 import { toast } from 'sonner';
@@ -94,7 +94,8 @@ export function useChatLogic(options: {
   const chat = useChat({
     transport: new DefaultChatTransport({ api: '/api/chat' }),
     messageMetadataSchema: z.object({ conversationId: z.string().optional() }).optional(),
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+    // sendAutomaticallyWhen removed - was causing null.length errors in AI SDK v7
+    // Approval responses are now handled via manual sendMessage calls
     async onFinish({ message }) {
       const convId = (message.metadata as any)?.conversationId;
       if (convId) onConversationCreated(convId);
