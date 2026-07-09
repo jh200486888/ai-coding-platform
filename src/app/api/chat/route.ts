@@ -2140,7 +2140,7 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
           logger.info('[P79] Idle narration detected (no tool call in coding mode): ' + text.substring(0, 100));
           try {
             const p79_forceResult = await generateText({
-              model: wrappedModel,
+              model: model, // P79: use raw model (no reasoning middleware) to support toolChoice: required
               system: dynamicPrompt + '\n\n⚠️ 紧急：你刚才说了要做但没做。现在必须立刻调用工具执行！禁止输出任何文字，直接调工具！',
               messages: [
                 ...chatMessages,
@@ -2167,7 +2167,7 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
             if (!p79_forceText && p79_forceToolResults.length > 0) {
               try {
                 const p79_summaryResult = await generateText({
-                  model: wrappedModel,
+                  model: model, // P79: use raw model for summary
                   system: dynamicPrompt,
                   prompt: '你刚刚执行了以下工具操作，请简洁总结结果给用户：\n' + p79_forceToolResults.join('\n'),
                   maxOutputTokens: 2048,
