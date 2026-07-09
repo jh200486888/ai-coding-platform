@@ -111,11 +111,18 @@ export function useChatLogic(options: {
         body: JSON.stringify({ type: 'chat_error', name: errName, message: errMsg, stack: (error?.stack || '').substring(0, 800), timestamp: Date.now() }),
       }).catch(() => {});
       // Suppress known non-critical errors
-      if (errMsg.includes('null') || errMsg.includes('aborted') || errMsg.includes('AbortError') || errMsg.includes('terminated') || errMsg.includes('fetch failed')) {
+      if (errMsg.includes('null') || errMsg.includes('aborted') || errMsg.includes('AbortError') || errMsg.includes('terminated') || errMsg.includes('fetch failed') || errMsg.includes('streaming') || errMsg.includes('tool') || errMsg.includes('tool_call') || errMsg.includes('An error occurred')) {
         console.warn('[CHAT-ERROR] Suppressed non-critical error:', errMsg);
         return;
       }
-      toast.error('AI 响应出错，请重试');
+      // Only show toast for clear API/auth errors
+      if (errMsg.includes('401') || errMsg.includes('unauthorized') || errMsg.includes('429') || errMsg.includes('rate')) {
+        toast.error('API 连接异常，请检查模型配置');
+      } else if (errMsg.includes('timeout')) {
+        toast.warning('模型响应超时，已自动重试');
+      } else {
+        console.warn('[CHAT-ERROR] Non-critical error, no toast:', errMsg);
+      }
     },
   });
 

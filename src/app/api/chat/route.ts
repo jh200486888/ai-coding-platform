@@ -2420,15 +2420,16 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
         try { const { mcpManager } = await import('@/lib/mcp-client'); await mcpManager.closeAll(); } catch {}
       },
       onError: (error) => {
-        console.error('[AI] UI Stream error:', error);
         const msg = (error as any)?.message || String(error);
-        // Check for balance/insufficient/quota errors - mark provider as failed and suggest switching
-        if (msg.includes('余额不足') || msg.includes('insufficient') || msg.includes('quota') || msg.includes('429') || msg.includes('rate limit') || msg.includes('No output generated')) {
-          // Mark the current provider as failed so router skips it next time
-          try { markProviderFailed(modelConfig!.provider, msg.slice(0, 100)); } catch {}
-          return "⚠️ 当前模型(" + modelConfig.provider + '/' + model_id + ")API额度不足或暂时不可用，已自动标记，下次auto模式将跳过。建议切换到DeepSeek等可用模型。";
+        if (msg.includes('ResponseAborted') || msg.includes('aborted') || msg.includes('abort')) {
+          return '';
         }
-        return 'An error occurred during streaming.';
+        console.error('[AI] UI Stream error:', error);
+        if (msg.includes('余额不足') || msg.includes('insufficient') || msg.includes('quota') || msg.includes('429') || msg.includes('rate limit') || msg.includes('No output generated')) {
+          try { markProviderFailed(modelConfig!.provider, msg.slice(0, 100)); } catch {}
+          return '⚠️ 当前模型(' + modelConfig.provider + '/' + model_id + ')API额度不足，已自动标记。';
+        }
+        return '';
       },
     });
 
