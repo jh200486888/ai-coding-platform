@@ -148,7 +148,7 @@ export default function PlatformConfigPanel() {
     if (!defaults || !config) return;
     const defaultMap: Record<string, string> = {
       provider_urls: 'provider_urls',
-      mode_tool_whitelist: 'mode_tools',
+      mode_tool_whitelist: 'mode_tool_whitelist',
       model_identity: 'model_identity',
       tool_name_zh: 'tool_name_zh',
       patrol_config: 'patrol_config',
@@ -192,7 +192,7 @@ export default function PlatformConfigPanel() {
       </div>
 
       {subTab === 'providers' && <ProviderUrlsPanel config={config} defaults={defaults} onSave={(v) => saveKey('provider_urls', v)} onReset={() => resetToDefault('provider_urls')} dirty={dirty.has('provider_urls')} />}
-      {subTab === 'tools' && <ToolWhitelistPanel config={config} defaults={defaults} onSave={(v) => saveKey('mode_tool_whitelist', v)} onReset={() => resetToDefault('mode_tool_whitelist')} dirty={dirty.has('mode_tool_whitelist')} />}
+      {subTab === 'tools' && <ToolWhitelistPanel config={config} defaults={defaults} onSave={(v) => saveKey('mode_tool_whitelist', v)} onReset={() => resetToDefault('mode_tool_whitelist')} onDirty={() => markDirty('mode_tool_whitelist')} dirty={dirty.has('mode_tool_whitelist')} />}
       {subTab === 'identity' && <ModelIdentityPanel config={config} defaults={defaults} onSave={(v) => saveKey('model_identity', v)} onReset={() => resetToDefault('model_identity')} dirty={dirty.has('model_identity')} />}
       {subTab === 'patrol' && <PatrolConfigPanel config={config}
         defaults={defaults} onSave={(v) => saveKey('patrol_config', v)} onReset={() => resetToDefault('patrol_config')} dirty={dirty.has('patrol_config')} />}
@@ -257,7 +257,7 @@ function ProviderUrlsPanel({ config, defaults, onSave, onReset, dirty }: any) {
 
 
 // ============ Tool Whitelist Panel ============
-function ToolWhitelistPanel({ config, defaults, onSave, onReset, dirty }: any) {
+function ToolWhitelistPanel({ config, defaults, onSave, onReset, onDirty, dirty }: any) {
   const [tools, setTools] = useState<Record<string, string[]>>(config.mode_tool_whitelist || {});
   const [editMode, setEditMode] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
@@ -269,7 +269,12 @@ function ToolWhitelistPanel({ config, defaults, onSave, onReset, dirty }: any) {
   const saveEdit = () => {
     if (editMode) {
       const toolList = editText.split(',').map((s: string) => s.trim()).filter(Boolean);
-      setTools((prev: any) => ({ ...prev, [editMode]: toolList }));
+      setTools((prev: any) => {
+        const original = prev[editMode] || [];
+        const changed = toolList.length !== original.length || toolList.some((t: string, i: number) => t !== original[i]);
+        if (changed && onDirty) onDirty();
+        return { ...prev, [editMode]: toolList };
+      });
       setEditMode(null);
     }
   };
