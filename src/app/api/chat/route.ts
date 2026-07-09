@@ -722,10 +722,10 @@ export async function POST(request: NextRequest) {
       const advStr = await getSetting('advanced_config');
       if (advStr) {
         const adv = JSON.parse(advStr);
-        if (adv.max_steps !== undefined) maxSteps = Math.max(adv.max_steps, 10); // Never allow less than 10
+        if (adv.max_steps !== undefined) maxSteps = adv.max_steps;
       }
     } catch {}
-    // All models unified: minimum 10 steps for tool calls + summary output
+    // Use configured max_steps (respects admin panel setting)
 
     try {
       const tempStr = await getSetting('mode_temperatures');
@@ -1224,11 +1224,13 @@ export async function POST(request: NextRequest) {
     for (const name of Object.keys(enhancedTools)) {
       if (baseToolNames.includes(name)) activeTools[name] = enhancedTools[name];
     }
-    // 添加 MCP 工具（MCP工具自动在coding/writing/analysis/chat模式可用，无需MODE_TOOLS白名单）
+    // 添加 MCP 工具（仅当工具名在当前模式白名单内时才启用）
     const mcpEnabledModes = ['coding', 'writing', 'analysis', 'chat', 'design'];
     if (mcpEnabledModes.includes(mode)) {
       for (const [name, tool] of Object.entries(mcpToolsMap)) {
-        activeTools[name] = tool;
+        if (baseToolNames.includes(name)) {
+          activeTools[name] = tool;
+        }
       }
     }
 
@@ -1238,9 +1240,20 @@ export async function POST(request: NextRequest) {
     }
 
     // === 自主智能：SSH服务器工具 + 技能工具（必须在子智能体工具之前注册） ===
-    Object.assign(activeTools, serverTools, dynamicTools, browserTools, crossMemoryTools, skillTools, webTools, previewTools, dbTools, githubTools, convertDocumentTool);
+    // 仅当工具名在当前模式白名单内时才启用
+    const advancedToolGroups = {
+      ...serverTools, ...dynamicTools, ...browserTools, ...crossMemoryTools,
+      ...skillTools, ...webTools, ...previewTools, ...dbTools, ...githubTools, ...convertDocumentTool,
+    };
+    for (const [name, tool] of Object.entries(advancedToolGroups)) {
+      if (baseToolNames.includes(name)) {
+        activeTools[name] = tool;
+      }
+    }
     // Auto-verification tool
-    Object.assign(activeTools, verifyTool);
+    if (baseToolNames.includes('verify_operation')) {
+      Object.assign(activeTools, verifyTool);
+    }
 
     // 子智能体工具（AI SDK 原生 ToolLoopAgent）- 委派任务给专门的子智能体
     if (baseToolNames.includes('delegate_task')) {
