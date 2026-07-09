@@ -1343,6 +1343,8 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
   const [showModelRouting, setShowModelRouting] = useState(false);
   const [sandboxConfig, setSandboxConfig] = useState({timeout: 30, max_output_length: 10000, enable_network: false, temp_dir: '/tmp/ai-sandbox'});
   const [showSandbox, setShowSandbox] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [settingsError, setSettingsError] = useState('');
   const [settingsSubTab, setSettingsSubTab] = useState<'basic' | 'advanced' | 'oauth'>(initialSubTab);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showModeTemps, setShowModeTemps] = useState(false);
@@ -1355,9 +1357,17 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
   }, []);
 
   const fetchSettings = async () => {
+    setSettingsLoading(true);
+    setSettingsError('');
     try {
-      const res = await fetch('/api/admin/settings');
+      const res = await fetch('/api/admin/settings', { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } });
+      console.log('[Settings] API status:', res.status);
       const data = await res.json();
+      console.log('[Settings] API response keys:', Object.keys(data), 'data keys:', data.data ? Object.keys(data.data).length : 0);
+      if (!data.success && data.error === 'Unauthorized') {
+        toast.error('登录已过期，请重新登录后刷新页面');
+        return;
+      }
       if (data.success && data.data) {
         setSettings(data.data);
         setForm({
@@ -1411,7 +1421,12 @@ function SettingsPanel({ initialSubTab = "basic" }: { initialSubTab?: "basic" | 
         try { if (data.data.advanced_config) { const adv = JSON.parse(data.data.advanced_config); setAdvConfig(prev => ({ ...prev, ...adv })); } } catch {}
         try { if (data.data.sandbox_config) { setSandboxConfig(prev => ({ ...prev, ...JSON.parse(data.data.sandbox_config) })); } } catch {}
       }
-    } catch (err) { console.error('Failed to fetch settings:', err); }
+    } catch (err) {
+      console.error('Failed to fetch settings:', err);
+      setSettingsError('加载失败: ' + (err.message || '未知错误'));
+    } finally {
+      setSettingsLoading(false);
+    }
   };
 
   const fetchModels = async () => {

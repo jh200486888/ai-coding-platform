@@ -11,8 +11,19 @@ import { sshPool, DANGEROUS_COMMANDS } from './ssh-pool';
 export const sshExecuteTool = tool({
   description: `在远程服务器上执行shell命令。支持production(85服务器)和development(182服务器)。
 
+【关键操作规范】
+1. 操作前必须确认路径：系统提示中注入了"项目目录注册表"，操作前必须从中确认正确路径
+2. 如果不确定项目路径，先执行 "ls /www/wwwroot/" 查看可用项目
+3. 进入项目目录后再操作：cd /www/wwwroot/项目名 && ls
+4. 数据库操作安全：
+   - 查询用 db_query 工具（只读安全）而非 psql -c
+   - 任何写操作（INSERT/UPDATE/DELETE）必须先确认并建议用户通过后台操作
+   - 绝对禁止通过 ssh_execute 执行 DROP/DELETE/TRUNCATE 等破坏性SQL
+5. 首次操作新项目时，先执行 "ls -la" 和 "cat package.json" 了解项目结构
+
 安全规则：
 - 危险命令(rm -rf /, DROP DATABASE, shutdown等)会被自动拦截
+- 数据库写操作(psql -c INSERT/UPDATE, mysql -e等)需要用户审批
 - 写入操作(rm, DELETE, pm2 restart等)需要用户审批确认
 - 默认超时60秒，构建等长任务可设300秒
 
@@ -50,6 +61,10 @@ export const sshExecuteTool = tool({
         output = output.slice(0, 8000) + '\n... [输出已截断，共' + output.length + '字符]';
       }
 
+      // FIX6: When command fails with "No such file" or similar, suggest path discovery
+      if (result.code !== 0 && /No such file|not found|does not exist|没有那个文件/i.test(output)) {
+        output += '\n\n[路径提示] 目标路径可能不正确。请先执行 "ls /www/wwwroot/" 查看可用项目目录，然后用正确路径重试。';
+      }
       return output || '(无输出)';
     } catch (error) {
       return `❌ 执行失败: ${error instanceof Error ? error.message : String(error)}`;

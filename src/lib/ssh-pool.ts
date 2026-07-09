@@ -26,9 +26,16 @@ const DANGEROUS_COMMANDS = [
   /mkfs/,
   /dd\s+if=/,
   /:\(\)\{\s*:\|:\s*&\s*\}/,
-  /DROP\s+DATABASE/i,
+  // SQL protection: block destructive SQL even via psql/mysql CLI
+  /DROP\s+(DATABASE|TABLE|SCHEMA)/i,
   /TRUNCATE\s+TABLE/i,
-  /DELETE\s+FROM\s+\w+\s*;?\s*$/i,
+  /DELETE\s+FROM/i,
+  /ALTER\s+TABLE\s+\w+\s+(DROP|RENAME)/i,
+  // Block psql/mysql with destructive payloads
+  /psql\s+.*-c\s+["'].*?(DROP|DELETE|TRUNCATE|ALTER|UPDATE\s+.*SET)/i,
+  /mysql\s+.*-e\s+["'].*?(DROP|DELETE|TRUNCATE|ALTER|UPDATE\s+.*SET)/i,
+  // Block piping destructive SQL
+  /echo\s+.*?(DROP|DELETE|TRUNCATE).*\|\s*(psql|mysql)/i,
   /wget.*\|\s*(ba)?sh/,
   /curl.*\|\s*(ba)?sh/,
   /chmod\s+777\s+\//,
@@ -42,6 +49,13 @@ const APPROVAL_COMMANDS = [
   /DELETE\s+/i,
   /TRUNCATE/i,
   /ALTER\s+/i,
+  /UPDATE\s+\w+\s+SET/i,
+  /INSERT\s+INTO/i,
+  // Database CLI operations require approval
+  /psql\s+.*-c/i,
+  /mysql\s+.*-e/i,
+  /mongosh\s+.*--eval/i,
+  /redis-cli\s+(DEL|FLUSH|SET|HSET|LPUSH|SADD)/i,
   /pm2\s+(stop|delete|restart)/,
   /systemctl\s+(stop|restart|disable)/,
   /apt(\s+get)?\s+(remove|purge)/,

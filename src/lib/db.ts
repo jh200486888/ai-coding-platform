@@ -286,6 +286,7 @@ export async function getAllSettings(): Promise<Record<string, string>> {
   for (const row of rows) {
     result[row.key] = row.value;
   }
+  return result;
 }
 // ============ Projects ============
 

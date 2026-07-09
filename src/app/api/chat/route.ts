@@ -957,7 +957,26 @@ export async function POST(request: NextRequest) {
         stateContext = await getStateContext(convId);
       }
     } catch {}
-    const dynamicPrompt = modePrompt + memorySection + ragSection + projectContextSection + proactiveSection + stateContext + `\n\n你是 ${identityName} 的 ${model_id}。`;
+    
+    // FIX1: Load project paths registry and inject into prompt
+    let projectPathsSection = '';
+    try {
+      const { query: dbQuery } = await import('@/lib/db');
+      const paths = await dbQuery('SELECT project_name, server_id, project_dir, db_name, pm2_service, description FROM project_paths ORDER BY project_name');
+      if (paths.length > 0) {
+        projectPathsSection = '\n\n【服务器项目目录注册表 - 操作时必须参考此表确定正确路径】\n';
+        for (const p of paths) {
+          projectPathsSection += `- ${p.project_name}: ${p.server_id}服务器 ${p.project_dir}`;
+          if (p.db_name) projectPathsSection += ` (数据库:${p.db_name})`;
+          if (p.pm2_service) projectPathsSection += ` (PM2:${p.pm2_service})`;
+          if (p.description) projectPathsSection += ` [${p.description}]`;
+          projectPathsSection += '\n';
+        }
+        projectPathsSection += '\n重要：执行任何文件操作前，必须先从上方注册表确认目标项目的正确路径。如果项目不在注册表中，先用 "ls /www/wwwroot/" 发现可用项目。';
+      }
+    } catch {}
+
+    const dynamicPrompt = modePrompt + memorySection + ragSection + projectContextSection + proactiveSection + projectPathsSection + stateContext + `\n\n你是 ${identityName} 的 ${model_id}。`;
 
     // P54: 斜杠命令激活子智能体/技能
     let slashActivation = '';
@@ -1491,6 +1510,22 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
       stopWhen: isStepCount(Math.max(maxSteps, 15)),
       // prepareStep: 摘要式上下文压缩 - 保留关键信息，避免粗暴删减导致质量衰减
       prepareStep: async ({ messages, stepNumber }: any) => {
+        // FIX3: 幻觉防护 - 事实性问题强制工具获取依据
+        if (stepNumber === 1 && messages.length > 0) {
+          const lastUserMsg = messages.filter((m: any) => m.role === 'user').pop();
+          const userText = typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : '';
+          // Detect factual questions about projects, code, servers, data
+          const isFactualQuery = /项目|代码|文件|目录|服务器|数据库|配置|部署|版本|用了什么|是什么|有哪些|多少|哪个|为什么/.test(userText)
+            && /分析|查看|检查|告诉|说|查|看|读|列|找/.test(userText);
+          const isProjectQuery = /tu\.|agent\.|piyiguo|项目|工程|代码库|仓库/.test(userText);
+          if ((isFactualQuery || isProjectQuery) && userText.length > 5 && userText.length < 500) {
+            messages.push({
+              role: 'user',
+              content: '[系统约束] 这是一个事实性问题。你必须先用工具获取真实数据（如 ssh_read_file 读文件、db_query 查数据库、smart_search 搜索），然后基于工具返回的真实数据回答。严禁凭记忆编造任何事实。如果工具无法获取信息，明确告知用户"我无法确认"而不是猜测。'
+            });
+          }
+        }
+
         // P闭环: 强制验证 - 构建/部署失败后阻止Agent跳过
         if (messages.length > 0 && stepNumber > 1) {
           try {
@@ -2092,8 +2127,10 @@ ${max_runs ? '最大执行次数: ' + max_runs : '无限执行'}
           text = '';
         }
 
-        // P79: 空转检测 — 编程模式下模型只输出叙述不调工具，强制二次调用 toolChoice=required
-        const p79_isCodingMode = mode === 'coding';
+        // P79: 空转检测+幻觉防护 — 模型只输出叙述不调工具时，强制工具调用获取事实依据
+        // 原理：幻觉的根源是AI从训练数据"编造"而非从真实数据"回答"。
+        // 解法：当AI试图纯文字回答时，强制它先用工具获取事实，再基于事实回答。
+        const p79_isCodingMode = ['coding', 'analysis', 'chat'].includes(mode);
         const p79_narratePatterns = ["让我", "我先", "我准备", "我来", "好，让我", "我来分析", "我来查看", "我来搜索", "我来收集", "我来读", "我来看", "首先让我", "先看一下", "先看看", "先来看看", "我来检查", "我来帮你"];
         const p79_hasNarration = text && p79_narratePatterns.some(p => text.includes(p));
         let p79_stepsPeek: any[] = [];
