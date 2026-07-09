@@ -191,11 +191,11 @@ export default function PlatformConfigPanel() {
         ))}
       </div>
 
-      {subTab === 'providers' && <ProviderUrlsPanel config={config} defaults={defaults} onSave={(v) => saveKey('provider_urls', v)} onReset={() => resetToDefault('provider_urls')} dirty={dirty.has('provider_urls')} />}
+      {subTab === 'providers' && <ProviderUrlsPanel config={config} defaults={defaults} onSave={(v) => saveKey('provider_urls', v)} onReset={() => resetToDefault('provider_urls')} onDirty={() => markDirty('provider_urls')} dirty={dirty.has('provider_urls')} />}
       {subTab === 'tools' && <ToolWhitelistPanel config={config} defaults={defaults} onSave={(v) => saveKey('mode_tool_whitelist', v)} onReset={() => resetToDefault('mode_tool_whitelist')} onDirty={() => markDirty('mode_tool_whitelist')} dirty={dirty.has('mode_tool_whitelist')} />}
-      {subTab === 'identity' && <ModelIdentityPanel config={config} defaults={defaults} onSave={(v) => saveKey('model_identity', v)} onReset={() => resetToDefault('model_identity')} dirty={dirty.has('model_identity')} />}
+      {subTab === 'identity' && <ModelIdentityPanel config={config} defaults={defaults} onSave={(v) => saveKey('model_identity', v)} onReset={() => resetToDefault('model_identity')} onDirty={() => markDirty('model_identity')} dirty={dirty.has('model_identity')} />}
       {subTab === 'patrol' && <PatrolConfigPanel config={config}
-        defaults={defaults} onSave={(v) => saveKey('patrol_config', v)} onReset={() => resetToDefault('patrol_config')} dirty={dirty.has('patrol_config')} />}
+        defaults={defaults} onSave={(v) => saveKey('patrol_config', v)} onReset={() => resetToDefault('patrol_config')} onDirty={() => markDirty('patrol_config')} dirty={dirty.has('patrol_config')} />}
     </div>
   );
 }
@@ -209,7 +209,7 @@ function configKeyForTab(tab: SubTab): string {
 }
 
 // ============ Provider URLs Panel ============
-function ProviderUrlsPanel({ config, defaults, onSave, onReset, dirty }: any) {
+function ProviderUrlsPanel({ config, defaults, onSave, onReset, onDirty, dirty }: any) {
   const [urls, setUrls] = useState<Record<string, string>>(config.provider_urls || {});
   const [newProvider, setNewProvider] = useState('');
   const [newUrl, setNewUrl] = useState('');
@@ -217,13 +217,16 @@ function ProviderUrlsPanel({ config, defaults, onSave, onReset, dirty }: any) {
   const addProvider = () => {
     if (!newProvider.trim() || !newUrl.trim()) return;
     setUrls((prev: any) => ({ ...prev, [newProvider.trim()]: newUrl.trim() }));
+    if (onDirty) onDirty();
     setNewProvider(''); setNewUrl('');
   };
   const removeProvider = (key: string) => {
     setUrls((prev: any) => { const n = { ...prev }; delete n[key]; return n; });
+    if (onDirty) onDirty();
   };
   const updateUrl = (key: string, val: string) => {
     setUrls((prev: any) => ({ ...prev, [key]: val }));
+    if (onDirty) onDirty();
   };
 
   return (
@@ -318,10 +321,25 @@ function ToolWhitelistPanel({ config, defaults, onSave, onReset, onDirty, dirty 
 }
 
 // ============ Model Identity Panel ============
-function ModelIdentityPanel({ config, defaults, onSave, onReset, dirty }: any) {
+function ModelIdentityPanel({ config, defaults, onSave, onReset, onDirty, dirty }: any) {
   const [identity, setIdentity] = useState<Record<string, string>>(config.model_identity || {});
   const [newKey, setNewKey] = useState('');
   const [newName, setNewName] = useState('');
+
+  const updateIdentity = (prev: any, key: string, value: string) => {
+    if (onDirty) onDirty();
+    return { ...prev, [key]: value };
+  };
+  const removeIdentity = (prev: any, key: string) => {
+    if (onDirty) onDirty();
+    const n = { ...prev }; delete n[key]; return n;
+  };
+  const addIdentity = () => {
+    if (newKey && newName) {
+      setIdentity((prev: any) => { if (onDirty) onDirty(); return { ...prev, [newKey]: newName }; });
+      setNewKey(''); setNewName('');
+    }
+  };
 
   return (
     <div className="space-y-3">
@@ -336,24 +354,29 @@ function ModelIdentityPanel({ config, defaults, onSave, onReset, dirty }: any) {
         {Object.entries(identity).map(([key, name]: [string, any]) => (
           <div key={key} className="flex items-center gap-2">
             <span className="w-28 text-sm font-mono text-right shrink-0">{key}</span>
-            <input value={name} onChange={e => setIdentity((prev: any) => ({ ...prev, [key]: e.target.value }))}
+            <input value={name} onChange={e => setIdentity((prev: any) => updateIdentity(prev, key, e.target.value))}
               className="flex-1 px-2 py-1 text-sm rounded bg-background border border-border" />
-            <button onClick={() => setIdentity((prev: any) => { const n = { ...prev }; delete n[key]; return n; })} className="text-red-400 hover:text-red-500 text-xs px-1">x</button>
+            <button onClick={() => setIdentity((prev: any) => removeIdentity(prev, key))} className="text-red-400 hover:text-red-500 text-xs px-1">x</button>
           </div>
         ))}
       </div>
       <div className="flex items-center gap-2 mt-2 pt-2 border-t border-border">
         <input value={newKey} onChange={e => setNewKey(e.target.value)} placeholder="provider" className="w-28 px-2 py-1 text-sm rounded bg-background border border-border" />
         <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="显示名称" className="flex-1 px-2 py-1 text-sm rounded bg-background border border-border" />
-        <button onClick={() => { if (newKey && newName) { setIdentity((prev: any) => ({ ...prev, [newKey]: newName })); setNewKey(''); setNewName(''); } }} className="px-3 py-1 text-xs rounded bg-green-600 text-white">添加</button>
+        <button onClick={addIdentity} className="px-3 py-1 text-xs rounded bg-green-600 text-white">添加</button>
       </div>
     </div>
   );
 }
 
 // ============ Patrol Config Panel ============
-function PatrolConfigPanel({ config, defaults, onSave, onReset, dirty }: any) {
+function PatrolConfigPanel({ config, defaults, onSave, onReset, onDirty, dirty }: any) {
   const [cfg, setCfg] = useState<any>(config.patrol_config || {});
+
+  const updateCfg = (val: any) => {
+    setCfg(val);
+    if (onDirty) onDirty();
+  };
 
   return (
     <div className="space-y-3">
@@ -367,7 +390,7 @@ function PatrolConfigPanel({ config, defaults, onSave, onReset, dirty }: any) {
       <div className="space-y-2">
         <div className="flex flex-col gap-1">
           <label className="text-xs text-muted-foreground">巡检令牌</label>
-          <input value={cfg.token || ''} onChange={e => setCfg({ ...cfg, token: e.target.value })}
+          <input value={cfg.token || ''} onChange={e => updateCfg({ ...cfg, token: e.target.value })}
             className="px-2 py-1 text-sm rounded bg-background border border-border font-mono" type="text" />
         </div>
       </div>
