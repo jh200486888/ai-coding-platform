@@ -104,6 +104,7 @@ export default function PlatformConfigPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState<Set<string>>(new Set());
+  const [resetVersions, setResetVersions] = useState<Record<string, number>>({});
 
   useEffect(() => { fetchConfig(); }, []);
 
@@ -158,6 +159,8 @@ export default function PlatformConfigPanel() {
     if (defKey && defaults[defKey]) {
       setConfig((prev: any) => ({ ...prev, [key]: JSON.parse(JSON.stringify(defaults[defKey])) }));
       markDirty(key);
+      // Force child panel to re-mount with fresh default values
+      setResetVersions(prev => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
       toast.info('已恢复默认，点击保存生效');
     }
   };
@@ -191,10 +194,10 @@ export default function PlatformConfigPanel() {
         ))}
       </div>
 
-      {subTab === 'providers' && <ProviderUrlsPanel config={config} defaults={defaults} onSave={(v) => saveKey('provider_urls', v)} onReset={() => resetToDefault('provider_urls')} onDirty={() => markDirty('provider_urls')} dirty={dirty.has('provider_urls')} />}
-      {subTab === 'tools' && <ToolWhitelistPanel config={config} defaults={defaults} onSave={(v) => saveKey('mode_tool_whitelist', v)} onReset={() => resetToDefault('mode_tool_whitelist')} onDirty={() => markDirty('mode_tool_whitelist')} dirty={dirty.has('mode_tool_whitelist')} />}
-      {subTab === 'identity' && <ModelIdentityPanel config={config} defaults={defaults} onSave={(v) => saveKey('model_identity', v)} onReset={() => resetToDefault('model_identity')} onDirty={() => markDirty('model_identity')} dirty={dirty.has('model_identity')} />}
-      {subTab === 'patrol' && <PatrolConfigPanel config={config}
+      {subTab === 'providers' && <ProviderUrlsPanel key={'provider-' + (resetVersions.provider_urls || 0)} config={config} defaults={defaults} onSave={(v) => saveKey('provider_urls', v)} onReset={() => resetToDefault('provider_urls')} onDirty={() => markDirty('provider_urls')} dirty={dirty.has('provider_urls')} />}
+      {subTab === 'tools' && <ToolWhitelistPanel key={'tools-' + (resetVersions.mode_tool_whitelist || 0)} config={config} defaults={defaults} onSave={(v) => saveKey('mode_tool_whitelist', v)} onReset={() => resetToDefault('mode_tool_whitelist')} onDirty={() => markDirty('mode_tool_whitelist')} dirty={dirty.has('mode_tool_whitelist')} />}
+      {subTab === 'identity' && <ModelIdentityPanel key={'identity-' + (resetVersions.model_identity || 0)} config={config} defaults={defaults} onSave={(v) => saveKey('model_identity', v)} onReset={() => resetToDefault('model_identity')} onDirty={() => markDirty('model_identity')} dirty={dirty.has('model_identity')} />}
+      {subTab === 'patrol' && <PatrolConfigPanel key={'patrol-' + (resetVersions.patrol_config || 0)} config={config}
         defaults={defaults} onSave={(v) => saveKey('patrol_config', v)} onReset={() => resetToDefault('patrol_config')} onDirty={() => markDirty('patrol_config')} dirty={dirty.has('patrol_config')} />}
     </div>
   );
