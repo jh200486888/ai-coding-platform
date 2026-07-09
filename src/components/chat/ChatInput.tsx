@@ -81,7 +81,7 @@ export function ChatInput({
 
   // Handle keyboard: Enter to submit, Shift+Enter for newline
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (canSubmit && !isLoading) {
         onSubmit(e as unknown as React.FormEvent);
@@ -268,7 +268,7 @@ export function ChatInput({
                 }
               }
             }}
-            placeholder={currentMode?.placeholder || "输入消息... (Enter换行, Ctrl+Enter发送, @引用)"}
+            placeholder={currentMode?.placeholder || "输入消息... (Enter发送, Shift+Enter换行, @引用)"}
             disabled={isLoading}
             className="flex-1 min-w-0 bg-input border border-border rounded-lg px-3 py-2 text-sm md:text-base focus:outline-none focus:ring-2 focus:ring-primary resize-none leading-relaxed"
             textareaRef={textareaRef}
